@@ -6,6 +6,7 @@ import { makeRng, lerp } from '../../util.js';
 import { faceParams, headShape, sculpt, FaceField, buildHeadGeometry, buildEye, Mouth, Brow } from './head.js';
 import { buildHair, pickHairStyle } from './hair.js';
 import { paintFace } from './skin.js';
+import { buildGarments, bodyModel } from './garments.js';
 import { torsoGeometry, clothMaterial, buildHand, buildShoe, limb, capsule, buildGlasses, buildBackpack, buildBeard, buildHat } from './body.js';
 
 export const SKIN_TONES = [0xf3d6c6, 0xeac3aa, 0xddb092, 0xcd9c7e, 0xb98466, 0xa06c50, 0x87573f, 0x6c4431, 0x553426];
@@ -113,7 +114,7 @@ function bodyDims(c) {
     legR: (f ? 0.068 : 0.074) * k * (kid ? 1.2 : 1),
   };
   const headCenter = H - hs * 1.1;
-  dims.shoulderY = headCenter - hs * (kid ? 1.22 : f ? 1.4 : 1.45);
+  dims.shoulderY = headCenter - hs * (kid ? 1.12 : f ? 1.24 : 1.3);
   dims.hipY = H * (kid ? 0.38 : 0.47);
   dims.height = dims.shoulderY - dims.hipY + 0.04;
   dims.headPivotY = headCenter - hs * 0.85;
@@ -148,7 +149,7 @@ export function buildHuman(c) {
   const root = new THREE.Group();
   root.name = c.name || c.noun || 'human';
   const J = {};
-  const mk = (name, parent, x = 0, y = 0, z = 0) => { const g = new THREE.Group(); g.name = name; g.position.set(x, y, z); parent.add(g); J[name] = g; return g; };
+  const mk = (name, parent, x = 0, y = 0, z = 0) => { const g = new THREE.Bone(); g.name = name; g.position.set(x, y, z); parent.add(g); J[name] = g; return g; };
 
   const hips = mk('hips', root, 0, dims.hipY, 0);
   const spine = mk('spine', hips, 0, 0.02, 0);
@@ -160,12 +161,12 @@ export function buildHuman(c) {
     pelvis.scale.set(dims.hipR * 1.02, dims.hipR * 0.85, dims.hipR * dims.depth * 1.08);
     pelvis.position.y = 0.0;
     pelvis.castShadow = true;
-    hips.add(pelvis);
+    void pelvis; // replaced by sculpted garments
     const belt = new THREE.Mesh(new THREE.TorusGeometry(1, 0.06, 8, 40), mat(0x3a2a20, { roughness: 0.5 }));
     belt.rotation.x = Math.PI / 2;
     belt.scale.set(dims.hipR * 1.0, dims.hipR * dims.depth * 1.05, dims.hipR);
     belt.position.y = dims.hipR * 0.45;
-    if (o.top === 'tshirt' || o.top === 'shirt' || o.top === 'blouse') hips.add(belt);
+    if (o.top === 'tshirt' || o.top === 'shirt' || o.top === 'blouse') void belt; // sculpted garments replace the primitive belt
   }
 
   // torso (top)
@@ -181,7 +182,7 @@ export function buildHuman(c) {
   torso.castShadow = true;
   torso.receiveShadow = true;
   torso.position.y = -dims.height * 0.45 - 0.02;
-  chest.add(torso);
+  void torso; // replaced by sculpted garments
   if (o.pattern === 'solid' && topMat.vertexColors) { /* torso colored via vertex colors */ }
 
   // long garments: skirt / dress / robe / coat tails
@@ -212,7 +213,7 @@ export function buildHuman(c) {
     skirt.position.y = dims.hipR * 0.5;
     skirt.castShadow = true;
     skirt.receiveShadow = true;
-    hips.add(skirt);
+    if (o.bottom === 'tail') hips.add(skirt);
     J.skirt = skirt;
   }
 
@@ -223,7 +224,7 @@ export function buildHuman(c) {
     ring.rotation.x = Math.PI / 2 - 0.15;
     ring.scale.set(1, 0.85, 1);
     ring.position.set(0, neckBaseY, 0.004);
-    chest.add(ring);
+    void ring; // replaced by sculpted garments
   } else if (o.collar === 'collar') {
     const cm = fabric(o.innerColor && ['suit', 'coat'].includes(o.top) ? o.innerColor : o.topColor);
     // stand-up band around the back and sides of the neck
@@ -231,7 +232,7 @@ export function buildHuman(c) {
     band.material = cm.clone(); band.material.side = THREE.DoubleSide;
     band.position.set(0, neckBaseY + dims.neckR * 0.25, 0);
     band.scale.z = 0.95;
-    chest.add(band);
+    void band; // replaced by sculpted garments
     // two pointed flaps folded down onto the chest
     for (const side of [-1, 1]) {
       const sh = new THREE.Shape();
@@ -241,7 +242,7 @@ export function buildHuman(c) {
       flap.rotation.x = -0.45;
       flap.rotation.y = side * 0.35;
       flap.castShadow = true;
-      chest.add(flap);
+      void flap; // replaced by sculpted garments
     }
     if (o.top === 'shirt' || o.top === 'blouse') {
       for (let i = 0; i < 4; i++) {
@@ -271,11 +272,11 @@ export function buildHuman(c) {
     hood.rotation.z = Math.PI / 2 + Math.PI * 0.35 - Math.PI * 1.3 / 2 + Math.PI / 2;
     hood.position.set(0, neckBaseY + 0.0, -dims.neckR * 0.6);
     hood.castShadow = true;
-    chest.add(hood);
+    void hood; // replaced by sculpted garments
     const back = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), hm);
     back.scale.set(dims.shoulderR * 0.7, dims.neckR * 1.8, dims.neckR * 1.2);
     back.position.set(0, neckBaseY - dims.neckR * 0.8, -dims.chestR * dims.depth * 0.95);
-    chest.add(back);
+    void back; // replaced by sculpted garments
     for (const side of [-1, 1]) {
       const str = capsule(0.004, dims.height * 0.28, mat(0xf2efe8, { roughness: 0.6 }), 6);
       str.position.set(side * dims.neckR * 0.7, neckBaseY - dims.height * 0.16, dims.chestR * dims.depth + 0.012);
@@ -387,24 +388,25 @@ export function buildHuman(c) {
     const delt = new THREE.Mesh(new THREE.SphereGeometry(dims.armR * 1.08, 20, 14), sleeveMat);
     delt.position.set(-side * dims.armR * 0.45, -dims.armR * 0.3, 0);
     delt.castShadow = true;
-    shoulder.add(delt);
+    void delt; // replaced by sculpted garments
     const upper = limb(dims.armR * (shortSleeve ? 1.25 : 1.12), dims.armR * (shortSleeve ? 1.15 : 1.0), dims.upperArm * (shortSleeve ? 0.5 : 1), sleeveMat);
-    shoulder.add(upper);
+    void upper; // replaced by sculpted garments
     if (shortSleeve) {
       const bare = limb(dims.armR * 0.92, dims.armR * 0.85, dims.upperArm * 0.55, skinPlain);
       bare.position.y = -dims.upperArm * 0.45;
-      shoulder.add(bare);
+      void bare; // replaced by sculpted garments
     }
     const elbow = mk('elbow' + S, shoulder, 0, -dims.upperArm, 0);
     const fore = limb(shortSleeve ? dims.armR * 0.85 : dims.armR * 1.0, shortSleeve ? dims.armR * 0.7 : dims.armR * 0.92, dims.foreArm, shortSleeve ? skinPlain : sleeveMat);
-    elbow.add(fore);
+    void fore; // replaced by sculpted garments
     if (!shortSleeve) {
       const cuff = new THREE.Mesh(new THREE.CylinderGeometry(dims.armR * 1.0, dims.armR * 1.0, 0.03, 16), sleeveMat);
       cuff.position.y = -dims.foreArm + 0.01;
-      elbow.add(cuff);
+      void cuff; // replaced by sculpted garments
     }
     const wrist = mk('wrist' + S, elbow, 0, -dims.foreArm, 0);
     const hand = buildHand(skinPlain, (dims.H / 1.75) * (kid ? 1.3 : 1.05), side);
+    hand.rotation.y = -side * Math.PI * 0.42;
     wrist.add(hand);
     J['hand' + S] = hand;
     // a grip point for held props
@@ -421,14 +423,14 @@ export function buildHuman(c) {
     const bare = o.bottom === 'none' || o.bottom === 'skirt' || o.bottom === 'tail';
     const legMat = bare ? skinPlain : pantsMat;
     const thigh = limb(dims.legR * (bare ? 0.85 : 1.0), dims.legR * (bare ? 0.7 : 0.88), dims.thigh, legMat);
-    hip.add(thigh);
+    void thigh; // replaced by sculpted garments
     const knee = mk('knee' + S, hip, 0, -dims.thigh, 0);
     const shin = limb(dims.legR * (bare ? 0.68 : 0.86), dims.legR * (bare ? 0.55 : 0.78), dims.shin, legMat);
-    knee.add(shin);
+    void shin; // replaced by sculpted garments
     if (!bare && o.bottom === 'jeans') {
       const cuff = new THREE.Mesh(new THREE.CylinderGeometry(dims.legR * 0.85, dims.legR * 0.85, 0.04, 16), pantsMat);
       cuff.position.y = -dims.shin + 0.02;
-      knee.add(cuff);
+      void cuff; // replaced by sculpted garments
     }
     const ankle = mk('ankle' + S, knee, 0, -dims.shin, 0);
     const shoe = buildShoe(o.shoeColor, (dims.H / 1.75) * (kid ? 1.25 : 1), o.shoes);
@@ -464,6 +466,23 @@ export function buildHuman(c) {
     }
   }
 
+  // ---- sculpted, skinned clothing: mesh in an A-pose, bind, then relax the arms
+  if (o.bottom !== 'tail') {
+    const A = { shoulderL: -0.5, shoulderR: 0.5, hipL: -0.05, hipR: 0.05 };
+    for (const [k, a] of Object.entries(A)) J[k].rotation.z = a;
+    root.updateMatrixWorld(true);
+    const W = {};
+    for (const [k, j] of Object.entries(J)) if (j.isBone) W[k] = j.getWorldPosition(new THREE.Vector3());
+    const model = bodyModel(W, dims, { female: f, kid });
+    const bones = Object.values(J).filter((j) => j.isBone);
+    const skeleton = new THREE.Skeleton(bones);
+    const topMatG = o.pattern === 'solid' ? (o.top === 'armor' ? mat(o.topColor, { metalness: 0.85, roughness: 0.32 }) : fabric(o.topColor, { knit })) : clothMaterial(o.topColor, o.pattern, o.pattern2, { seed: c.seed, knit, repeat: 2 });
+    const mats = { top: topMatG, inner: fabric(o.innerColor ?? 0xf2efe8), pants: pantsMat, skirt: fabric(o.bottomColor), skin: skinPlain };
+    const { meshes } = buildGarments(model, o, mats, bones, { seed: c.seed || 1 });
+    for (const m of meshes) { root.add(m); m.bind(skeleton); }
+    for (const k of Object.keys(A)) J[k].rotation.z = 0;
+    root.updateMatrixWorld(true);
+  }
   root.traverse((o2) => { if (o2.isMesh) { o2.castShadow = o2.castShadow || false; } });
 
   return {
