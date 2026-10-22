@@ -6,6 +6,7 @@ Everything runs in the browser, built in code: no paid AI services needed.
 - **Characters:** sculpted SDF heads with eyelids and a real nose, groomed strand hair, and skinned sculpted clothing (shirts, jackets, hoodies, dresses, jeans). Hands and shoes are sculpted too.
 - **Look:** real CC0 photo-scanned materials from Poly Haven (denim, knit, cotton, fleece, wood, plaster, marble, asphalt, grass), HDRI lighting, ambient occlusion, depth of field, bloom and film grading.
 - **Sound:** neural voices (Kokoro, runs locally in the browser), with browser voices as a fallback. Plus a procedural music score, sound effects and subtitles.
+- **AI painted style (free):** an image model (SD-Turbo) runs on your own device through WebGPU and repaints each shot of the 3D film in a rich animated-movie look. There's no server and no cost. It's a one-time ~2.6 GB download, needs a recent Chrome/Edge/Safari with WebGPU, and falls back to 3D automatically otherwise.
 - **Export:** download as MP4 (or WebM where MP4 isn't available).
 
 ## Try it

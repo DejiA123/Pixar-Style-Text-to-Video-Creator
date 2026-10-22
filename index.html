@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1792706044">
+<link rel="stylesheet" href="src/ui/styles.css?v=1792707776">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
@@ -73,8 +73,8 @@
           <div class="field-grid">
             <label class="field"><span>Render style</span>
               <select id="render-mode">
-                <option value="3d">Built-in 3D (free)</option>
-                <option value="ai">Cinematic AI (fal.ai key)</option>
+                <option value="painted">AI painted (free, on your device)</option>
+                <option value="3d">Built-in 3D (free, fastest)</option>
               </select>
             </label>
             <label class="field"><span>Voices</span>
@@ -150,6 +150,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1792706044"></script>
+<script type="module" src="src/ui/app.js?v=1792707776"></script>
 </body>
 </html>

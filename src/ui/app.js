@@ -11,6 +11,7 @@ import { Compositor } from '../film/compositor.js';
 import { Player } from '../film/player.js';
 import { exportVideo } from '../film/exporter.js';
 import { castVoices, KOKORO_NARRATORS } from '../audio/voices.js';
+import { Painter, PaintedFilm, painterSize } from '../ai/painter.js';
 import { KokoroEngine, WebSpeechEngine } from '../audio/tts.js';
 import { renderSoundtrack, lipEnvelope, clipDuration } from '../audio/mixer.js';
 import { timecode, formatTime } from '../util.js';
@@ -60,6 +61,7 @@ function init() {
   }
   $('fal-key').value = store.get('fal-key', '');
   $('fal-key').addEventListener('change', () => store.set('fal-key', $('fal-key').value.trim()));
+  if (store.get('render-mode', null) == null) Painter.supported().then((r) => { $('render-mode').value = r.ok ? 'painted' : '3d'; });
   onSettings('render-mode');
   $('style-ref').addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
@@ -170,12 +172,18 @@ async function makeMovie() {
   $('make').textContent = 'Generating…';
   if (state.player) { state.player.dispose(); state.player = null; }
   const ai = $('render-mode').value === 'ai';
+  let painted = $('render-mode').value === 'painted';
+  if (painted) {
+    const sup = await Painter.supported();
+    if (!sup.ok) { painted = false; toast(`AI painting needs a newer browser or device (${sup.why}) — making the 3D version instead.`, false, 9000); }
+  }
   const neural = $('voice-engine').value === 'neural';
   setAspect($('aspect').value);
   steps.reset([
     ['plan', ai ? 'AI director is reading your story' : 'Reading your story'],
     ['voices', neural ? 'Recording voices' : 'Casting voices'],
     ['build', ai ? 'Rendering shots with AI' : 'Building the world'],
+    ...(painted ? [['paint', 'Painting every shot with AI']] : []),
     ['score', 'Composing music & sound'],
   ]);
 
@@ -254,8 +262,28 @@ async function makeMovie() {
     const sp = key.split('::')[0];
     film.envelopes.set(key, lipEnvelope(clip, (voices.get(sp) || voices.get('narrator')).rate || 1));
   }
-  state.film = film;
   steps.set('build', 'done');
+  if (painted && await confirmModelDownload()) {
+    steps.set('paint', 'active');
+    try {
+      const size = painterSize(state.aspect);
+      if (!state.painter || state.painter.W !== size.width || state.painter.H !== size.height) state.painter = new Painter(size);
+      state.painter.onProgress = (p, msg) => { steps.label('paint', msg); steps.set('paint', 'active', p); };
+      await state.painter.load();
+      const pf = new PaintedFilm(film, state.fr, state.glCanvas, state.painter, aspectNum(state.aspect) < 1 ? { width: 720, height: 1280 } : aspectNum(state.aspect) === 1 ? { width: 1024, height: 1024 } : { width: 1280, height: 720 });
+      state.fr.setQuality('high');
+      await pf.prepare((p, msg) => { steps.label('paint', msg); steps.set('paint', 'active', p); });
+      state.fr.setQuality($('quality').value);
+      film = pf;
+      steps.set('paint', 'done');
+    } catch (e) {
+      console.warn('AI painting failed, using the 3D film', e);
+      state.painter = null;
+      steps.set('paint', 'error');
+      toast(`AI painting couldn’t run on this device (${e.message || e}), so here is the 3D version.`, false, 9000);
+    }
+  } else if (painted) steps.set('paint', 'done');
+  state.film = film;
 
   // 4) soundtrack
   steps.set('score', 'active');
@@ -303,6 +331,26 @@ async function captureThumbs(tl) {
 }
 
 // In-page confirmation for paid AI renders (no window.confirm in sandboxes).
+// One-time ~2.6 GB model download: ask first (skipped once it's cached).
+async function confirmModelDownload() {
+  try {
+    const c = await caches.open('storyreel-models');
+    if (await c.match('https://huggingface.co/schmuell/sd-turbo-ort-web/resolve/main/unet/model.onnx')) return true;
+  } catch {}
+  if (store.get('painter-ok', false)) return true;
+  return new Promise((resolve) => {
+    const li = document.createElement('li');
+    li.className = 'active';
+    li.innerHTML = '<span>The free AI painter is a one-time <b>2.6 GB</b> download (best on Wi-Fi). It then stays on this device.</span><span></span>';
+    const go = document.createElement('button'); go.className = 'btn-primary'; go.textContent = 'Download & paint'; go.type = 'button';
+    const no = document.createElement('button'); no.className = 'btn-ghost'; no.textContent = 'Use 3D'; no.type = 'button';
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+    row.append(go, no); li.appendChild(row); $('steps').appendChild(li);
+    go.onclick = () => { li.remove(); store.set('painter-ok', true); resolve(true); };
+    no.onclick = () => { li.remove(); resolve(false); };
+  });
+}
+
 function confirmCost(estimate) {
   return new Promise((resolve) => {
     const li = document.createElement('li');
@@ -384,7 +432,8 @@ async function doExport() {
   comp.subtitles = $('subs').checked;
   state.exporting = true;
   const prevQ = state.fr?.qualityName;
-  if (!state.ai) { state.fr.setQuality('export'); state.fr.setSize(W, H, 1); }
+  if (state.film instanceof PaintedFilm) state.film.setOutputSize(W, H);
+  else if (!state.ai) { state.fr.setQuality('export'); state.fr.setSize(W, H, 1); }
   else await state.film.prepareExport?.(W, H);
   await document.fonts.ready;
   $('busy').hidden = false;
@@ -396,7 +445,7 @@ async function doExport() {
       canvas: exportCanvas, duration: state.timeline.duration, fps: 30, soundtrack: state.soundtrack, signal: ac.signal,
       renderFrame: async (t) => {
         if (state.ai) await state.film.renderAtExact(t); else state.film.renderAt(t);
-        comp.draw(state.ai ? state.film.canvas : state.glCanvas, state.film, t);
+        comp.draw(state.film.canvas || state.glCanvas, state.film, t);
       },
       onProgress: (f, eta) => {
         $('busy-bar').style.width = `${(f * 100).toFixed(1)}%`;

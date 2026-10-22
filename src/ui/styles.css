@@ -255,3 +255,4 @@ button, select, input, textarea { font: inherit; color: inherit; }
   .field select, .field input, .select-pill select { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+.steps li { flex-wrap: wrap; }
