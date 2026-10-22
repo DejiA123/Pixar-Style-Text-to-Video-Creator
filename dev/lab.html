@@ -33,7 +33,7 @@ if (params.get('set') === 'portrait') {
   // film portrait: night street bokeh, warm key, cool/purple rims
   scene.background = new THREE.Color(0x1a1530);
   scene.environmentIntensity = 0.25;
-  key.color.set(0xffd2b0); key.intensity = 3.4; key.position.set(-2, 3, 3.5);
+  key.color.set(0xffd6b8); key.intensity = 2.5; key.position.set(-3.4, 2.6, 2.4);
   rim.color.set(0x8fb0ff); rim.intensity = 5; rim.position.set(3, 2.5, -3);
   rim2.color.set(0xff7ad0); rim2.intensity = 3.5; rim2.position.set(-3, 2, -3);
   const cols = [0xff4fa3, 0x4fd8ff, 0xffd84f, 0xff7a3d, 0xffe2a8, 0xb38cff, 0x7dffd8];
@@ -55,6 +55,7 @@ const casts = JSON.parse(params.get('cast') || 'null') || [
   { id: 'c1', name: 'Leo', kind: 'human', gender: 'm', age: 'teen', accessories: ['glasses', 'backpack'], hair: { style: 'spiky', color: 0x3b261a }, seed: 11, outfitColor: 0x5a6f8a },
 ];
 const chars = casts.map((c) => new Character(c));
+if (params.get('nonormal')) chars.forEach((ch) => ch.root.traverse((o) => { if (o.material && o.material.normalMap) { o.material.normalMap = null; o.material.needsUpdate = true; } }));
 chars.forEach((ch, i) => { ch.root.position.x = (i - (chars.length - 1) / 2) * 1.2; scene.add(ch.root); });
 const cam = new THREE.PerspectiveCamera(+(params.get('fov') || 30), W / H, 0.05, 100);
 let focusChar = chars[+(params.get('focus') || 0)];

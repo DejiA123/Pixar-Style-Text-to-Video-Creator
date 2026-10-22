@@ -57,7 +57,7 @@ export function paintFace(P, look, seed = 1) {
   // lips
   const lip = new THREE.Color(look.lipColor);
   const lipCss = '#' + lip.getHexString();
-  const mw = 0.24 * (look.child ? 0.92 : 1);
+  const mw = 0.2 * (look.child ? 0.92 : 1);
   const my = P.mouthY;
   g.save();
   g.fillStyle = lipCss;
@@ -117,13 +117,21 @@ export function paintFace(P, look, seed = 1) {
     const fx = (x / N) * 2 - 1, fy = (1 - y / N - UV_OY) / UV_SY;
     let v = ((hash2(x, y) - 0.5) * 0.6 + (hash2(x >> 1, y >> 1) - 0.5) * 0.5) * (1 - smoothstep(0.7, 0.9, Math.abs(fx)));
     const onLip = Math.abs(fx) < mw && fy < my + 0.06 && fy > my - 0.08;
-    if (onLip) v += Math.sin(fx * 260) * 0.6;
+    if (onLip) v += Math.sin(fx * 260) * 0.25;
     h[y * N + x] = v;
     const nose = Math.exp(-((fx / 0.18) ** 2 + ((fy + 0.2) / 0.2) ** 2));
     const fore = Math.exp(-((fx / 0.4) ** 2 + ((fy - 0.6) / 0.25) ** 2));
     let rough = 0.56 - nose * 0.12 - fore * 0.06 - (onLip ? 0.2 : 0);
     rd[(y * N + x) * 4 + 1] = clamp(rough) * 255;
     rd[(y * N + x) * 4 + 3] = 255;
+  }
+  // soften the pore noise so it reads as skin, not streaks
+  for (let pass = 0; pass < 2; pass++) {
+    const t = h.slice();
+    for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+      const i = y * N + x;
+      h[i] = (t[i] * 4 + t[i - 1] + t[i + 1] + t[i - N] + t[i + N]) / 8;
+    }
   }
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
     const dx = h[y * N + Math.min(N - 1, x + 1)] - h[y * N + Math.max(0, x - 1)];

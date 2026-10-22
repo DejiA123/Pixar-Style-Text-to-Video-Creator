@@ -29,8 +29,8 @@ export function faceParams(spec, rng) {
     faceLength: child ? 0.9 : f ? 1.02 : (spec.age === 'teen' ? 1.04 : 1.08) + rng.range(-0.02, 0.03),
     nose: child ? 0.11 : f ? 0.125 : rng.range(0.15, 0.18),
     noseDown: rng.range(-0.02, 0.03),
-    eyeR: child ? 0.27 : spec.age === 'teen' ? (f ? 0.238 : 0.222) : (f ? 0.222 : 0.205),
-    eyeSpacing: child ? 0.38 : 0.37,
+    eyeR: child ? 0.28 : spec.age === 'teen' ? (f ? 0.255 : 0.24) : (f ? 0.235 : 0.215),
+    eyeSpacing: child ? 0.39 : 0.38,
     eyeY: child ? -0.02 : 0.06,
     mouthY: child ? -0.5 : -0.52,
     browY: child ? 0.3 : f ? 0.33 : 0.31,
@@ -50,20 +50,22 @@ export function headShape(P) {
   if (P._shape) return P._shape;
   const fl = P.faceLength, jw = P.jaw / 0.82, cr = P.cranium;
   const child = !P.adult, fem = P.female;
-  const muzzleZ = 0.56 + (child ? -0.02 : 0);
+  const muzzleZ = 0.6 + (child ? -0.02 : 0);
   const skull = (x, y, z) => {
     const ax = Math.abs(x);
     let d = sdEllipsoid(ax, y, z, 0, 0.08, -0.06, 0.79, 0.9 * cr, 0.95);
-    // lower face masses: cheeks, jaw angle, chin, muzzle
-    let lf = sdEllipsoid(ax, y, z, 0.24, -0.22 * fl, 0.38, 0.34, 0.34 * fl, 0.44);
-    lf = smin(lf, sdSphere(ax, y, z, 0.4 * jw, P.mouthY * fl, -0.06, 0.15 + P.jawSquare * 0.6), 0.2);
-    lf = smin(lf, sdEllipsoid(ax, y, z, 0, (P.mouthY - 0.26) * fl, 0.5 + P.chin * 0.6, 0.21 * jw, 0.14, 0.2), 0.24);
-    lf = smin(lf, sdEllipsoid(ax, y, z, 0, P.mouthY - 0.02, muzzleZ, 0.28, 0.27, 0.36), 0.18);
+    // lower face: an inverted egg that tapers smoothly to the chin
+    const taper = smoothstep(0.05, -0.95 * fl, y);
+    const eggW = 0.66 * lerp(1, (fem || child ? 0.42 : 0.5) * jw + P.jawSquare, Math.pow(taper, 1.3));
+    let lf = sdEllipsoid(ax, y, z, 0, -0.2, 0.1 + P.chin * 0.4, eggW, 0.77 * fl, 0.72);
+    // soft muzzle and a rounded chin
+    lf = smin(lf, sdEllipsoid(ax, y, z, 0, P.mouthY - 0.02, muzzleZ, 0.26, 0.24, 0.34), 0.16);
+    lf = smin(lf, sdEllipsoid(ax, y, z, 0, (P.mouthY - 0.24) * fl, 0.5 + P.chin * 0.6, 0.12 * jw + P.jawSquare, 0.1, 0.15), 0.2);
     d = smin(d, lf, 0.18);
     // brow ridge and cheekbones
     d = smin(d, sdEllipsoid(ax, y, z, 0.3, P.eyeY + 0.25, 0.64, 0.3, 0.1, 0.2), fem || child ? 0.16 : 0.1);
     if (child) d = smin(d, sdEllipsoid(ax, y, z, 0.4, -0.3, 0.5, 0.28, 0.24, 0.32), 0.18);
-    else d = smin(d, sdEllipsoid(ax, y, z, 0.47, P.eyeY - 0.22, 0.48, 0.22, 0.13, 0.26), 0.14);
+    else d = smin(d, sdEllipsoid(ax, y, z, 0.42, P.eyeY - 0.3, 0.5, 0.21, 0.17, 0.24), 0.16);
     return d;
   };
   // locate features on the skull surface
@@ -74,7 +76,7 @@ export function headShape(P) {
     const n = gradient(skull, x, y, z, 0.004);
     // keep the gaze plane mostly forward-facing
     n.lerp(new THREE.Vector3(s * 0.25, 0, 1).normalize(), 0.5).normalize();
-    return new THREE.Vector3(x, y, z).addScaledVector(n, -P.eyeR * 0.6);
+    return new THREE.Vector3(x, y, z).addScaledVector(n, -P.eyeR * 0.7);
   });
   const lidR = P.eyeR * 1.045;
   const s = P.nose;
@@ -93,8 +95,7 @@ export function headShape(P) {
     // then the dome is cut away so the lids/eyeball show through seamlessly
     const e = x < 0 ? eyeC[0] : eyeC[1];
     const es = sdSphere(x, y, z, e.x, e.y, e.z, lidR);
-    d = smin(d, es + 0.004, 0.1);
-    d = Math.max(d, -(es + 0.002));
+    d = smax(d, -(es - 0.012), 0.025);
     // nose
     let n = sdCapsule(ax, y, z, 0, P.eyeY + 0.02, bridgeZ, 0, tipY + s * 0.15, tipZ - s * 0.42, 0.045, s * 0.42);
     n = smin(n, sdEllipsoid(ax, y, z, 0, tipY, tipZ - s * 0.48, s * 0.6, s * 0.5, s * 0.48), 0.05);
@@ -106,7 +107,7 @@ export function headShape(P) {
       sdEllipsoid(ax, y, z, 0, P.mouthY + 0.03, mz - 0.06, 0.2 * lipK, 0.045, 0.075),
       sdEllipsoid(ax, y, z, 0, P.mouthY - 0.045, mz - 0.062, 0.17 * lipK, 0.052 * lipK, 0.08), 0.03);
     d = smin(d, lips, 0.05);
-    d = smax(d, -sdEllipsoid(ax, y, z, 0, P.mouthY - 0.135, mz + 0.035, 0.15, 0.028, 0.05), 0.05);
+    d = smax(d, -sdEllipsoid(ax, y, z, 0, P.mouthY - 0.135, mz + 0.02, 0.14, 0.024, 0.05), 0.06);
     // ears
     const px = ax - ear.x, py = y - ear.y, pz = z - ear.z;
     const ln = px * ca - pz * sa, lt = px * sa + pz * ca;
@@ -185,7 +186,7 @@ function irisTexture(color) {
   const base = new THREE.Color(color);
   const dark = base.clone().multiplyScalar(0.35);
   const light = base.clone().lerp(new THREE.Color(0xfff0c0), 0.45);
-  const irisA = 0.6, pupilA = 0.22;
+  const irisA = 0.72, pupilA = 0.25;
   const streak = new Float32Array(W), streak2 = new Float32Array(W);
   let s = 1234;
   const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
@@ -267,7 +268,7 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   eye.add(cl2);
 
   // lids: hemispherical shells of skin that rotate to open/close
-  const lidR = r * 1.045 + 0.004;
+  const lidR = r * 1.045 + 0.02;
   const upperG = new THREE.SphereGeometry(lidR, 40, 20, 0, Math.PI * 2, 0, Math.PI * 0.5);
   const lowerG = new THREE.SphereGeometry(lidR, 40, 16, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5);
   const upper = new THREE.Group();
@@ -284,7 +285,7 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   // fleshy lid rim + lash line + individual lashes curling outward
   const lashMat = mat(0x140c0a, { roughness: 0.55 });
   const lashT = opts.female ? r * 0.05 : r * 0.035;
-  const rimG = new THREE.TorusGeometry(lidR * 1.01, r * 0.045, 8, 40, Math.PI);
+  const rimG = new THREE.TorusGeometry(lidR, r * 0.06, 8, 40, Math.PI);
   rimG.rotateX(Math.PI / 2);
   upper.add(new THREE.Mesh(rimG, lidMat));
   // lid geometry samples the face texture through the same front projection
@@ -338,7 +339,7 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
     upper.add(flick);
   }
   // lower lid margin: a soft fleshy rim with a faint lash line
-  const lowRim = new THREE.TorusGeometry(lidR, r * 0.035, 8, 40, Math.PI);
+  const lowRim = new THREE.TorusGeometry(lidR, r * 0.045, 8, 40, Math.PI);
   lowRim.rotateX(Math.PI / 2);
   if (opts.center) {
     const p = lowRim.attributes.position.array.slice();
@@ -363,6 +364,8 @@ export class Mouth {
     this.field = field;
     this.N = 28;
     this.w0 = opts.width ?? 0.2;
+    this.lipU = opts.lipU ?? 0.026;
+    this.lipL = opts.lipL ?? 0.04;
     this.group = new THREE.Group();
     const N = this.N;
     const mk = (color, offset, extra = {}) => {
@@ -384,8 +387,8 @@ export class Mouth {
     this.teeth = mk(0xf6f1e7, 0.007, { roughness: 0.25, clearcoat: 0.4 });
     this.lowerTeeth = mk(0xefe8dc, 0.0065, { roughness: 0.3 });
     const lipColor = opts.lipColor ?? 0xb86a5e;
-    this.upperLip = mk(lipColor, 0.003, { roughness: 0.45, clearcoat: 0.2 });
-    this.lowerLip = mk(lipColor, 0.003, { roughness: 0.4, clearcoat: 0.35 });
+    this.upperLip = mk(lipColor, 0.003, { roughness: 0.5, clearcoat: 0.05 });
+    this.lowerLip = mk(lipColor, 0.003, { roughness: 0.42, clearcoat: 0.12 });
     this.update({ open: 0, smile: 0.3, width: 1, round: 0 });
   }
 
@@ -400,11 +403,12 @@ export class Mouth {
       const u = (i / (N - 1)) * 2 - 1; // -1..1
       const x = u * w;
       const corner = u * u;
-      const up = smile >= 0 ? smile * 0.075 * Math.pow(Math.abs(u), 1.6) : smile * 0.06 * corner;
+      const up = smile >= 0 ? smile * 0.075 * Math.pow(Math.abs(u), 1.3) : smile * 0.06 * corner;
       const bow = -0.006 * Math.exp(-((u / 0.18) ** 2)) * (1 - open);
       const yu = y0 + up + bow + open * 0.02 * (1 - corner);
-      let depth = openH * Math.pow(Math.max(0, 1 - corner), 0.55 + round * 0.4) + 0.008 * (1 - corner * 0.6);
-      depth += Math.max(0, smile) * 0.035 * (1 - corner) * (0.3 + open);
+      const openK = smoothstep(0.02, 0.12, open);
+      let depth = (openH - 0.022 * (1 - openK)) * Math.pow(Math.max(0, 1 - corner), 0.55 + round * 0.4) + 0.003 * (1 - corner * 0.6);
+      depth += Math.max(0, smile) * 0.035 * (1 - corner) * open * openK;
       xs.push(x); yU.push(yu); yL.push(yu - depth);
     }
     const write = (mesh, topFn, botFn, xScale = 1) => {
@@ -421,13 +425,13 @@ export class Mouth {
       mesh.geometry.computeBoundingSphere();
     };
     write(this.cavity, (i) => yU[i], (i) => yL[i]);
-    const openAmt = clamp((open - 0.04) / 0.25);
+    const openAmt = clamp((open - 0.08) / 0.25);
     const teethH = 0.055 * teethShow;
     write(this.teeth, (i) => yU[i] - 0.004, (i) => Math.max(yU[i] - 0.004 - teethH * openAmt * (1 - (2 * i / (N - 1) - 1) ** 4), yL[i]), 0.92);
     write(this.lowerTeeth, (i) => Math.min(yL[i] + 0.035 * openAmt * Math.max(0, open - 0.3) * (1 - (2 * i / (N - 1) - 1) ** 2), yU[i]), (i) => yL[i] + 0.002, 0.8);
     write(this.tongue, (i) => Math.min(yL[i] + 0.06 * openAmt * (1 - (2 * i / (N - 1) - 1) ** 2), yU[i] - 0.01), (i) => yL[i] + 0.001, 0.72);
-    write(this.upperLip, (i) => yU[i] + 0.016 * (1 - (2 * i / (N - 1) - 1) ** 2) + 0.002, (i) => yU[i]);
-    write(this.lowerLip, (i) => yL[i], (i) => yL[i] - 0.028 * (1 - (2 * i / (N - 1) - 1) ** 2) - 0.002);
+    write(this.upperLip, (i) => { const u = 2 * i / (N - 1) - 1; return yU[i] + this.lipU * Math.pow(1 - u * u, 0.7) * (1 - 0.18 * Math.exp(-((u / 0.12) ** 2))) + 0.002; }, (i) => yU[i]);
+    write(this.lowerLip, (i) => yL[i], (i) => { const u = 2 * i / (N - 1) - 1; return yL[i] - this.lipL * Math.pow(1 - u * u, 0.8) - 0.002; });
   }
 }
 

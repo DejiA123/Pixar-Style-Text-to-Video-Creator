@@ -307,7 +307,7 @@ export function buildHuman(c) {
   P.neckR = dims.neckR / hs;
   const shape = headShape(P);
   const headGeo = buildHeadGeometry(P, { blush: 0, stubble: null });
-  const lipColor = new THREE.Color(look.skin).lerp(new THREE.Color(f ? 0xc0505a : 0xa85a50), f ? 0.45 : 0.28).getHex();
+  const lipColor = new THREE.Color(look.skin).lerp(new THREE.Color(f ? 0xa82a44 : 0x9a4840), f ? 0.78 : 0.45).getHex();
   const painted = paintFace(P, {
     skin: look.skin, lipColor, female: f, child: kid, freckles: look.freckles,
     stubble: look.beard === 'stubble' || look.beard === 'full' ? { color: look.hairColor, amount: look.beard === 'full' ? 0.5 : 0.8 } : (c.gender === 'm' && c.age !== 'child' ? { color: look.hairColor, amount: 0.25 } : null),
@@ -320,7 +320,8 @@ export function buildHuman(c) {
 
   // face field for decals
   const field = new FaceField(P, -0.65, 0.65, -0.95, 0.6, 41, 41);
-  const mouth = new Mouth(P, field, { width: kid ? 0.22 : 0.255, lipColor });
+  const mouthField = new FaceField(P, -0.34, 0.34, P.mouthY - 0.22, P.mouthY + 0.16, 69, 49);
+  const mouth = new Mouth(P, mouthField, { width: kid ? 0.19 : f ? 0.2 : 0.21, lipColor, lipU: f ? 0.03 : 0.022, lipL: f ? 0.046 : 0.036 });
   headModel.add(mouth.group);
   const browColor = new THREE.Color(look.hairColor).multiplyScalar(c.age === 'old' ? 1 : 0.85).getHex();
   const browR = new Brow(P, field, 1, browColor, P.browThick);
