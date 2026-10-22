@@ -45,7 +45,7 @@ if (ok) {
   for (const f of [0.08, 0.35, 0.6]) {
     await page.evaluate((f) => window.__storyreel.player.seek(window.__storyreel.timeline.duration * f), f);
     await page.waitForTimeout(400);
-    await page.screenshot({ path: `${outDir}/app_${Math.round(f * 100)}.png` });
+    await page.screenshot({ path: `${outDir}/app_${Math.round(f * 100)}.png`, timeout: 300000 });
   }
   if (doExport === '1') {
     await page.selectOption('#export-res', '720');
