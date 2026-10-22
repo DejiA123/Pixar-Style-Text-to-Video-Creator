@@ -309,7 +309,7 @@ export const PROPS = {
   letter: ['letter', 'note', 'envelope'],
   laptop: ['laptop', 'computer'],
   phone: ['phone', 'smartphone'],
-  backpack: ['backpack', 'bag', 'rucksack'],
+  // backpacks are worn (an accessory), never dropped as a prop
   coffee: ['coffee', 'tea', 'mug', 'cup'],
   bike: ['bike', 'bicycle'],
   door: ['door', 'gate', 'portal'],

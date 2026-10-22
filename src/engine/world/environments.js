@@ -530,7 +530,7 @@ const BUILDERS = {
     env.fillIntensity = night ? 0.9 : 0.6;
     env.fillColor = night ? 0xb8c8ff : 0xdde8ff;
     env.rimIntensity = night ? 3.2 : 2.0;
-    env.grade = night ? { bloom: 0.75, bloomThreshold: 1.2, saturation: 1.15, exposure: 1.25, shadowTint: new THREE.Color(0.9, 0.95, 1.12), highlightTint: new THREE.Color(1.08, 0.98, 0.95) } : { bloom: 0.3 };
+    env.grade = night ? { bloom: 0.42, bloomThreshold: 2.2, bloomRadius: 0.35, saturation: 1.15, exposure: 1.1, shadowTint: new THREE.Color(0.9, 0.95, 1.12), highlightTint: new THREE.Color(1.08, 0.98, 0.95) } : { bloom: 0.3 };
     env.marks.street = true;
   },
   market(env, rng, pre) {

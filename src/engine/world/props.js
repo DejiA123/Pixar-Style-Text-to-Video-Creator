@@ -475,7 +475,7 @@ export function makeProp(type, rng = makeRng(1), opts = {}) {
       add(mesh(new RoundedBoxGeometry(1.8, 0.55, 3.6, 4, 0.2), M(c, { clearcoat: 1, clearcoatRoughness: 0.05, roughness: 0.3 }), 0, 0.6, 0));
       add(mesh(new RoundedBoxGeometry(1.5, 0.55, 1.9, 4, 0.22), M(0x9fc6e8, { roughness: 0.05, clearcoat: 1, metalness: 0.2 }), 0, 1.1, -0.2));
       for (const [x, z] of [[-0.85, 1.15], [0.85, 1.15], [-0.85, -1.15], [0.85, -1.15]]) { const w = add(mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.25, 20), M(0x1d1d1f, { roughness: 0.8 }), x, 0.35, z)); w.rotation.z = Math.PI / 2; }
-      for (const x of [-0.6, 0.6]) add(mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.MeshStandardMaterial({ color: 0xffffee, emissive: 0xfff2c0, emissiveIntensity: opts.night ? 3 : 0.5 }), x, 0.65, 1.8));
+      for (const x of [-0.6, 0.6]) add(mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.MeshStandardMaterial({ color: 0xffffee, emissive: 0xfff2c0, emissiveIntensity: opts.night ? 1.4 : 0.4 }), x, 0.65, 1.8));
       break;
     }
     case 'rocket': {

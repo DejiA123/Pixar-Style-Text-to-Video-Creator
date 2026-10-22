@@ -203,7 +203,7 @@ export class Film {
     for (const e of this.effects.values()) e.uniforms.uScale.value = pxScale;
     this.fr.render(this.scene, this.camera, {
       focusDist: cam.focus, aperture: (opts.dof === false ? 0 : cam.aperture), time: t,
-      bloom: opts.bloomOverride ?? g.bloom ?? 0.35, bloomThreshold: g.bloomThreshold, exposure: (env.exposure ?? 1) * (1 + flash * 0.6),
+      bloom: opts.bloomOverride ?? g.bloom ?? 0.35, bloomThreshold: g.bloomThreshold, bloomRadius: g.bloomRadius, exposure: (env.exposure ?? 1) * (1 + flash * 0.6),
       vignette: g.vignette ?? 0.4, saturation: g.saturation, contrast: g.contrast,
       shadowTint: g.shadowTint, highlightTint: g.highlightTint, fade,
       maxBlurFrac: opts.maxBlurFrac,

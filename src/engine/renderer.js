@@ -41,14 +41,14 @@ const DOF_SHADER = {
     void main() {
       float centerDepth = linDepth(vUv);
       float centerSize = blurSize(centerDepth);
-      vec3 color = min(texture2D(tColor, vUv).rgb, vec3(10.0));
+      vec3 color = min(texture2D(tColor, vUv).rgb, vec3(5.0));
       float tot = 1.0;
       float radius = radScale;
       float ang = 0.0;
       for (int i = 0; i < 640; i++) {
         if (radius >= maxBlur) break;
         vec2 tc = vUv + vec2(cos(ang), sin(ang)) * pixelSize * radius;
-        vec3 sampleColor = min(texture2D(tColor, tc).rgb, vec3(10.0));
+        vec3 sampleColor = min(texture2D(tColor, tc).rgb, vec3(5.0));
         float sampleDepth = linDepth(tc);
         float sampleSize = blurSize(sampleDepth);
         if (sampleDepth > centerDepth) sampleSize = clamp(sampleSize, 0.0, centerSize * 2.0);
