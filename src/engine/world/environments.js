@@ -504,7 +504,7 @@ const BUILDERS = {
     const night = env.night;
     groundFor(env, { color: 0x6a6a70, color2: 0x7a7a80, hills: 0, flatRadius: 100, roughness: night ? 0.35 : 0.8, wet: night || env.spec.weather === 'rain' });
     // street: z axis, sidewalks at |x| 4..6
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(8, 160), surfaceMat('asphalt_02', 2, 40, { roughness: night ? 0.5 : 1, clearcoat: night ? 0.7 : 0, brighten: 0.9 }));
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(8, 160), surfaceMat('asphalt_02', 2, 40, { roughness: 1, brighten: 0.9 }));
     road.rotation.x = -Math.PI / 2; road.position.set(0, 0.01, -40); road.receiveShadow = true;
     env.group.add(road);
     for (let z = 10; z > -110; z -= 6) { const l = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 2.5), mat(0xf2f0e6)); l.rotation.x = -Math.PI / 2; l.position.set(0, 0.02, z); env.group.add(l); }
