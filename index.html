@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Storyreel">
 <meta name="theme-color" content="#0b0c0f">
 <title>Storyreel</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -10,13 +14,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css">
+<link rel="stylesheet" href="src/ui/styles.css?v=1792704768">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
 <header class="bar">
   <div class="brand"><span class="logo" aria-hidden="true"></span><span class="name">Storyreel</span><span class="badge">3D Studio</span></div>
-  <a class="bar-link" href="https://github.com/DejiA123/Pixar-Style-Text-to-Video-Creator" target="_blank" rel="noopener">GitHub</a>
 </header>
 
 <main class="app">
@@ -121,6 +124,16 @@
           <option value="1:1">1:1</option>
         </select>
       </label>
+      <label class="pill select-pill"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2M9 2h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <select id="length" aria-label="Video length">
+          <option value="auto">Auto</option>
+          <option value="15">15 sec</option>
+          <option value="30">30 sec</option>
+          <option value="60">1 min</option>
+          <option value="120">2 min</option>
+          <option value="180">3 min</option>
+        </select>
+      </label>
       <span class="spacer"></span>
       <button id="make" class="btn-make" type="button">Generate</button>
     </div>
@@ -128,6 +141,13 @@
 </div>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<script type="module" src="src/ui/app.js"></script>
+<script>
+  // app-like: block pinch and double-tap zoom (iOS ignores user-scalable=no)
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+  let lastTap = 0;
+  document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
+</script>
+<script type="module" src="src/ui/app.js?v=1792704768"></script>
 </body>
 </html>

@@ -138,6 +138,16 @@ export function computePose(action, t, ctx) {
       p.curlL = p.curlR = 0.15;
       break;
     }
+    case 'groom': {
+      // brushing long hair: brush hand strokes from the crown down the side
+      const k = (t * 0.9) % 1, stroke = k < 0.7 ? k / 0.7 : 1 - (k - 0.7) / 0.3;
+      p.shoulderR[2] += 1.55 - stroke * 0.35; p.shoulderR[0] -= 0.35;
+      p.elbowR[0] -= 2.45 - stroke * 0.25; p.elbowR[1] = -0.5; p.wristR[0] = 0.5; p.wristR[2] = 0.6;
+      p.curlR = 0.8;
+      p.shoulderL[0] -= 0.35; p.elbowL[0] -= 0.9; p.curlL = 0.3;
+      p.head[2] += 0.12 + stroke * 0.05; p.head[1] -= 0.08; p.hips[2] -= 0.03;
+      break;
+    }
     case 'wave': {
       p.shoulderR[2] += 2.5; p.shoulderR[0] -= 0.3;
       p.elbowR[0] -= 0.4; p.elbowR[2] = sin(t * TAU * 1.6) * 0.5;

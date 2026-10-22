@@ -18,7 +18,8 @@ const PANTS = [0x2e4a7a, 0x34495e, 0x3d3d45, 0x6b5b4b, 0x23324d, 0x4a5a3a, 0x2b2
 export function humanLook(c) {
   const rng = makeRng(c.seed || 1);
   const look = {};
-  look.skin = c.skin ?? SKIN_TONES[rng.int(0, SKIN_TONES.length - 1)];
+  const TONES = { light: [0, 1], 'light-warm': [1, 2], tan: [2, 4], brown: [4, 6], dark: [6, 8] }[c.skinTone];
+  look.skin = c.skin ?? (TONES ? SKIN_TONES[rng.int(TONES[0], TONES[1])] : SKIN_TONES[rng.int(0, SKIN_TONES.length - 1)]);
   look.eyeColor = c.eyeColor ?? (look.skin < 0xc00000 ? rng.pick([0x5c3a1e, 0x4a2a15, 0x3e2414]) : EYE_COLORS[rng.int(0, EYE_COLORS.length - 1)]);
   const old = c.age === 'old';
   look.hairColor = c.hair?.color ?? (old ? rng.pick([0xb8b8b8, 0xd8d6d0, 0x8f8f8f]) : HAIR_COLORS[rng.int(0, HAIR_COLORS.length - 1)]);
@@ -87,6 +88,15 @@ export function humanLook(c) {
   if (role === 'wizard') look.beard = 'full';
   look.earrings = acc.has('earrings') || (c.gender === 'f' && c.age !== 'child' && rng.chance(0.4));
   look.freckles = acc.has('freckles') || rng.chance(0.15);
+  if (c.style === 'glam') {
+    // doll-like fashion look: long glossy waves, statement lips, earrings, trendy top
+    look.glam = true;
+    if (!c.hair?.style) look.hairStyle = rng.pick(['wavy', 'long']);
+    if (!c.hair?.color) look.hairColor = rng.pick([0x7a4a2a, 0x9c5a2e, 0xc98a4a, 0x5a3a24]);
+    look.earrings = true; look.freckles = false;
+    o.top = rng.pick(['blouse', 'tshirt']); o.topColor = c.outfitColor ?? rng.pick([0xf06fae, 0xb57bff, 0x52c7e8, 0xff8a65]); o.pattern = 'solid';
+    o.bottom = rng.pick(['jeans', 'skirt']); o.bottomColor = o.bottom === 'jeans' ? 0x3d5a8a : 0x2b2b30;
+  }
   return look;
 }
 
@@ -315,7 +325,7 @@ export function buildHuman(c) {
   P.neckR = dims.neckR / hs;
   const shape = headShape(P);
   const headGeo = buildHeadGeometry(P, { blush: 0, stubble: null });
-  const lipColor = new THREE.Color(look.skin).lerp(new THREE.Color(f ? 0xa82a44 : 0x9a4840), f ? 0.78 : 0.45).getHex();
+  const lipColor = new THREE.Color(look.skin).lerp(new THREE.Color(look.glam ? 0xc8325f : f ? 0xa82a44 : 0x9a4840), look.glam ? 0.85 : f ? 0.78 : 0.45).getHex();
   const painted = paintFace(P, {
     skin: look.skin, lipColor, female: f, child: kid, freckles: look.freckles,
     stubble: look.beard === 'stubble' || look.beard === 'full' ? { color: look.hairColor, amount: look.beard === 'full' ? 0.5 : 0.8 } : (c.gender === 'm' && c.age !== 'child' ? { color: look.hairColor, amount: 0.25 } : null),

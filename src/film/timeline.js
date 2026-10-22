@@ -3,7 +3,8 @@
 import { makeRng } from '../util.js';
 import { INTERIOR_SETTINGS } from '../story/lexicon.js';
 
-const LEAD = 0.35, GAP = 0.22, TAIL = 0.65, MIN_SHOT = 2.8;
+let LEAD = 0.35, GAP = 0.22, TAIL = 0.65, MIN_SHOT = 2.8;
+const END_CARD = 3.5;
 const TITLE_HOLD = 1.2;
 
 export function estimateDuration(text, rate = 1) {
@@ -17,7 +18,11 @@ export function lineKey(speaker, text) { return `${speaker}::${text}`; }
 const TRAVEL = new Set(['walk', 'run', 'chase', 'sneak', 'ride', 'fly', 'swim']);
 
 // durations: Map(lineKey → seconds). Missing entries are estimated.
+// opts.target: desired film length in seconds (null = natural pacing).
 export function buildTimeline(plan, durations = new Map(), opts = {}) {
+  // a short target tightens the pacing; dialogue itself is never cut
+  const tight = opts.target && opts.target < naturalLength(plan, durations, opts);
+  [LEAD, GAP, TAIL, MIN_SHOT] = tight ? [0.2, 0.12, 0.3, 2.0] : [0.35, 0.22, 0.65, 2.8];
   const rng = makeRng(opts.seed ?? 99);
   const shots = [];
   let t = 0;
@@ -38,6 +43,11 @@ export function buildTimeline(plan, durations = new Map(), opts = {}) {
 
   let prev = null;
   let lastShotType = null;
+  // extra hold per scene so the film lands on the requested length
+  const nat = plan.scenes.map((sc, i) => sceneNatural(plan, sc, i, durations, opts));
+  const natTotal = t + nat.reduce((a, b) => a + b, 0) + END_CARD;
+  const extra = opts.target ? Math.max(0, opts.target - natTotal) : 0;
+  const natSum = nat.reduce((a, b) => a + b, 0) || 1;
   plan.scenes.forEach((scene, i) => {
     const lines = [];
     let cursor = t + LEAD + (scene.isNewSetting && i > 0 ? 0.6 : 0);
@@ -49,12 +59,38 @@ export function buildTimeline(plan, durations = new Map(), opts = {}) {
     const mainAct = scene.focus ? scene.actions[scene.focus] : null;
     let end = Math.max(cursor - GAP + TAIL, t + MIN_SHOT + (TRAVEL.has(mainAct) ? 0.8 : 0));
     if (i === plan.scenes.length - 1) end += 1.2;
+    end += extra * (nat[i] / natSum);
     // vary shot type a little so the cut rhythm isn't monotonous
     let type = scene.shot || 'medium';
     if (type === lastShotType && type !== 'over-shoulder' && type !== 'tracking') {
       type = { medium: rng.pick(['wide', 'closeup']), closeup: 'medium', wide: 'medium', establishing: 'wide', lowangle: 'medium' }[type] || type;
     }
     if (scene.characters.length === 0) type = 'establishing';
+    // Short prompts (one or two sentences) get proper coverage: wide → medium →
+    // close-up, so a single description still plays like a little film.
+    const short = plan.scenes.length <= 2 && scene.characters.length > 0;
+    if (short && !opts.target) end = Math.max(end, t + (plan.scenes.length === 1 ? 12 : 8));
+    // long holds (short prompts, or a long requested length) get coverage:
+    // a run of different camera angles instead of one static shot
+    const coverage = scene.characters.length > 0 && end - t >= 6;
+    if (coverage) {
+      const base = scene.characters.length > 1 ? ['wide', 'two-shot', 'closeup', 'medium', 'over-shoulder', 'lowangle'] : ['wide', 'medium', 'closeup', 'lowangle', 'medium', 'closeup'];
+      const seq = i > 0 ? [type, ...base.filter((x) => x !== type)] : base;
+      const n = Math.max(2, Math.min(40, Math.round((end - t) / 3.6)));
+      const cuts = Array.from({ length: n + 1 }, (_, k) => k / n);
+      // repeat the angle cycle without the same angle twice in a row
+      while (seq.length < n) { const nxt = rng.pick(base); if (nxt !== seq[seq.length - 1]) seq.push(nxt); }
+      for (let k = 0; k < n; k++) {
+        const s0 = t + (end - t) * cuts[k], s1 = t + (end - t) * cuts[k + 1];
+        const sub = makeShot({ kind: 'scene', scene, start: s0, end: s1, lines: lines.filter((l) => l.start >= s0 && l.start < s1), type: seq[k] });
+        sub.transition = k === 0 && prev && prev.scene.setting !== scene.setting ? 'fade' : 'cut';
+        shots.push(sub);
+        prev = sub;
+      }
+      lastShotType = seq[n - 1];
+      t = end;
+      return;
+    }
     // split very long dialogue shots into reverse shots between speakers
     const shot = makeShot({ kind: 'scene', scene, start: t, end, lines, type });
     shot.transition = prev && prev.scene.setting !== scene.setting ? 'fade' : 'cut';
@@ -66,9 +102,24 @@ export function buildTimeline(plan, durations = new Map(), opts = {}) {
 
   // end card
   const endStart = t;
-  const film = { title: plan.title, cast: plan.cast, shots, duration: endStart + 3.5, endCard: { start: endStart, end: endStart + 3.5 } };
+  const film = { title: plan.title, cast: plan.cast, shots, duration: endStart + END_CARD, endCard: { start: endStart, end: endStart + END_CARD } };
   stage(film, castById, rng);
   return film;
+}
+
+// Seconds a scene needs at natural pacing (dialogue, minimum hold, travel).
+function sceneNatural(plan, scene, i, durations, opts) {
+  const dur = (sp, text) => durations.get(lineKey(sp, text)) ?? estimateDuration(text, opts.rate ?? 1);
+  let need = LEAD + (scene.isNewSetting && i > 0 ? 0.6 : 0);
+  for (const l of scene.lines) need += dur(l.speaker, l.text) + GAP;
+  need = Math.max(need - GAP + TAIL, MIN_SHOT);
+  if (i === plan.scenes.length - 1) need += 1.2;
+  return need;
+}
+function naturalLength(plan, durations, opts) {
+  const dur = (sp, text) => durations.get(lineKey(sp, text)) ?? estimateDuration(text, opts.rate ?? 1);
+  const title = plan.scenes[0] ? Math.max(4.2, 0.9 + dur('narrator', plan.title) + TITLE_HOLD) : 0;
+  return title + plan.scenes.reduce((a, sc, i) => a + sceneNatural(plan, sc, i, durations, opts), 0) + END_CARD;
 }
 
 function makeShot({ kind, scene, start, end, lines, type }) {

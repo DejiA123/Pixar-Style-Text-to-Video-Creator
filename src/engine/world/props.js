@@ -617,6 +617,43 @@ export function makeProp(type, rng = makeRng(1), opts = {}) {
     case 'bridge': { const b = add(mesh(new THREE.CylinderGeometry(4, 4, 1.4, 24, 1, true, -0.5, 1.0), M(0x8b5a2b, { side: THREE.DoubleSide }), 0, -3.5, 0)); b.rotation.z = Math.PI / 2; break; }
     case 'sign': add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.4, 6), M(0x6b4a32), 0, 0.7, 0)); add(mesh(new RoundedBoxGeometry(0.8, 0.4, 0.05, 2, 0.02), M(0xc8a06a), 0, 1.3, 0)); break;
     case 'basket': add(mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.2, 16, 1, true), M(0xc8924f, { side: THREE.DoubleSide }), 0, 0.1, 0)); add(mesh(new THREE.TorusGeometry(0.18, 0.012, 6, 20, Math.PI), M(0xc8924f), 0, 0.2, 0)); break;
+    case 'teddy': {
+      const fur = M(0xb07a4a, { roughness: 0.95, sheen: 1, sheenColor: 0xe8c8a0 });
+      const pale = M(0xe8cfa8, { roughness: 0.95, sheen: 0.8 });
+      add(mesh(new THREE.SphereGeometry(0.11, 18, 14), fur, 0, 0.11, 0)).scale.set(1, 1.1, 0.9);
+      add(mesh(new THREE.SphereGeometry(0.085, 18, 14), fur, 0, 0.27, 0));
+      add(mesh(new THREE.SphereGeometry(0.04, 12, 10), pale, 0, 0.255, 0.07));
+      add(mesh(new THREE.SphereGeometry(0.012, 8, 6), M(0x1a1210), 0, 0.27, 0.105));
+      for (const x of [-0.06, 0.06]) {
+        add(mesh(new THREE.SphereGeometry(0.035, 12, 10), fur, x, 0.34, 0)).scale.set(1, 1, 0.5);
+        add(mesh(new THREE.SphereGeometry(0.013, 8, 6), M(0x1a1210, { clearcoat: 1 }), x * 0.55, 0.295, 0.075));
+        add(mesh(new THREE.SphereGeometry(0.045, 12, 10), fur, x * 1.7, 0.14, 0.03));
+        add(mesh(new THREE.SphereGeometry(0.05, 12, 10), fur, x * 1.1, 0.03, 0.06));
+      }
+      break;
+    }
+    case 'hairbrush': {
+      add(mesh(new THREE.CapsuleGeometry(0.012, 0.11, 4, 10), M(0xe887b8, { clearcoat: 0.8 }), 0, 0.06, 0));
+      const head = add(mesh(new RoundedBoxGeometry(0.06, 0.08, 0.022, 3, 0.01), M(0xe887b8, { clearcoat: 0.8 }), 0, 0.15, 0));
+      head.scale.set(1, 1.15, 1);
+      add(mesh(new RoundedBoxGeometry(0.05, 0.07, 0.016, 2, 0.006), M(0x2a2228, { roughness: 0.9 }), 0, 0.15, 0.016));
+      break;
+    }
+    case 'mirror': {
+      // a vanity mirror on a stand: glossy frame and a chrome-glass face
+      const frame = M(0xf3e6d6, { clearcoat: 0.8, roughness: 0.35 });
+      const glass = M(0xdfe9f2, { metalness: 1, roughness: 0.04 });
+      add(mesh(new RoundedBoxGeometry(0.9, 0.06, 0.45, 3, 0.02), frame, 0, 0.75, 0));
+      for (const x of [-0.38, 0.38]) add(mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.75, 10), frame, x, 0.375, 0));
+      const m1 = add(mesh(new THREE.TorusGeometry(0.34, 0.035, 12, 48), frame, 0, 1.2, -0.12));
+      m1.scale.set(1, 1.25, 1);
+      const m2 = add(mesh(new THREE.CircleGeometry(0.34, 48), glass, 0, 1.2, -0.125));
+      m2.scale.set(1, 1.25, 1);
+      for (let i = 0; i < 6; i++) add(mesh(new THREE.SphereGeometry(0.025, 10, 8), new THREE.MeshStandardMaterial({ color: 0xfff4d8, emissive: 0xffd9a0, emissiveIntensity: 2 }), Math.cos(i / 5 * Math.PI) * 0.42, 1.2 + Math.sin(i / 5 * Math.PI) * 0.5, -0.1));
+      add(mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.12, 12), M(0xd98cb3, { clearcoat: 0.9 }), 0.25, 0.84, 0.08));
+      add(mesh(new THREE.SphereGeometry(0.045, 12, 10), M(0xb8e0f0, { transmission: 0.6, roughness: 0.1 }), -0.25, 0.83, 0.1));
+      break;
+    }
     case 'drum': add(mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.3, 24), M(0xd9443b, { clearcoat: 0.6 }), 0, 0.15, 0)); add(mesh(new THREE.CylinderGeometry(0.255, 0.255, 0.02, 24), M(0xfaf6ea), 0, 0.31, 0)); break;
     case 'microphone': add(mesh(new THREE.CylinderGeometry(0.015, 0.02, 0.18, 8), M(0x222222), 0, 0.09, 0)); add(mesh(new THREE.SphereGeometry(0.035, 12, 10), M(0x9a9a9a, { metalness: 0.8, roughness: 0.4 }), 0, 0.2, 0)); break;
     case 'camera': add(mesh(new RoundedBoxGeometry(0.16, 0.1, 0.08, 2, 0.015), M(0x222222), 0, 0.05, 0)); add(mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.06, 16), M(0x333333), 0, 0.05, 0.06)).rotation.x = Math.PI / 2; break;
@@ -630,4 +667,4 @@ export function makeProp(type, rng = makeRng(1), opts = {}) {
 }
 
 // Small props that can be carried in a hand.
-export const HANDHELD = new Set(['ball', 'balloon', 'kite', 'cupcake', 'book', 'bible', 'flower', 'star', 'heart', 'crown', 'map', 'letter', 'lantern', 'apple', 'cookie', 'icecream', 'pizza', 'lollipop', 'umbrella', 'guitar', 'wand', 'sword', 'key', 'egg', 'shell', 'trophy', 'gem', 'phone', 'coffee', 'basket', 'microphone', 'camera', 'gift', 'candle', 'cross', 'laptop']);
+export const HANDHELD = new Set(['teddy', 'hairbrush', 'ball', 'balloon', 'kite', 'cupcake', 'book', 'bible', 'flower', 'star', 'heart', 'crown', 'map', 'letter', 'lantern', 'apple', 'cookie', 'icecream', 'pizza', 'lollipop', 'umbrella', 'guitar', 'wand', 'sword', 'key', 'egg', 'shell', 'trophy', 'gem', 'phone', 'coffee', 'basket', 'microphone', 'camera', 'gift', 'candle', 'cross', 'laptop']);

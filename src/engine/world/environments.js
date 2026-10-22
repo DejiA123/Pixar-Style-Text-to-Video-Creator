@@ -318,7 +318,7 @@ function room(env, rng, o) {
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), floorM);
   floor.rotation.x = -Math.PI / 2; floor.position.z = zc; floor.receiveShadow = true;
   g.add(floor);
-  const wallM = o.wallTex ? mat(0xffffff, { map: o.wallTex, roughness: 0.9 }) : surfaceMat('grey_plaster', Math.max(w, d) / 3, h / 3, { tint: o.wall, brighten: 1.85, normalScale: 0.35 });
+  const wallM = o.wallTex ? mat(0xffffff, { map: o.wallTex, roughness: 0.9 }) : surfaceMat('grey_plaster', Math.max(w, d) / 3, h / 3, { tint: o.wall, noMap: true, normalScale: 0.25, roughness: 0.95 });
   const mk = (W, x, z, ry) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(W, h), wallM); m.position.set(x, h / 2, z); m.rotation.y = ry; m.receiveShadow = true; g.add(m); return m; };
   mk(w, 0, zc - d / 2, 0);
   mk(d, -w / 2, zc, Math.PI / 2);
@@ -595,11 +595,11 @@ const BUILDERS = {
     env.grade = { bloom: 0.3, highlightTint: new THREE.Color(1.08, 1.0, 0.9) };
   },
   home(env, rng, pre) {
-    const bedroom = /bed|bedroom|sleep|bedtime/.test(env.spec.text || '');
+    const bedroom = /bed|bedroom|sleep|bedtime|mirror|vanity|brush|hair|makeup|getting ready/i.test(env.spec.text || '');
     room(env, rng, { w: 12, d: 12, h: 3.6, floorTex: plankTexture('#a0704a'), wall: rng.pick([0xf2e3c9, 0xdfe8ef, 0xf3d9c9, 0xe5ecd9]), zc: 0 });
     env.bgColor = 0x2a2018;
-    windowLightPlane(env, -2.2, 1.9, -5.95, 2.0, 1.6, 0, env.night ? 0x2a3a6a : 0xdff0ff, env.night ? 1.0 : 3.0);
-    windowLightPlane(env, 2.2, 1.9, -5.95, 2.0, 1.6, 0, env.night ? 0x2a3a6a : 0xdff0ff, env.night ? 1.0 : 3.0);
+    windowLightPlane(env, -2.2, 1.9, -5.95, 2.0, 1.6, 0, env.night ? 0x2a3a6a : 0xdff0ff, env.night ? 1.0 : 1.7);
+    windowLightPlane(env, 2.2, 1.9, -5.95, 2.0, 1.6, 0, env.night ? 0x2a3a6a : 0xdff0ff, env.night ? 1.0 : 1.7);
     // rug, sofa, lamp, shelf, plant, pictures
     const rug = new THREE.Mesh(new THREE.CircleGeometry(2.2, 48), mat(0xc0603a, { roughness: 0.95, map: canvasTexture(256, 256, (g, w, h) => { g.fillStyle = '#c86a4a'; g.fillRect(0, 0, w, h); for (let r = 120; r > 10; r -= 18) { g.strokeStyle = r % 36 ? '#f2d0a0' : '#8a3a2a'; g.lineWidth = 6; g.beginPath(); g.arc(128, 128, r, 0, 6.3); g.stroke(); } }) }));
     rug.rotation.x = -Math.PI / 2; rug.position.set(0, 0.01, -0.5); rug.receiveShadow = true; env.group.add(rug);

@@ -308,18 +308,30 @@ const SCANS = { denim: 'denim_fabric', cotton: 'cotton_jersey', knit: 'jersey_me
 const scanTex = new Map();
 const pending = [];
 const scanMats = new Map();
+// Load a texture once; resolves to the texture, or null if it failed.
+function loadTex(url, rx, ry, srgb) {
+  return new Promise((res) => {
+    new THREE.TextureLoader().load(url, (t) => {
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(rx, ry);
+      t.anisotropy = 8;
+      if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+      res(t);
+    }, undefined, () => res(null));
+  });
+}
+// Bind maps to a material only after they have loaded: an unloaded roughness
+// map samples as black (= mirror-smooth) and would make cloth look like chrome.
+function attachMaps(m, maps) {
+  const p = Promise.all(Object.entries(maps).map(([slot, pr]) => pr.then((t) => { if (t) { m[slot] = t; } })))
+    .then(() => { if (m.roughnessMap) m.roughness = 1; m.needsUpdate = true; });
+  pending.push(p);
+  return m;
+}
 function scanMap(kind, map, srgb) {
   const key = kind + map;
-  if (scanTex.has(key)) return scanTex.get(key);
-  const url = new URL(`../../assets/fabric/${SCANS[kind]}_${map}.jpg`, import.meta.url).href;
-  const t = new THREE.TextureLoader().load(url);
-  pending.push(new Promise((res) => { const iv = setInterval(() => { if (t.image && (t.image.complete ?? true)) { clearInterval(iv); res(); } }, 20); setTimeout(() => { clearInterval(iv); res(); }, 15000); }));
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(2, 2);
-  t.anisotropy = 8;
-  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  scanTex.set(key, t);
-  return t;
+  if (!scanTex.has(key)) scanTex.set(key, loadTex(new URL(`../../assets/fabric/${SCANS[kind]}_${map}.jpg`, import.meta.url).href, 2, 2, srgb));
+  return scanTex.get(key);
 }
 export function fabricsReady() { return Promise.all(pending); }
 // kind: denim | cotton | knit | fleece | linen
@@ -329,16 +341,16 @@ export function fabricScan(color, kind) {
   const key = kind + color;
   if (scanMats.has(key)) return scanMats.get(key);
   const m = mat(kind === 'denim' ? c.clone().lerp(new THREE.Color(0xffffff), 0.35).getHex() : color, {
-    map: kind === 'denim' ? scanMap(kind, 'diff', true) : null,
-    normalMap: scanMap(kind, 'nor_gl', false),
     normalScale: kind === 'fleece' ? 0.6 : 0.9,
-    roughnessMap: scanMap(kind, 'rough', false),
-    roughness: 1,
+    roughness: 0.85,
     sheen: kind === 'fleece' || kind === 'knit' ? 0.8 : 0.45,
     sheenColor: c.clone().lerp(new THREE.Color(0xffffff), 0.5).getHex(),
     sheenRoughness: 0.6,
     noCache: true,
   });
+  const maps = { normalMap: scanMap(kind, 'nor_gl', false), roughnessMap: scanMap(kind, 'rough', false) };
+  if (kind === 'denim') maps.map = scanMap(kind, 'diff', true);
+  attachMaps(m, maps);
   scanMats.set(key, m);
   return m;
 }
@@ -349,30 +361,24 @@ export function fabricScan(color, kind) {
 const surfTex = new Map();
 function surfMap(kind, map, rx, ry, srgb) {
   const key = kind + map + rx + 'x' + ry;
-  if (surfTex.has(key)) return surfTex.get(key);
-  const url = new URL(`../../assets/surface/${kind}_${map}.jpg`, import.meta.url).href;
-  const t = new THREE.TextureLoader().load(url);
-  pending.push(new Promise((res) => { const iv = setInterval(() => { if (t.image && (t.image.complete ?? true)) { clearInterval(iv); res(); } }, 20); setTimeout(() => { clearInterval(iv); res(); }, 15000); }));
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(rx, ry);
-  t.anisotropy = 8;
-  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  surfTex.set(key, t);
-  return t;
+  if (!surfTex.has(key)) surfTex.set(key, loadTex(new URL(`../../assets/surface/${kind}_${map}.jpg`, import.meta.url).href, rx, ry, srgb));
+  return surfTex.get(key);
 }
 // tint multiplies the photo; brighten compensates for dark scans.
 export function surfaceMat(kind, rx = 4, ry = rx, opts = {}) {
   if (typeof document === 'undefined') return mat(opts.tint ?? 0x888888, { roughness: 0.8 });
   const tint = new THREE.Color(opts.tint ?? 0xffffff).multiplyScalar(opts.brighten ?? 1);
-  return new THREE.MeshPhysicalMaterial({
+  const m = new THREE.MeshPhysicalMaterial({
     color: tint,
-    map: opts.noMap ? null : surfMap(kind, 'diff', rx, ry, true),
-    normalMap: surfMap(kind, 'nor_gl', rx, ry, false),
     normalScale: new THREE.Vector2(opts.normalScale ?? 1, opts.normalScale ?? 1),
-    roughnessMap: surfMap(kind, 'rough', rx, ry, false),
-    roughness: opts.roughness ?? 1,
+    roughness: opts.roughness ?? 0.85,
     clearcoat: opts.clearcoat ?? 0,
     clearcoatRoughness: 0.3,
     vertexColors: !!opts.vertexColors,
   });
+  const maps = { normalMap: surfMap(kind, 'nor_gl', rx, ry, false), roughnessMap: surfMap(kind, 'rough', rx, ry, false) };
+  if (!opts.noMap) maps.map = surfMap(kind, 'diff', rx, ry, true);
+  attachMaps(m, maps);
+  if (opts.roughness != null) pending.push(Promise.resolve().then(() => {}));
+  return m;
 }

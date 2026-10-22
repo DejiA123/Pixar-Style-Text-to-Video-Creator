@@ -48,7 +48,7 @@ function init() {
 
   const nar = $('narrator');
   for (const n of KOKORO_NARRATORS) { const o = document.createElement('option'); o.value = n.id; o.textContent = n.label; nar.appendChild(o); }
-  for (const id of ['render-mode', 'voice-engine', 'narrator', 'aspect', 'quality', 'export-res', 'ai-video']) {
+  for (const id of ['render-mode', 'voice-engine', 'narrator', 'aspect', 'length', 'quality', 'export-res', 'ai-video']) {
     const el = $(id); const v = store.get(id, null);
     if (v != null && [...el.options].some((o) => o.value === v)) el.value = v;
     el.addEventListener('change', () => { store.set(id, el.value); onSettings(id); });
@@ -232,7 +232,9 @@ async function makeMovie() {
   steps.set('voices', 'done');
 
   // 3) timeline + world
-  const tl = buildTimeline(plan, durations, { rate: 0.95 });
+  const target = $('length').value === 'auto' ? null : +$('length').value;
+  const tl = buildTimeline(plan, durations, { rate: 0.95, target });
+  if (target && tl.duration > target + 1) toast(`Your story needs about ${Math.ceil(tl.duration)} seconds to tell everything it says, so the film is ${formatTime(tl.duration)}. Shorten the story for a shorter film.`, false, 9000);
   state.timeline = tl;
   steps.set('build', 'active');
   let film;

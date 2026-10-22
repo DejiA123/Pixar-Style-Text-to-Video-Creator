@@ -166,7 +166,7 @@ export function buildGarments(model, o, mats, bones, opts = {}) {
   const along = (s, part, t) => (part === 'upper' ? W['shoulder' + s].clone().lerp(W['elbow' + s], t) : W['elbow' + s].clone().lerp(W['wrist' + s], t));
   const legDir = (s, part) => (part === 'thigh' ? W['knee' + s].clone().sub(W['hip' + s]) : W['ankle' + s].clone().sub(W['knee' + s])).normalize();
   const legAt = (s, part, t) => (part === 'thigh' ? W['hip' + s].clone().lerp(W['knee' + s], t) : W['knee' + s].clone().lerp(W['ankle' + s], t));
-  const neckAxisD = (x, y, z) => sdCapsule(x, y, z, W.neck.x, W.neck.y - 0.025, W.neck.z - 0.006, W.head.x, W.head.y + 0.1, W.head.z, 0);
+  const neckAxisD = (x, y, z) => sdCapsule(x, y, z, W.neck.x, W.neck.y + 0.015, W.neck.z - 0.006, W.head.x, W.head.y + 0.1, W.head.z, 0);
 
   // ---- top --------------------------------------------------------------------
   const top = o.top;

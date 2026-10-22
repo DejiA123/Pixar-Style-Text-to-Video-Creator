@@ -150,7 +150,7 @@ export const SETTINGS = {
   city: ['city', 'street', 'downtown', 'skyscrapers?', 'traffic', 'sidewalk', 'neon', 'subway', 'times square', 'mall'],
   village: ['village', 'town', 'cottage', 'neighbou?rhood'],
   farm: ['farm', 'barn', 'ranch', 'tractor'],
-  home: ['house', 'home', 'bedroom', 'kitchen', 'living room', 'room', 'attic', 'inside', 'indoors'],
+  home: ['house', 'home', 'bedroom', 'window', 'sofa', 'couch', 'dinner table', 'kitchen table', 'mirror', 'vanity', 'dressing table', 'bathroom', 'wardrobe', 'closet', 'kitchen', 'living room', 'room', 'attic', 'inside', 'indoors'],
   school: ['school', 'classroom', 'library', 'office', 'lab', 'laboratory', 'studio', 'cafe', 'café', 'coffee shop', 'bakery', 'shop', 'store', 'restaurant'],
   space: ['space', 'outer space', 'galaxy', 'planets?', 'spaceship', 'space ?station', 'on the moon', 'to the moon', 'mars', 'universe', 'orbit'],
   desert: ['desert', 'dunes?', 'sahara', 'oasis', 'pyramids?'],
@@ -162,7 +162,7 @@ export const SETTINGS = {
   candy: ['candy ?land', 'land of sweets', 'candy kingdom', 'gingerbread', 'lollipop forest', 'chocolate river'],
   sky: ['above the clouds', 'in the sky', 'through the sky', 'among the clouds', 'up in the air', 'cloud kingdom'],
   stage: ['stage', 'concert', 'theater', 'theatre', 'talent show', 'party hall'],
-  church: ['church', 'chapel', 'cathedral', 'altar', 'pews?', 'sanctuary', 'worship service', 'sunday service', 'congregation', 'temple', 'mosque'],
+  church: ['church', 'chapel', 'wedding', 'cathedral', 'altar', 'pews?', 'sanctuary', 'worship service', 'sunday service', 'congregation', 'temple', 'mosque'],
   market: ['market', 'bazaar', 'marketplace', 'street market', 'stalls?', 'vendors?'],
   hospital: ['hospital', 'clinic', 'doctor\'s office', 'ward'],
 };
@@ -206,7 +206,7 @@ export const ACTIONS = {
   sleep: ['sleep', 'nap', 'snooze', 'dream', 'doze'],
   fly: ['fly', 'soar', 'float', 'glide', 'hover', 'flap', 'launch', 'blast off', 'take off', 'lift off'],
   swim: ['swim', 'dive', 'splash', 'paddle'],
-  eat: ['eat', 'munch', 'bite', 'taste', 'nibble', 'drink', 'sip', 'chew', 'feast', 'gobble'],
+  eat: ['picnic', 'breakfast', 'lunch', 'dinner', 'eat', 'munch', 'bite', 'taste', 'nibble', 'drink', 'sip', 'chew', 'feast', 'gobble'],
   laugh: ['laugh', 'giggle', 'chuckle', 'snicker'],
   cry: ['cry', 'sob', 'weep', 'tear'],
   talk: ['say', 'ask', 'tell', 'reply', 'answer', 'talk', 'speak', 'explain', 'call', 'announce', 'whisper', 'shout', 'yell', 'exclaim', 'promise', 'agree', 'chat'],
@@ -232,7 +232,8 @@ export const ACTIONS = {
   stomp: ['stomp', 'roar', 'growl', 'grumble'],
   ride: ['ride', 'drive', 'pilot', 'steer', 'sail'],
   stand: ['stand', 'wait', 'stay', 'meet'],
-  pray: ['pray', 'kneel', 'worship', 'bless', 'repent', 'confess', 'praise', 'baptize', 'baptise', 'preach'],
+  groom: ['brush', 'comb', 'style her hair', 'style his hair', 'do her hair', 'braid', 'makeup', 'make-up', 'get ready', 'getting ready', 'pamper', 'primp'],
+  pray: ['saved', 'born again', 'pray', 'kneel', 'worship', 'bless', 'repent', 'confess', 'praise', 'baptize', 'baptise', 'preach'],
 };
 
 // Irregular past forms → base verb.
@@ -265,6 +266,9 @@ export const EMOTIONS = {
 
 // ---- Props ------------------------------------------------------------------
 export const PROPS = {
+  teddy: ['teddy bear', 'teddy', 'stuffed toy', 'plush'],
+  hairbrush: ['hairbrush', 'hair brush', 'brush', 'comb'],
+  mirror: ['mirror', 'vanity'],
   ball: ['ball', 'football', 'soccer ball', 'basketball'],
   balloon: ['balloon'],
   kite: ['kite'],

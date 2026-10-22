@@ -201,6 +201,13 @@ function detectCast(sentences) {
       if (TRAIT_WORDS.includes(a) && !m.traits.includes(a)) m.traits.push(a);
       if (a === 'old' && m.kind === 'human' && m.age === 'adult') m.age = 'old';
       if (a === 'young' && m.kind === 'human' && m.age === 'adult') m.age = 'teen';
+      if (/^(teen|teenage|teenaged|adolescent)$/.test(a) && m.kind === 'human') m.age = 'teen';
+      if (/^(little|small|tiny)$/.test(a) && m.kind === 'human' && m.age !== 'old') m.age = 'child';
+      if (/^(grown|adult)$/.test(a) && m.kind === 'human') m.age = 'adult';
+      if (m.kind === 'human') {
+        const tone = { black: 'dark', african: 'dark', 'dark-skinned': 'dark', nigerian: 'dark', ghanaian: 'dark', brown: 'brown', 'brown-skinned': 'brown', indian: 'brown', 'south-asian': 'brown', latina: 'tan', latino: 'tan', hispanic: 'tan', mexican: 'tan', arab: 'tan', asian: 'light-warm', chinese: 'light-warm', japanese: 'light-warm', korean: 'light-warm', white: 'light', caucasian: 'light', 'pale': 'light', 'fair-skinned': 'light' }[a];
+        if (tone) { m.skinTone = tone; if (a === 'black' || a === 'brown' || a === 'white') m.color = null; }
+      }
     }
   };
 
@@ -328,21 +335,55 @@ function detectCast(sentences) {
   // 4) Unnamed characters by noun: "a dragon", "the old wizard".
   sentences.forEach((s, si) => {
     const lower = s.toLowerCase();
-    const re = new RegExp(`\\b(a|an|the|one|his|her|their|my|our)\\s+((?:[a-z-]+\\s+){0,3})(${nounAlt})\\b(?!\\s+(?:named|called))`, 'g');
+    const re = new RegExp(`(?:^|\\b(?:a|an|the|one|his|her|their|my|our)\\s+)((?:(?!(?:a|an|the|and|or|with|is|was|are|in|on|at|to|of)\\b)[a-z'’"‘“”-]+\\s+){0,4})(${nounAlt})\\b(?!\\s+(?:named|called))`, 'g');
     let m;
     while ((m = re.exec(lower))) {
-      const noun = m[3];
+      const noun = m[2];
+      if (/\b(teddy|toy|stuffed|plush|soft)\s*$/.test(m[1])) continue; // "teddy bear" is a toy, not a character
       if (noun === 'friend' || noun === 'kid' || noun === 'child') continue; // too generic to spawn on their own
       const info = nounInfo(noun);
       if (!info) continue;
       // Already covered by a named member with this noun?
       const named = cast.find((c) => c.noun === noun);
-      if (named) { applyAdjectives(named, m[2].trim().split(/\s+/)); continue; }
+      if (named) { applyAdjectives(named, m[1].trim().split(/\s+/)); continue; }
       if (byNoun.has(noun)) continue;
       const mem = addMember({ noun, ...info, firstSentence: si });
-      applyAdjectives(mem, m[2].trim().split(/\s+/));
+      applyAdjectives(mem, m[1].trim().split(/\s+/));
     }
   });
+
+  // 5) Groups and plurals: "two kids", "the children", "a family", "a couple", "the girls".
+  const NUM = { two: 2, three: 3, four: 4, five: 5, 2: 2, 3: 3, 4: 4, 5: 5, both: 2, some: 3, several: 3, many: 4 };
+  sentences.forEach((s, si) => {
+    const lower = s.toLowerCase();
+    const add = (noun, n = 1) => { for (let k = 0; k < n; k++) addMember({ noun, ...nounInfo(noun), firstSentence: si, group: true }); };
+    let g;
+    if (/\bfamily\b/.test(lower) && !cast.some((c) => c.group) && cast.length < 2) { add('mum'); add('dad'); add('boy'); add('girl'); }
+    if (/\b(couple|husband and wife|newlyweds|bride and groom)\b/.test(lower) && cast.length < 2) { add('woman'); add('man'); }
+    const reG = /\b(?:(two|three|four|five|2|3|4|5|both|some|several|many)\s+)?(?:(?:little|young|small|happy|teenage|old)\s+)?(kids|children|boys|girls|friends|siblings|twins|men|women|teens|teenagers|students|people)\b/g;
+    while ((g = reG.exec(lower))) {
+      if (cast.filter((c) => c.group).length || cast.length >= 2) break; // named characters are the group
+      const n = Math.min(4, NUM[g[1]] || 2);
+      const w = g[2];
+      const pick = (k) => ({ kids: k % 2 ? 'girl' : 'boy', children: k % 2 ? 'girl' : 'boy', twins: k % 2 ? 'girl' : 'boy', siblings: k % 2 ? 'girl' : 'boy', boys: 'boy', girls: 'girl', men: 'man', women: 'woman', friends: k % 2 ? 'girl' : 'boy', students: k % 2 ? 'girl' : 'boy', teens: k % 2 ? 'girl' : 'boy', teenagers: k % 2 ? 'girl' : 'boy', people: k % 2 ? 'woman' : 'man' }[w]);
+      for (let k = 0; k < n; k++) {
+        const noun = pick(k);
+        const mem = addMember({ noun, ...nounInfo(noun), firstSentence: si, group: true });
+        if (/teen/.test(w) || /teenage/.test(g[0])) mem.age = 'teen';
+      }
+    }
+  });
+
+  // 6) Never leave a story empty-handed: any character word anywhere counts.
+  if (!cast.length) {
+    const all = sentences.join(' ').toLowerCase();
+    const re = new RegExp(`\\b(${nounAlt})\\b`, 'g');
+    let mm;
+    while ((mm = re.exec(all)) && cast.length < 3) {
+      const info = nounInfo(mm[1]);
+      if (info && !byNoun.has(mm[1])) addMember({ noun: mm[1], ...info, firstSentence: 0 });
+    }
+  }
 
   // Attribute details: hair, glasses, clothing — given to the character
   // mentioned closest before the words ("Bolt met a girl named Mia with glasses").
@@ -507,8 +548,15 @@ function moodFor(emotions, setting, time, weather, actions) {
   return 'happy';
 }
 
+// Requests written as prompts ("I want a girl dancing…", "make a video of…")
+// become plain scene descriptions.
+function promptToStory(t) {
+  return t.replace(/^\s*(?:please\s+)?(?:i\s+(?:want|would like|need)(?:\s+to\s+see)?|(?:can|could)\s+you\s+(?:make|create|show|generate)(?:\s+me)?|make(?:\s+me)?|create(?:\s+me)?|generate(?:\s+me)?|show\s+me|give\s+me)\s+(?:an?\s+)?(?:(?:short\s+|3d\s+|animated\s+|cartoon\s+)*(?:video|film|movie|animation|clip|cartoon|scene|story)\s+(?:of|about|where|with|showing)\s+)?/i, (m) => (m.trim() ? 'A ' : ''))
+    .replace(/^A\s+(an?|the)\s+/i, (m, a) => a.charAt(0).toUpperCase() + a.slice(1) + ' ');
+}
+
 export function parseStory(rawText, opts = {}) {
-  const normalized = normalizeText(rawText || '');
+  const normalized = normalizeText(promptToStory(rawText || ''));
   const { title: explicitTitle, body } = extractTitle(normalized);
   const sentences = splitSentences(body);
   const cast = detectCast(sentences);
@@ -679,6 +727,15 @@ export function parseStory(rawText, opts = {}) {
     for (const l of lines) {
       if (l.speaker !== 'narrator' && (!actions[l.speaker] || ['look', 'stand', 'think'].includes(actions[l.speaker]))) actions[l.speaker] = actions[l.speaker] === 'think' ? 'think' : 'talk';
     }
+    // Shared actions: "a man and a woman dancing", "they prayed together", "both laughed".
+    {
+      const shared = ['dance', 'pray', 'walk', 'run', 'sing', 'cheer', 'laugh', 'play', 'eat', 'cook', 'sit', 'swim', 'jump', 'wave', 'sleep', 'read', 'build', 'paint', 'fly', 'cry', 'climb', 'ride'];
+      const acts = Object.values(actions).filter((a) => shared.includes(a));
+      if (acts.length && characters.length >= 2 && /\b(and|they|both|together|everyone|all)\b/.test(lowerNQ)) {
+        const a = acts[0];
+        for (const id of characters) if (!actions[id] || actions[id] === 'stand') actions[id] = a;
+      }
+    }
     // "talk" verbs in narration don't override visual verbs from the same sentence
     // Interaction target (hug, chase, talk to, look at).
     let target = null;
@@ -796,7 +853,35 @@ export function parseStory(rawText, opts = {}) {
   // Mark the opening scene as establishing even if setting was pre-scanned.
   if (scenes[0]) { scenes[0].isNewSetting = true; scenes[0].shot = 'establishing'; }
 
-  const title = explicitTitle || opts.title || makeTitleFromCast(cast, initialSetting);
+  // Groups ("two kids", "a family") appear together, and share what the group does.
+  const group = cast.filter((c) => c.group).map((c) => c.id);
+  if (group.length) {
+    for (const sc of scenes) {
+      const chars = sc.characters || [];
+      if (!chars.some((id) => group.includes(id)) && chars.length) continue;
+      sc.characters = [...new Set([...chars, ...group])];
+      const a = Object.values(sc.actions || {}).find((x) => x && x !== 'talk' && x !== 'stand');
+      for (const id of group) if (a && !sc.actions[id]) sc.actions[id] = a;
+      if (!sc.focus) sc.focus = group[0];
+    }
+  }
+  // Picnics and meals with no clearer verb: everyone sits.
+  for (const sc of scenes) if (/\b(picnic|having (?:lunch|dinner|breakfast))\b/i.test(sc.text || '') && (sc.characters || []).length) for (const id of sc.characters) if (!sc.actions[id] || sc.actions[id] === 'eat') sc.actions[id] = 'sit';
+  // Grooming: put a hairbrush in the groomer's hand (and drop the "brush" prop if it was unheld).
+  for (const sc of scenes) {
+    for (const [id, act] of Object.entries(sc.actions || {})) {
+      if (act !== 'groom') continue;
+      sc.props = (sc.props || []).filter((p) => !(p.type === 'hairbrush' && !p.holder));
+      if (!sc.props.some((p) => p.holder === id)) sc.props.push({ type: 'hairbrush', holder: id });
+      if (/mirror|vanity/i.test(sc.text) && !sc.props.some((p) => p.type === 'mirror')) sc.props.push({ type: 'mirror', holder: null });
+    }
+  }
+  // Doll-like fashion styles ("Bratz", "Barbie", "glam"): teen girls with a glam look.
+  if (/\b(bratz|barbie|doll|glam(?:orous)?|fashion(?:ista)?|diva)\b/i.test(normalized)) {
+    for (const c of cast) if (c.kind === 'human' && c.gender === 'f') { c.style = 'glam'; if (c.age === 'child') c.age = 'teen'; }
+  }
+  const groomTitle = scenes.some((sc) => Object.values(sc.actions || {}).includes('groom')) && cast[0] ? 'Getting Ready' : null;
+  const title = explicitTitle || opts.title || groomTitle || makeTitleFromCast(cast, initialSetting);
   for (const c of cast) delete c.mentions;
   return { title, cast, scenes, protagonist: cast[0] ? cast[0].id : null, source: 'rules' };
 }

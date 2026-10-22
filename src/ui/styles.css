@@ -23,7 +23,7 @@
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; overscroll-behavior: none; margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
 body {
   min-height: 100dvh;
   background:
@@ -177,7 +177,7 @@ button, select, input, textarea { font: inherit; color: inherit; }
   font-size: 15px; line-height: 1.5; height: 68px; padding: 0; overflow-y: auto;
 }
 #story::placeholder { color: var(--text-3); }
-.composer-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; position: relative; }
+.composer-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; position: relative; }
 .spacer { flex: 1; }
 .pill {
   height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; cursor: pointer;
@@ -247,5 +247,11 @@ button, select, input, textarea { font: inherit; color: inherit; }
   #story { font-size: 16px; height: 72px; }
   .field-grid { grid-template-columns: 1fr; }
   .pill span { display: none; }
+  .pill { padding: 0 11px; }
+  .composer-row { flex-wrap: nowrap; gap: 6px; }
+  .btn-make { width: 44px; height: 44px; padding: 0; justify-content: center; font-size: 0; flex: none; }
+  .btn-make::before { width: 20px; height: 20px; }
+  /* 16px inputs stop iOS from zooming in on focus */
+  .field select, .field input, .select-pill select { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
