@@ -194,6 +194,7 @@ export function buildHuman(c) {
       const r = o.bottom === 'tail' ? lerp(dims.hipR * 1.05, r1, t * t) : lerp(r0, r1, Math.pow(t, 0.85));
       pts.push(new THREE.Vector2(r, -t * len));
     }
+    pts.reverse(); // bottom→top so the lathe faces outward
     const sg = new THREE.LatheGeometry(pts, 48);
     const sp = sg.attributes.position;
     for (let i = 0; i < sp.count; i++) {

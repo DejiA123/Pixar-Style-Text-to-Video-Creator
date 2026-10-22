@@ -211,7 +211,7 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   const g = new THREE.SphereGeometry(r, 48, 32);
   g.rotateX(Math.PI / 2); // texture pole → +z
   const eyeMat = new THREE.MeshPhysicalMaterial({
-    map: irisTexture(eyeColor), roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.03, specularIntensity: 0.9,
+    map: irisTexture(eyeColor), roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.1, specularIntensity: 0.8,
   });
   const ballMesh = new THREE.Mesh(g, eyeMat);
   ball.add(ballMesh);
@@ -221,7 +221,7 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   corneaG.scale(1, 1, 0.55);
   corneaG.translate(0, 0, r * 0.62);
   const cornea = new THREE.Mesh(corneaG, new THREE.MeshPhysicalMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.12, roughness: 0.02, clearcoat: 1, clearcoatRoughness: 0.0, depthWrite: false,
+    color: 0xffffff, transparent: true, opacity: 0.12, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.08, depthWrite: false,
   }));
   ball.add(cornea);
 

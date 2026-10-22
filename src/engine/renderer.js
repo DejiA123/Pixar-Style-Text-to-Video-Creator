@@ -39,14 +39,14 @@ const DOF_SHADER = {
     void main() {
       float centerDepth = linDepth(vUv);
       float centerSize = blurSize(centerDepth);
-      vec3 color = texture2D(tColor, vUv).rgb;
+      vec3 color = min(texture2D(tColor, vUv).rgb, vec3(10.0));
       float tot = 1.0;
       float radius = radScale;
       float ang = 0.0;
       for (int i = 0; i < 640; i++) {
         if (radius >= maxBlur) break;
         vec2 tc = vUv + vec2(cos(ang), sin(ang)) * pixelSize * radius;
-        vec3 sampleColor = texture2D(tColor, tc).rgb;
+        vec3 sampleColor = min(texture2D(tColor, tc).rgb, vec3(10.0));
         float sampleDepth = linDepth(tc);
         float sampleSize = blurSize(sampleDepth);
         if (sampleDepth > centerDepth) sampleSize = clamp(sampleSize, 0.0, centerSize * 2.0);
@@ -182,8 +182,10 @@ export class FilmRenderer {
     r.render(scene, camera);
 
     let src = this.rtScene;
-    const aperture = fx.aperture ?? 0;
-    if (this.q.dofIters > 0 && aperture > 0.001) {
+    const aperture = this.q.dofIters > 0 ? fx.aperture ?? 0 : 0;
+    {
+      // always runs: clamps HDR outliers (tiny specular peaks would otherwise
+      // bloom across the whole frame); blurs only when aperture > 0
       const u = this.dofQuad.material.uniforms;
       u.tColor.value = this.rtScene.texture;
       u.tDepth.value = this.rtScene.depthTexture;
@@ -192,10 +194,10 @@ export class FilmRenderer {
       u.focusDist.value = Math.max(0.3, fx.focusDist ?? 5);
       // focusScale: how fast blur grows away from focus; aperture is ~f-stop-ish 0..1
       u.focusScale.value = aperture * 6.0;
-      const maxBlur = Math.max(2, this.height * (fx.maxBlurFrac ?? 0.018));
+      const maxBlur = aperture > 0.001 ? Math.max(2, this.height * (fx.maxBlurFrac ?? 0.018)) : 0;
       u.maxBlur.value = maxBlur;
       // keep iteration count bounded: iterations ≈ maxBlur² / (2·radScale)
-      u.radScale.value = Math.max(0.5, (maxBlur * maxBlur) / (2 * this.q.dofIters));
+      u.radScale.value = Math.max(0.5, (maxBlur * maxBlur) / (2 * Math.max(1, this.q.dofIters)));
       u.pixelSize.value.set(1 / this.width, 1 / this.height);
       r.setRenderTarget(this.rtA);
       this.dofQuad.render(r);
@@ -203,9 +205,9 @@ export class FilmRenderer {
     }
 
     if (this.q.bloom && (fx.bloom ?? 0.35) > 0) {
-      this.bloom.strength = fx.bloom ?? 0.35;
+      this.bloom.strength = (fx.bloom ?? 0.35) * 0.8;
       this.bloom.radius = fx.bloomRadius ?? 0.6;
-      this.bloom.threshold = fx.bloomThreshold ?? 0.82;
+      this.bloom.threshold = fx.bloomThreshold ?? 2.2;
       this.bloom.render(r, null, src, 0, false);
     }
 

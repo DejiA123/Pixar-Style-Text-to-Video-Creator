@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Film Lab</title>
+<style>html,body{margin:0;background:#111;color:#ddd;font:12px sans-serif}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/build/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+</head><body><canvas id="c"></canvas>
+<script type="module">
+import { FilmRenderer } from '../src/engine/renderer.js';
+import { parseStory } from '../src/story/parser.js';
+import { SAMPLES } from '../src/story/samples.js';
+import { buildTimeline } from '../src/film/timeline.js';
+import { Film } from '../src/film/film.js';
+
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 640), H = +(q.get('h') || 360);
+const canvas = document.getElementById('c');
+canvas.width = W; canvas.height = H;
+const fr = new FilmRenderer(canvas, { quality: q.get('q') || 'medium', preserveDrawingBuffer: true });
+fr.setSize(W, H, 1);
+const sample = SAMPLES.find((s) => s.id === (q.get('story') || 'church')) || SAMPLES[0];
+const plan = parseStory(q.get('text') || sample.text);
+const tl = buildTimeline(plan);
+const film = new Film(fr, tl, { aspect: W / H, storyText: sample.text });
+window.__info = { duration: tl.duration, shots: tl.shots.map((s) => ({ start: +s.start.toFixed(2), end: +s.end.toFixed(2), type: s.type, env: s.envKey, ids: s.ids, text: s.scene.text.slice(0, 60) })) };
+await film.prepare();
+const times = JSON.parse(q.get('times') || 'null') || tl.shots.map((s) => (s.start + s.end) / 2);
+const cols = +(q.get('cols') || 3);
+const rows = Math.ceil(times.length / cols);
+const out = document.createElement('canvas');
+out.width = W * cols / (q.get('scale') ? +q.get('scale') : 1); out.height = H * rows / (q.get('scale') ? +q.get('scale') : 1);
+const g = out.getContext('2d');
+const cw = out.width / cols, ch = out.height / rows;
+times.forEach((t, i) => {
+  const r = film.renderAt(t, { dof: q.get('dof') !== '0', bloomOverride: q.get('bloom') != null ? +q.get('bloom') : undefined });
+  g.drawImage(canvas, (i % cols) * cw, Math.floor(i / cols) * ch, cw, ch);
+  g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect((i % cols) * cw, Math.floor(i / cols) * ch, cw, 16);
+  g.fillStyle = '#fff'; g.fillText(`${t.toFixed(1)}s #${r.index} ${r.shot.type} ${r.shot.envKey}`, (i % cols) * cw + 4, Math.floor(i / cols) * ch + 12);
+});
+document.body.innerHTML = '';
+document.body.appendChild(out);
+window.__ready = true;
+</script></body></html>
