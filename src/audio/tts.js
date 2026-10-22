@@ -25,6 +25,13 @@ export class KokoroEngine {
     this.ready = new Promise((resolve, reject) => {
       this.worker = new Worker(new URL('./kokoro-worker.js', import.meta.url), { type: 'module' });
       const files = new Map();
+      // Safari (iOS) can kill the worker silently when memory runs short, so
+      // every phase has a deadline instead of waiting forever.
+      let settled = false;
+      const fail = (msg) => { if (settled) return; settled = true; clearTimeout(timer); this.dispose(); reject(new Error(msg)); };
+      let timer = setTimeout(() => fail('Voice model took too long to load'), 240000);
+      const arm = (ms, msg) => { clearTimeout(timer); timer = setTimeout(() => fail(msg), ms); };
+      const ok = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(this); };
       this.worker.onmessage = (e) => {
         const m = e.data;
         if (m.type === 'progress') {
@@ -34,18 +41,30 @@ export class KokoroEngine {
           let L = 0, T = 0;
           for (const f of files.values()) { L += f.loaded; T += f.total; }
           this.onProgress(T ? L / T : 0, T);
-        } else if (m.type === 'loaded') resolve(this);
+          // still downloading: extend the deadline; once complete, allow a minute to start up
+          arm(T && L >= T * 0.999 ? 60000 : 90000, 'Voice model stopped loading');
+          if (T && L >= T * 0.999) this.onReady?.();
+        } else if (m.type === 'loaded') ok();
         else if (m.type === 'audio') { const r = this.pending.get(m.id); this.pending.delete(m.id); r && r.resolve({ samples: m.samples, sampleRate: m.sampleRate }); }
         else if (m.type === 'error') {
           if (m.id && this.pending.has(m.id)) { const r = this.pending.get(m.id); this.pending.delete(m.id); r.reject(new Error(m.error)); }
-          else reject(new Error(m.error));
+          else fail(m.error);
         }
       };
-      this.worker.onerror = (e) => reject(new Error(e.message || 'Voice worker failed to start'));
+      this.worker.onerror = (e) => fail(e.message || 'Voice worker failed to start');
+      this.worker.onmessageerror = () => fail('Voice worker message error');
       this.worker.postMessage({ type: 'load', lib: KOKORO_LIB, model: KOKORO_MODEL, dtype: this.device === 'webgpu' ? 'fp32' : 'q8', device: this.device });
     });
     this.ready.catch(() => { this.ready = null; });
     return this.ready;
+  }
+
+  dispose() {
+    try { this.worker && this.worker.terminate(); } catch {}
+    this.worker = null;
+    this.ready = null;
+    for (const r of this.pending.values()) r.reject(new Error('Voice engine stopped'));
+    this.pending.clear();
   }
 
   async synthesize(text, { voice = 'af_heart', speed = 1 } = {}) {
@@ -53,7 +72,11 @@ export class KokoroEngine {
     if (this.cache.has(key)) return this.cache.get(key);
     await this.load();
     const id = this.nextId++;
-    const p = new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
+    const p = new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      // generous per-line deadline (slow phones), then give up on neural voices
+      setTimeout(() => { if (this.pending.has(id)) { this.pending.delete(id); this.dispose(); reject(new Error('Voice generation timed out')); } }, 30000 + text.length * 400);
+    });
     this.worker.postMessage({ type: 'gen', id, text, voice, speed });
     const out = await p;
     // trim leading/trailing near-silence so lines butt together naturally

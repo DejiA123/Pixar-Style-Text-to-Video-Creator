@@ -202,6 +202,7 @@ async function makeMovie() {
       if (!state.kokoro) state.kokoro = new KokoroEngine();
       const k = state.kokoro;
       k.onProgress = (p) => { steps.label('voices', 'Downloading voice model (one time)'); steps.set('voices', 'active', p); };
+      k.onReady = () => { steps.label('voices', 'Starting voice engine'); steps.set('voices', 'active', ''); };
       await k.load();
       const lines = [{ speaker: 'narrator', text: plan.title }];
       for (const s of plan.scenes) for (const l of s.lines) lines.push(l);
@@ -219,6 +220,9 @@ async function makeMovie() {
       usedNeural = true;
     } catch (e) {
       console.warn('Neural voices unavailable, falling back to browser voices', e);
+      state.kokoro?.dispose?.();
+      state.kokoro = null;
+      clips.clear(); durations.clear();
       toast('AI voices couldn’t load here, so this preview uses your browser’s voices. Downloads will have music but no narration.', false, 9000);
     }
   }
