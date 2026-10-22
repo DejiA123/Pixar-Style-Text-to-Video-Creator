@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { mat, fabric, canvasTexture, basic, glowTexture } from '../materials.js';
+import { mat, fabric, canvasTexture, basic, glowTexture, surfaceMat } from '../materials.js';
 import { makeRng, lerp, smoothstep } from '../../util.js';
 
 const v3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -271,7 +271,7 @@ export function lampPost(night, opts = {}) {
 export function bench(opts = {}) {
   const g = new THREE.Group();
   const w = opts.w ?? 1.8;
-  const wood = mat(opts.color ?? 0x8b5a2b, { roughness: 0.7 });
+  const wood = surfaceMat('oak_wood_planks', 1, 1, { tint: opts.color ?? 0xc8925a, brighten: 1.1 });
   for (let i = 0; i < 3; i++) g.add(mesh(new RoundedBoxGeometry(w, 0.05, 0.13, 2, 0.02), wood, 0, 0.45, -0.15 + i * 0.15));
   for (let i = 0; i < 2; i++) { const b = mesh(new RoundedBoxGeometry(w, 0.05, 0.12, 2, 0.02), wood, 0, 0.65 + i * 0.16, -0.27); b.rotation.x = -0.15; g.add(b); }
   const iron = mat(0x2b2f36, { metalness: 0.6, roughness: 0.4 });
@@ -282,7 +282,7 @@ export function bench(opts = {}) {
 
 export function pew(w = 3.2) {
   const g = new THREE.Group();
-  const wood = mat(0x6e4127, { roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.4 });
+  const wood = surfaceMat('oak_wood_planks', 1, 1, { tint: 0xb07a52, brighten: 1.0, clearcoat: 0.35 });
   g.add(mesh(new RoundedBoxGeometry(w, 0.08, 0.45, 2, 0.03), wood, 0, 0.45, 0));
   const back = mesh(new RoundedBoxGeometry(w, 0.55, 0.06, 2, 0.02), wood, 0, 0.75, -0.22);
   back.rotation.x = -0.08;
@@ -346,7 +346,7 @@ export function candle(lit = true) {
 
 export function stall(rng) {
   const g = new THREE.Group();
-  const wood = mat(0x8b5a2b, { roughness: 0.8 });
+  const wood = surfaceMat('oak_wood_planks', 1, 1, { tint: 0xc8925a, brighten: 1.1 });
   g.add(mesh(new RoundedBoxGeometry(2.4, 0.9, 1.1, 2, 0.04), wood, 0, 0.45, 0));
   for (const [x, z] of [[-1.1, -0.5], [1.1, -0.5], [-1.1, 0.5], [1.1, 0.5]]) g.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 8), wood, x, 1.2, z));
   const cloth = mat(rng.pick([0xd9443b, 0xf2b33d, 0x2f8f6a, 0x3a6fb5, 0xe86aa0, 0xff8a3d]), { roughness: 0.75, sheen: 0.4, side: THREE.DoubleSide });

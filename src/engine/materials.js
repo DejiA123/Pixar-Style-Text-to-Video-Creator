@@ -342,3 +342,37 @@ export function fabricScan(color, kind) {
   scanMats.set(key, m);
   return m;
 }
+
+// ---- scanned surfaces for environments (assets/surface) ---------------------------------
+// kind: wood_floor | brick_4 | grey_plaster | cobblestone_01 | asphalt_02 | grass_path_2 |
+// oak_wood_planks | marble_01 | coast_sand_01 | forest_ground_04 | clay_roof_tiles
+const surfTex = new Map();
+function surfMap(kind, map, rx, ry, srgb) {
+  const key = kind + map + rx + 'x' + ry;
+  if (surfTex.has(key)) return surfTex.get(key);
+  const url = new URL(`../../assets/surface/${kind}_${map}.jpg`, import.meta.url).href;
+  const t = new THREE.TextureLoader().load(url);
+  pending.push(new Promise((res) => { const iv = setInterval(() => { if (t.image && (t.image.complete ?? true)) { clearInterval(iv); res(); } }, 20); setTimeout(() => { clearInterval(iv); res(); }, 15000); }));
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(rx, ry);
+  t.anisotropy = 8;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  surfTex.set(key, t);
+  return t;
+}
+// tint multiplies the photo; brighten compensates for dark scans.
+export function surfaceMat(kind, rx = 4, ry = rx, opts = {}) {
+  if (typeof document === 'undefined') return mat(opts.tint ?? 0x888888, { roughness: 0.8 });
+  const tint = new THREE.Color(opts.tint ?? 0xffffff).multiplyScalar(opts.brighten ?? 1);
+  return new THREE.MeshPhysicalMaterial({
+    color: tint,
+    map: opts.noMap ? null : surfMap(kind, 'diff', rx, ry, true),
+    normalMap: surfMap(kind, 'nor_gl', rx, ry, false),
+    normalScale: new THREE.Vector2(opts.normalScale ?? 1, opts.normalScale ?? 1),
+    roughnessMap: surfMap(kind, 'rough', rx, ry, false),
+    roughness: opts.roughness ?? 1,
+    clearcoat: opts.clearcoat ?? 0,
+    clearcoatRoughness: 0.3,
+    vertexColors: !!opts.vertexColors,
+  });
+}

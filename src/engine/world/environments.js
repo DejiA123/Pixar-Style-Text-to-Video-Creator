@@ -3,6 +3,7 @@
 // origin; the camera usually looks toward -z, so the richest dressing is
 // placed behind the stage, with enough on the sides for angled shots.
 import * as THREE from 'three';
+import { surfaceMat } from '../materials.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { pickHDRI, loadHDRI } from './hdri.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
@@ -233,8 +234,12 @@ function spec_rim(preset) {
 }
 
 // ---- helpers used by builders -------------------------------------------------------
+const GROUND_SCAN = (setting) => /beach|desert|island/.test(setting) ? 'coast_sand_01' : /forest|jungle|camp|woods/.test(setting) ? 'forest_ground_04' : /city|street|market|town|school|village/.test(setting) ? 'cobblestone_01' : 'grass_path_2';
 function groundFor(env, opts) {
   const g = makeGround(opts);
+  const kind = GROUND_SCAN((env.key || '').split('|')[0]);
+  // scanned detail multiplied over the painted ground colours
+  g.material = surfaceMat(kind, kind === 'cobblestone_01' ? 60 : 45, kind === 'cobblestone_01' ? 60 : 45, { vertexColors: true, brighten: kind === 'grass_path_2' ? 2.2 : kind === 'forest_ground_04' ? 2.0 : 1.5, clearcoat: opts.wet ? 0.6 : 0 });
   env.group.add(g);
   env.heightAt = g.userData.heightAt;
   env.groundColor = opts.color;
@@ -306,11 +311,12 @@ function room(env, rng, o) {
   const g = new THREE.Group();
   const { w, d, h } = o;
   const zc = o.zc ?? -d / 2 + 6;
-  const floorM = o.floorTex ? mat(0xffffff, { map: o.floorTex, roughness: 0.5, clearcoat: o.polish ?? 0.3, clearcoatRoughness: 0.3 }) : mat(o.floor, { roughness: 0.7 });
+  const floorM = o.floorKind ? surfaceMat(o.floorKind, w / (o.floorTile ?? 2), d / (o.floorTile ?? 2), { clearcoat: o.polish ?? 0.25, tint: o.floorTint, brighten: o.floorBright ?? 1.1 })
+    : o.floorTex ? surfaceMat('wood_floor', w / 2.2, d / 2.2, { clearcoat: o.polish ?? 0.3, brighten: 1.15 }) : surfaceMat('marble_01', w / 2, d / 2, { tint: o.floor, brighten: 1.1, clearcoat: 0.2 });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), floorM);
   floor.rotation.x = -Math.PI / 2; floor.position.z = zc; floor.receiveShadow = true;
   g.add(floor);
-  const wallM = o.wallTex ? mat(0xffffff, { map: o.wallTex, roughness: 0.9 }) : mat(o.wall, { roughness: 0.9 });
+  const wallM = o.wallTex ? mat(0xffffff, { map: o.wallTex, roughness: 0.9 }) : surfaceMat('grey_plaster', Math.max(w, d) / 3, h / 3, { tint: o.wall, brighten: 1.45, normalScale: 0.6 });
   const mk = (W, x, z, ry) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(W, h), wallM); m.position.set(x, h / 2, z); m.rotation.y = ry; m.receiveShadow = true; g.add(m); return m; };
   mk(w, 0, zc - d / 2, 0);
   mk(d, -w / 2, zc, Math.PI / 2);
@@ -496,7 +502,7 @@ const BUILDERS = {
     const night = env.night;
     groundFor(env, { color: 0x6a6a70, color2: 0x7a7a80, hills: 0, flatRadius: 100, roughness: night ? 0.35 : 0.8, wet: night || env.spec.weather === 'rain' });
     // street: z axis, sidewalks at |x| 4..6
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(8, 160), mat(0x3a3b40, { roughness: night ? 0.3 : 0.75, clearcoat: night ? 0.7 : 0 }));
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(8, 160), surfaceMat('asphalt_02', 2, 40, { roughness: night ? 0.5 : 1, clearcoat: night ? 0.7 : 0, brighten: 0.9 }));
     road.rotation.x = -Math.PI / 2; road.position.set(0, 0.01, -40); road.receiveShadow = true;
     env.group.add(road);
     for (let z = 10; z > -110; z -= 6) { const l = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 2.5), mat(0xf2f0e6)); l.rotation.x = -Math.PI / 2; l.position.set(0, 0.02, z); env.group.add(l); }
@@ -688,7 +694,7 @@ const BUILDERS = {
   church(env, rng, pre) {
     // nave runs along z; altar at -z
     const W = 13, D = 30, H = 9;
-    room(env, rng, { w: W, d: D, h: H, floorTex: canvasTexture(512, 512, (g, w, h) => { for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { g.fillStyle = (x + y) % 2 ? '#c8b89a' : '#a89878'; g.fillRect(x * 64, y * 64, 64, 64); } }), wall: 0xe8dcc6, ceiling: 0x8a6a4a, zc: -3, polish: 0.5 });
+    room(env, rng, { w: W, d: D, h: H, floorKind: 'marble_01', floorTile: 2.5, floorTint: 0xf2e6d2, wall: 0xe8dcc6, ceiling: 0x8a6a4a, zc: -3, polish: 0.5 });
     env.bgColor = 0x1a120c;
     const runner = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 24), mat(0x8a1d2a, { roughness: 0.95, sheen: 0.5 }));
     runner.rotation.x = -Math.PI / 2; runner.position.set(0, 0.012, -3); runner.receiveShadow = true; env.group.add(runner);
