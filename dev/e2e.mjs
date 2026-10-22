@@ -24,11 +24,12 @@ page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
 await page.goto(`http://${host}:8123/index.html`);
 await page.waitForFunction(() => !!window.__storyreel);
 console.log('secure:', await page.evaluate(() => ({ secure: isSecureContext, vc: typeof VideoEncoder, ac: typeof AudioEncoder })));
-if (storyFile) await page.fill('#story', fs.readFileSync(storyFile, 'utf8'));
+if (storyFile) await page.evaluate((t) => { const el = document.getElementById('story'); el.value = t; el.dispatchEvent(new Event('input', { bubbles: true })); }, fs.readFileSync(storyFile, 'utf8'));
 await page.evaluate(() => { document.getElementById('settings').open = true; });
-await page.selectOption('#voice-engine', voice);
-await page.selectOption('#aspect', aspect);
-await page.selectOption('#quality', 'low');
+const setSel = (id, v) => page.evaluate(([id, v]) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); }, [id, v]);
+await setSel('voice-engine', voice);
+await setSel('aspect', aspect);
+await setSel('quality', 'low');
 const t0 = Date.now();
 await page.click('#make');
 let ok = false;
@@ -48,7 +49,7 @@ if (ok) {
     await page.screenshot({ path: `${outDir}/app_${Math.round(f * 100)}.png`, timeout: 300000 });
   }
   if (doExport === '1') {
-    await page.selectOption('#export-res', '720');
+    await setSel('export-res', '720');
     await page.evaluate(() => { const f = window.__storyreel.film; const orig = f.renderAt.bind(f); window.__frames = 0; f.renderAt = (t, o) => { window.__frames++; return orig(t, o); }; });
     const dlP = page.waitForEvent('download', { timeout: 7000000 });
     const te = Date.now();
