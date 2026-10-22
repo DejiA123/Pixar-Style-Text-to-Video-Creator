@@ -91,7 +91,7 @@ test('space story', () => {
 });
 
 test('beach story: kite is held', () => {
-  const plan = parseStory(SAMPLES[4].text);
+  const plan = parseStory(SAMPLES.find((s) => s.id === 'beach').text);
   assert.equal(plan.scenes[0].setting, 'beach');
   const carry = plan.scenes.find((s) => /carrying/.test(s.text));
   assert.ok(carry.props.some((p) => p.type === 'kite' && p.holder));
@@ -109,4 +109,21 @@ test('handles empty and plain text robustly', () => {
   const p2 = parseStory('a cat sat on a mat. it was happy');
   assert.equal(p2.cast[0].kind, 'cat');
   assert.equal(p2.scenes.length, 2);
+});
+
+test('church story: setting, pastor, prayer, godrays', () => {
+  const plan = parseStory(SAMPLES.find((s) => s.id === 'church').text);
+  assert.ok(plan.scenes.some((s) => s.setting === 'church'));
+  const daniel = byName(plan, 'Daniel');
+  assert.equal(daniel.gender, 'm');
+  assert.ok(daniel.accessories.includes('beard'));
+  assert.ok(daniel.accessories.includes('jacket'));
+  const pastor = plan.cast.find((c) => c.role === 'pastor');
+  assert.ok(pastor, JSON.stringify(plan.cast.map((c) => [c.name, c.noun, c.role])));
+  const pray = plan.scenes.find((s) => /prayed/.test(s.text));
+  assert.equal(pray.actions[daniel.id], 'pray');
+  assert.ok(plan.scenes.some((s) => s.fx.includes('godrays')));
+  const love = plan.scenes.find((s) => s.text.includes('God loves'));
+  assert.equal(love.lines.find((l) => l.speaker !== 'narrator').speaker, pastor.id);
+  assert.ok(byName(plan, 'Grace'));
 });

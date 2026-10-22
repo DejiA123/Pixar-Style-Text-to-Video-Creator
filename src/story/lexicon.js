@@ -63,6 +63,27 @@ export const CHARACTER_NOUNS = {
   elf: { kind: 'human', gender: 'n', age: 'child', role: 'elf' },
   mermaid: { kind: 'human', gender: 'f', age: 'teen', role: 'mermaid' },
   musician: { kind: 'human', gender: 'n', age: 'adult', role: 'musician' },
+  pastor: { kind: 'human', gender: 'm', age: 'adult', role: 'pastor' },
+  priest: { kind: 'human', gender: 'm', age: 'adult', role: 'priest' },
+  preacher: { kind: 'human', gender: 'm', age: 'adult', role: 'pastor' },
+  minister: { kind: 'human', gender: 'n', age: 'adult', role: 'pastor' },
+  bishop: { kind: 'human', gender: 'm', age: 'old', role: 'priest' },
+  nun: { kind: 'human', gender: 'f', age: 'adult', role: 'nun' },
+  angel: { kind: 'human', gender: 'n', age: 'adult', role: 'angel' },
+  believer: { kind: 'human', gender: 'n', age: 'adult' },
+  stranger: { kind: 'human', gender: 'm', age: 'adult' },
+  neighbor: { kind: 'human', gender: 'n', age: 'adult' },
+  neighbour: { kind: 'human', gender: 'n', age: 'adult' },
+  nurse: { kind: 'human', gender: 'f', age: 'adult', role: 'doctor' },
+  boss: { kind: 'human', gender: 'n', age: 'adult', role: 'office' },
+  husband: { kind: 'human', gender: 'm', age: 'adult' },
+  wife: { kind: 'human', gender: 'f', age: 'adult' },
+  boyfriend: { kind: 'human', gender: 'm', age: 'teen' },
+  girlfriend: { kind: 'human', gender: 'f', age: 'teen' },
+  uncle: { kind: 'human', gender: 'm', age: 'adult' },
+  aunt: { kind: 'human', gender: 'f', age: 'adult' },
+  shepherd: { kind: 'human', gender: 'm', age: 'adult', role: 'shepherd' },
+  singer: { kind: 'human', gender: 'n', age: 'adult', role: 'musician' },
   artist: { kind: 'human', gender: 'n', age: 'adult', role: 'artist' },
   painter: { kind: 'human', gender: 'n', age: 'adult', role: 'artist' },
   programmer: { kind: 'human', gender: 'n', age: 'adult', role: 'student' },
@@ -141,6 +162,9 @@ export const SETTINGS = {
   candy: ['candy ?land', 'land of sweets', 'candy kingdom', 'gingerbread', 'lollipop forest', 'chocolate river'],
   sky: ['above the clouds', 'in the sky', 'through the sky', 'among the clouds', 'up in the air', 'cloud kingdom'],
   stage: ['stage', 'concert', 'theater', 'theatre', 'talent show', 'party hall'],
+  church: ['church', 'chapel', 'cathedral', 'altar', 'pews?', 'sanctuary', 'worship service', 'sunday service', 'congregation', 'temple', 'mosque'],
+  market: ['market', 'bazaar', 'marketplace', 'street market', 'stalls?', 'vendors?'],
+  hospital: ['hospital', 'clinic', 'doctor\'s office', 'ward'],
 };
 
 // Human-readable slugline names (screenplay style).
@@ -148,9 +172,9 @@ export const SETTING_LABEL = {
   meadow: 'MEADOW', forest: 'FOREST', beach: 'BEACH', underwater: 'UNDER THE SEA', city: 'CITY STREET',
   village: 'VILLAGE', farm: 'FARM', home: 'HOUSE', school: 'SCHOOL', space: 'OUTER SPACE', desert: 'DESERT',
   snow: 'ARCTIC', mountain: 'MOUNTAINS', castle: 'CASTLE', cave: 'CAVE', lake: 'LAKESIDE', candy: 'CANDY LAND',
-  sky: 'ABOVE THE CLOUDS', stage: 'STAGE',
+  sky: 'ABOVE THE CLOUDS', stage: 'STAGE', church: 'CHURCH', market: 'MARKET', hospital: 'HOSPITAL',
 };
-export const INTERIOR_SETTINGS = new Set(['home', 'school', 'cave', 'stage']);
+export const INTERIOR_SETTINGS = new Set(['home', 'school', 'cave', 'stage', 'church', 'hospital']);
 
 export const TIMES = {
   dawn: ['morning', 'sunrise', 'dawn', 'woke up', 'breakfast', 'early'],
@@ -208,6 +232,7 @@ export const ACTIONS = {
   stomp: ['stomp', 'roar', 'growl', 'grumble'],
   ride: ['ride', 'drive', 'pilot', 'steer', 'sail'],
   stand: ['stand', 'wait', 'stay', 'meet'],
+  pray: ['pray', 'kneel', 'worship', 'bless', 'repent', 'confess', 'praise', 'baptize', 'baptise', 'preach'],
 };
 
 // Irregular past forms → base verb.
@@ -234,7 +259,8 @@ export const EMOTIONS = {
   tired: ['tired', 'sleepy', 'exhausted', 'yawn', 'weary'],
   love: ['love', 'adore', 'heart', 'kiss', 'darling', 'sweetheart', 'best friend'],
   proud: ['proud', 'brave', 'determined', 'courage', 'confident', 'strong', 'hero'],
-  calm: ['peaceful', 'calm', 'quiet', 'gentle', 'softly', 'still', 'cozy', 'cosy'],
+  calm: ['peaceful', 'calm', 'quiet', 'gentle', 'softly', 'still', 'cozy', 'cosy', 'pray', 'peace'],
+  hopeful: ['hope', 'faith', 'grace', 'born again', 'new life', 'forgiven', 'saved', 'redeemed', 'blessed', 'grateful', 'thankful', 'glory', 'hallelujah', 'amen'],
 };
 
 // ---- Props ------------------------------------------------------------------
@@ -294,6 +320,9 @@ export const PROPS = {
   microphone: ['microphone', 'mic'],
   camera: ['camera'],
   skateboard: ['skateboard'],
+  bible: ['bible', 'scripture', 'hymn book', 'hymnal'],
+  cross: ['cross', 'crucifix'],
+  candle: ['candle', 'candles'],
 };
 
 // Words that signal a held/carried prop.
@@ -311,6 +340,7 @@ export const FX = {
   fireworks: ['fireworks', 'firework'],
   poof: ['poof', 'boom', 'explode', 'explosion', 'smoke', 'puff'],
   shootingstar: ['shooting star', 'wishing star', 'comet', 'wish upon'],
+  godrays: ['light', 'heaven', 'heavenly', 'glory', 'holy', 'spirit', 'born again', 'saved', 'grace', 'faith', 'god', 'jesus', 'lord', 'blessing', 'miracle', 'angel', 'sunbeam', 'sunlight'],
 };
 
 export const STOPWORDS_CAPS = new Set(('The A An And But Or So Then When While After Before Once One Two Three Every Each ' +

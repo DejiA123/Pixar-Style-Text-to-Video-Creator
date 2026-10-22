@@ -57,6 +57,22 @@ They floated together past glowing planets and laughed.
 Then Luna flew home and told everyone about her new friend.`,
   },
   {
+    id: 'church',
+    label: 'Born Again',
+    text: `Born Again
+
+Daniel was a tired man with a short beard and a gray jacket.
+For years he felt lost and alone in the busy city.
+One Sunday morning, his neighbor Grace invited him to church.
+Daniel walked into the old chapel and sat quietly in the back pew.
+The choir sang, and warm light poured through the stained glass windows.
+Pastor James smiled and said, "God loves you, no matter where you have been."
+Daniel closed his eyes and prayed for the first time in years.
+Tears rolled down his face, but his heart felt light and new.
+"I feel born again," Daniel whispered.
+Grace hugged him, and everyone in the church cheered with joy.`,
+  },
+  {
     id: 'beach',
     label: 'Grandpa and the Kite',
     text: `Grandpa and the Kite

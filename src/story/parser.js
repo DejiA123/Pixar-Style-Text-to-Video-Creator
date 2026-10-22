@@ -93,7 +93,7 @@ for (const [action, verbs] of Object.entries(ACTIONS)) {
   }
 }
 // More visual actions win when a character has several verbs in one sentence.
-const ACTION_PRIORITY = ['fly', 'swim', 'chase', 'run', 'dance', 'jump', 'climb', 'fall', 'hug', 'cheer', 'magic', 'sleep', 'cry', 'laugh', 'ride', 'sneak', 'walk', 'play', 'eat', 'build', 'cook', 'paint', 'read', 'sing', 'discover', 'hold', 'wave', 'point', 'bow', 'shiver', 'stomp', 'hide', 'sit', 'think', 'look', 'talk', 'stand'];
+const ACTION_PRIORITY = ['pray', 'fly', 'swim', 'chase', 'run', 'dance', 'jump', 'climb', 'fall', 'hug', 'cheer', 'magic', 'sleep', 'cry', 'laugh', 'ride', 'sneak', 'walk', 'play', 'eat', 'build', 'cook', 'paint', 'read', 'sing', 'discover', 'hold', 'wave', 'point', 'bow', 'shiver', 'stomp', 'hide', 'sit', 'think', 'look', 'talk', 'stand'];
 
 function settingMatchers() {
   const out = [];
@@ -244,6 +244,23 @@ function detectCast(sentences) {
       }
       const mem = addMember({ name, noun, ...info, firstSentence: si });
       applyAdjectives(mem, m[0].toLowerCase().split(/[^a-z-]+/));
+    }
+  });
+
+  // 2a) "his neighbor Grace" / "Pastor James" / "granddaughter Rosie"
+  sentences.forEach((s, si) => {
+    const re = new RegExp(`\\b(${nounAlt})\\s+([A-Z][a-z]+)\\b`, 'gi');
+    let m;
+    while ((m = re.exec(s))) {
+      const name = m[2];
+      if (!/^[A-Z]/.test(name) || STOPWORDS_CAPS.has(name) || CHARACTER_NOUNS[name.toLowerCase()]) continue;
+      const noun = m[1].toLowerCase();
+      const info = nounInfo(noun);
+      if (!info) continue;
+      const ex = byName.get(name);
+      if (ex) { if (!ex.noun) Object.assign(ex, { noun, kind: info.kind, role: info.role || ex.role, age: info.age || ex.age }); continue; }
+      const mem = addMember({ name, noun, ...info, firstSentence: si });
+      applyAdjectives(mem, adjectivesBefore(s.toLowerCase(), m.index));
     }
   });
 
@@ -478,6 +495,7 @@ function detectEmotion(text) {
 function moodFor(emotions, setting, time, weather, actions) {
   const set = new Set(Object.values(emotions));
   const acts = new Set(Object.values(actions));
+  if (acts.has('pray') || set.has('hopeful') || setting === 'church') return set.has('sad') ? 'sad' : 'hopeful';
   if (set.has('scared') || weather === 'storm') return 'tense';
   if (set.has('sad')) return 'sad';
   if (set.has('angry')) return 'tense';
@@ -538,7 +556,7 @@ export function parseStory(rawText, opts = {}) {
     const isNewSetting = setting !== prevSetting;
     if (isNewSetting && prevSetting !== null) weather = 'clear';
     for (const [w, words] of Object.entries(WEATHER)) if (matchAny(lowerNQ, words)) weather = w;
-    if (setting === 'space' || setting === 'underwater' || setting === 'cave' || setting === 'home' || setting === 'school' || setting === 'stage') {
+    if (['space', 'underwater', 'cave', 'home', 'school', 'stage', 'church', 'hospital'].includes(setting)) {
       if (weather !== 'clear') weather = 'clear';
     }
     if (setting === 'snow' && weather === 'clear' && si % 2 === 0) weather = 'snow';
@@ -632,6 +650,10 @@ export function parseStory(rawText, opts = {}) {
       const between = lowerNQ.slice(from, hit.idx);
       const np = between.match(/\b(?:and|while|as|but|then|when)\s+(?:the|a|an|his|her|their|its)\s+(?:[a-z-]+\s+)?([a-z-]+)\s*$/);
       if (np && !CHARACTER_NOUNS[np[1]] && !cast.some((c) => c.noun === np[1])) continue;
+      if (!prior.length) {
+        const lead = lowerNQ.slice(0, hit.idx).match(/(?:^|[,;]\s*|\band\s+)(?:the|a|an|some|many)\s+(?:[a-z-]+\s+)?([a-z-]+)\s+$/);
+        if (lead && !CHARACTER_NOUNS[lead[1]] && !cast.some((c) => c.noun === lead[1])) continue;
+      }
       if (prior.length) subj = prior[0].id;
       else if (mentionedIds.length) subj = mentionedIds[0];
       else if (characters.length) subj = characters[0];
@@ -681,7 +703,7 @@ export function parseStory(rawText, opts = {}) {
         else if (!emo && /\?/.test(l.text)) emo = 'curious';
       }
       if (!emo) {
-        emo = { laugh: 'happy', cry: 'sad', dance: 'happy', cheer: 'excited', hug: 'love', sleep: 'tired', shiver: 'scared', stomp: 'angry', discover: 'surprised', think: 'curious', fall: 'surprised', hide: 'scared', sneak: 'curious' }[act] || null;
+        emo = { pray: 'hopeful', laugh: 'happy', cry: 'sad', dance: 'happy', cheer: 'excited', hug: 'love', sleep: 'tired', shiver: 'scared', stomp: 'angry', discover: 'surprised', think: 'curious', fall: 'surprised', hide: 'scared', sneak: 'curious' }[act] || null;
       }
       emotions[id] = emo || 'neutral';
     }
@@ -737,6 +759,7 @@ export function parseStory(rawText, opts = {}) {
     else if (speakingChars.length) shot = 'closeup';
     else if (['run', 'chase', 'walk', 'sneak', 'ride'].includes(mainAct)) shot = 'tracking';
     else if (['fly', 'climb'].includes(mainAct)) shot = 'lowangle';
+    else if (mainAct === 'pray') shot = 'closeup';
     else if (['dance', 'cheer', 'jump', 'play', 'hug', 'magic'].includes(mainAct)) shot = 'wide';
     else if (['cry', 'laugh', 'think', 'surprised', 'scared', 'love', 'sad'].includes(mainAct) || ['surprised', 'scared', 'sad', 'love'].includes(emo)) shot = 'closeup';
     else if (characters.length >= 3) shot = 'wide';

@@ -1,0 +1,82 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Character Lab</title>
+<style>html,body{margin:0;height:100%;background:#111}canvas{width:100%;height:100%;display:block}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/build/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+</head><body><canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { FilmRenderer } from '../src/engine/renderer.js';
+import { Character } from '../src/engine/characters/character.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const params = new URLSearchParams(location.search);
+const canvas = document.getElementById('c');
+const fr = new FilmRenderer(canvas, { quality: params.get('q') || 'high', preserveDrawingBuffer: true });
+const W = +(params.get('w') || 720), H = +(params.get('h') || 900);
+canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+fr.setSize(W, H, 1);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x6d7f99);
+const pmrem = new THREE.PMREMGenerator(fr.renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.35;
+const key = new THREE.DirectionalLight(0xffe6c8, 3.2);
+key.position.set(-2.5, 4, 4); key.castShadow = true; key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = -2; key.shadow.camera.right = 2; key.shadow.camera.top = 3; key.shadow.camera.bottom = -1; key.shadow.radius = 4; key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xbfd8ff, 3.0); rim.position.set(3, 3, -4); scene.add(rim);
+const rim2 = new THREE.DirectionalLight(0xffc9a0, 1.6); rim2.position.set(-3, 2, -3); scene.add(rim2);
+scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x8a6f5a, 0.45));
+const ground = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.MeshStandardMaterial({ color: 0x9a8f80, roughness: 0.9 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+const casts = JSON.parse(params.get('cast') || 'null') || [
+  { id: 'c1', name: 'Leo', kind: 'human', gender: 'm', age: 'teen', accessories: ['glasses', 'backpack'], hair: { style: 'spiky', color: 0x3b261a }, seed: 11, outfitColor: 0x5a6f8a },
+];
+const chars = casts.map((c) => new Character(c));
+chars.forEach((ch, i) => { ch.root.position.x = (i - (chars.length - 1) / 2) * 1.2; scene.add(ch.root); });
+const cam = new THREE.PerspectiveCamera(+(params.get('fov') || 30), W / H, 0.05, 100);
+let focusChar = chars[+(params.get('focus') || 0)];
+window.renderAt = (t, opts = {}) => {
+  if (opts.focus != null) { focusChar = chars[opts.focus]; chars.forEach((c) => (c.root.visible = !opts.solo || c === focusChar)); }
+  const action = opts.action || params.get('action') || 'stand';
+  const emotion = opts.emotion || params.get('emotion') || 'happy';
+  const shot = opts.shot || params.get('shot') || 'closeup';
+  const yaw = +(opts.yaw ?? params.get('yaw') ?? 0.25);
+  const dist = shot === 'closeup' ? 0.95 : shot === 'medium' ? 2.1 : 4.6;
+  const upd = (look) => chars.forEach((ch) => ch.update({ t, localT: t, action, emotion, talk: opts.talk ?? +(params.get('talk') || 0), lookAt: look ? cam.position : null }));
+  const place = () => {
+    scene.updateMatrixWorld(true);
+    const head = focusChar.headWorld(new THREE.Vector3());
+    const target = shot === 'closeup' ? head : shot === 'medium' ? head.clone().add(new THREE.Vector3(0, -0.3, 0)) : new THREE.Vector3(0, focusChar.height * 0.55, 0);
+    cam.position.set(target.x + Math.sin(yaw) * dist, target.y + (shot === 'closeup' ? 0.02 : 0.1), target.z + Math.cos(yaw) * dist);
+    cam.lookAt(target);
+  };
+  upd(false); place(); upd(true); place();
+  fr.render(scene, cam, { focusDist: dist, aperture: +(params.get('ap') ?? 0.5), time: t, bloom: +(params.get('bloom') ?? 0.25), vignette: 0.3 });
+};
+// Render several configs into a collage: ?grid=[{"emotion":"sad"},...]
+const grid = JSON.parse(params.get('grid') || 'null');
+if (grid) {
+  const cols = +(params.get('cols') || Math.ceil(Math.sqrt(grid.length))), rows = Math.ceil(grid.length / cols);
+  fr.setSize(W / cols, H / rows, 1);
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const g = out.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  grid.forEach((cfg, i) => {
+    window.renderAt(cfg.t ?? 1.0, cfg);
+    const cw = W / cols, ch = H / rows;
+    g.drawImage(canvas, (i % cols) * cw, Math.floor(i / cols) * ch, cw, ch);
+    g.fillStyle = '#fff'; g.font = '14px sans-serif';
+    g.fillText(cfg.label || cfg.emotion || cfg.action || '', (i % cols) * cw + 6, Math.floor(i / cols) * ch + 18);
+  });
+  document.body.innerHTML = '';
+  out.style.cssText = `width:${W}px;height:${H}px;display:block`;
+  document.body.appendChild(out);
+  window.__ready = true;
+} else {
+window.renderAt(+(params.get('t') || 1.0));
+window.__ready = true;
+}
+</script></body></html>
