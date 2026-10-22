@@ -1,0 +1,12 @@
+{
+  "name": "pixar-style-text-to-video-creator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Type a story, get a 3D animated film with voice-over — rendered entirely in the browser.",
+  "scripts": {
+    "start": "npx --yes http-server -p 8080 -c-1 .",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "license": "MIT"
+}
