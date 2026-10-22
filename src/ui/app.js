@@ -83,6 +83,9 @@ function init() {
     if (e.code === 'Space' && state.player) { e.preventDefault(); state.player.toggle(); }
   });
   new ResizeObserver(() => resizePreview()).observe($('screen'));
+  // Ctrl/⌘+Enter generates; clicking elsewhere closes the settings popover
+  $('story').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); makeMovie().catch(fail); } });
+  document.addEventListener('click', (e) => { const d = $('settings'); if (d.open && !d.contains(e.target)) d.open = false; });
   window.__storyreel = state; // handy for debugging and automated tests
 }
 
@@ -149,7 +152,7 @@ function fail(e) {
   console.error(e);
   state.busy = false;
   $('make').disabled = false;
-  $('make').textContent = 'Make my movie';
+  $('make').textContent = 'Generate';
   for (const li of steps.list) if (li.classList.contains('active')) { li.classList.remove('active'); li.classList.add('error'); }
   if (e && e.name === 'AbortError') { toast('Stopped.'); return; }
   toast(`Something went wrong: ${e && e.message ? e.message : e}`, true, 9000);
@@ -164,7 +167,7 @@ async function makeMovie() {
   if (!text) { toast('Write a story first, or pick one of the examples.'); return; }
   state.busy = true;
   $('make').disabled = true;
-  $('make').textContent = 'Making your movie…';
+  $('make').textContent = 'Generating…';
   if (state.player) { state.player.dispose(); state.player = null; }
   const ai = $('render-mode').value === 'ai';
   const neural = $('voice-engine').value === 'neural';
@@ -272,9 +275,29 @@ async function makeMovie() {
   $('dur').textContent = formatTime(tl.duration);
   state.busy = false;
   $('make').disabled = false;
-  $('make').textContent = 'Make it again';
+  $('make').textContent = 'Generate again';
+  await captureThumbs(tl);
   state.player.seek(0);
   state.player.play();
+}
+
+// A frame from the middle of every shot, shown on its card.
+async function captureThumbs(tl) {
+  const cards = $('board').children, out = $('out');
+  const c = document.createElement('canvas');
+  const w = 320, h = Math.round(w / aspectNum(state.aspect));
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  for (let i = 0; i < tl.shots.length && i < cards.length; i++) {
+    try {
+      const s = tl.shots[i];
+      state.player.seek(s.start + (s.end - s.start) * 0.55);
+      g.drawImage(out, 0, 0, w, h);
+      const th = cards[i].querySelector('.thumb');
+      if (th) th.style.backgroundImage = `url(${c.toDataURL('image/jpeg', 0.75)})`;
+    } catch (e) { console.warn('thumbnail failed', e); }
+    await new Promise((r) => setTimeout(r, 0));
+  }
 }
 
 // In-page confirmation for paid AI renders (no window.confirm in sandboxes).
@@ -325,7 +348,7 @@ function buildBoard(tl) {
     card.type = 'button'; card.className = 'card'; card.setAttribute('role', 'listitem');
     const who = (s.ids || []).map((id) => displayName(tl.cast.find((c) => c.id === id))).join(', ');
     const line = s.kind === 'title' ? tl.title : (s.lines[0] ? s.lines[0].text : s.scene.text);
-    card.innerHTML = `<span class="slugline">SC ${String(i).padStart(2, '0')} · ${slugline(s)}</span>
+    card.innerHTML = `<span class="thumb"></span><span class="slugline">SC ${String(i).padStart(2, '0')} · ${slugline(s)}</span>
       <span class="shot"><span class="tag">${SHOT_ABBR[s.kind === 'title' ? 'title' : s.type] || s.type.toUpperCase()}</span><span class="tag mood">${(s.scene.mood || '').toUpperCase()}</span><span class="dim" style="font:12px var(--font-script)">${(s.end - s.start).toFixed(1)}s</span></span>
       <span class="line"></span>${who ? `<span class="who"></span>` : ''}`;
     card.querySelector('.line').textContent = line;
