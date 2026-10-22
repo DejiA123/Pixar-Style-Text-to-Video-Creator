@@ -1,5 +1,6 @@
 // The Film: a deterministic world that can render any moment t of the
 // movie. Owns characters, environments, props and effects.
+import { fabricsReady } from '../engine/materials.js';
 import * as THREE from 'three';
 import { Character } from '../engine/characters/character.js';
 import { buildEnvironment } from '../engine/world/environments.js';
@@ -44,9 +45,10 @@ export class Film {
       await tick(`Building ${c.name || c.noun || 'character'}`);
     }
     for (const key of envKeys) {
-      this.getEnv(key);
+      await this.getEnv(key).loadHDRI(this.fr.renderer);
       await tick(`Building ${key.split('|')[0]}`);
     }
+    await fabricsReady();
     // compile shaders for every environment once, so playback doesn't hitch
     for (const env of this.envs.values()) {
       env.attach(this.scene);

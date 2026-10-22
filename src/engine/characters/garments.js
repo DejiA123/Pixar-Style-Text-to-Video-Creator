@@ -301,6 +301,21 @@ export function buildGarments(model, o, mats, bones, opts = {}) {
     meshes.push(m);
   }
 
+  // ---- backpack straps hugging the clothes over the shoulders
+  if (o.backpack && mats.strap) {
+    const outerT = openFront ? 0.016 : top === 'hoodie' ? 0.014 : 0.012;
+    const xs = (y) => lerp(model.sx * 0.5, neckR * 1.9, smoothstep(hy + Ht * 0.3, W.neck.y, y));
+    const sf = (x, y, z) => {
+      const ax = Math.abs(x);
+      const shell = Math.abs(model.torso(x, y, z) - outerT - 0.012) - 0.006;
+      let d = Math.max(shell, Math.abs(ax - xs(y)) - 0.021, hy + Ht * 0.3 - y);
+      return d;
+    };
+    const m = skinnedFromSDF(sf, mats.strap, bones, W, dims, { box: [[-0.3, hy + Ht * 0.25, -0.3], [0.3, W.neck.y + 0.08, 0.3]], h: 0.004, force: 'chest' });
+    m.name = 'straps';
+    meshes.push(m);
+  }
+
   // ---- exposed skin ----------------------------------------------------------------
   const skinParts = [];
   const sleeveCut = top === 'armor' ? 1.9 : longTop && top !== 'gown' ? 1.85 : openFront || ['shirt', 'sweater', 'hoodie', 'suit'].includes(top) ? 1.85 : top === 'gown' ? 0 : top === 'dress' ? 0.3 : 0.38;

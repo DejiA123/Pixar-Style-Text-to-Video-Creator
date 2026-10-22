@@ -302,3 +302,43 @@ export function canvasTexture(w, h, draw) {
   t.anisotropy = 4;
   return t;
 }
+
+// ---- scanned fabrics (CC0 Poly Haven photo-scans in assets/fabric) --------------------
+const SCANS = { denim: 'denim_fabric', cotton: 'cotton_jersey', knit: 'jersey_melange', fleece: 'polar_fleece', linen: 'rough_linen' };
+const scanTex = new Map();
+const pending = [];
+const scanMats = new Map();
+function scanMap(kind, map, srgb) {
+  const key = kind + map;
+  if (scanTex.has(key)) return scanTex.get(key);
+  const url = new URL(`../../assets/fabric/${SCANS[kind]}_${map}.jpg`, import.meta.url).href;
+  const t = new THREE.TextureLoader().load(url);
+  pending.push(new Promise((res) => { const iv = setInterval(() => { if (t.image && (t.image.complete ?? true)) { clearInterval(iv); res(); } }, 20); setTimeout(() => { clearInterval(iv); res(); }, 15000); }));
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(2, 2);
+  t.anisotropy = 8;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  scanTex.set(key, t);
+  return t;
+}
+export function fabricsReady() { return Promise.all(pending); }
+// kind: denim | cotton | knit | fleece | linen
+export function fabricScan(color, kind) {
+  if (typeof document === 'undefined') return fabric(color, { knit: kind === 'knit' });
+  const c = new THREE.Color(color);
+  const key = kind + color;
+  if (scanMats.has(key)) return scanMats.get(key);
+  const m = mat(kind === 'denim' ? c.clone().lerp(new THREE.Color(0xffffff), 0.35).getHex() : color, {
+    map: kind === 'denim' ? scanMap(kind, 'diff', true) : null,
+    normalMap: scanMap(kind, 'nor_gl', false),
+    normalScale: kind === 'fleece' ? 0.6 : 0.9,
+    roughnessMap: scanMap(kind, 'rough', false),
+    roughness: 1,
+    sheen: kind === 'fleece' || kind === 'knit' ? 0.8 : 0.45,
+    sheenColor: c.clone().lerp(new THREE.Color(0xffffff), 0.5).getHex(),
+    sheenRoughness: 0.6,
+    noCache: true,
+  });
+  scanMats.set(key, m);
+  return m;
+}

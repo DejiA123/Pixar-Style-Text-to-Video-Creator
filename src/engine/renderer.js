@@ -2,6 +2,7 @@
 // cinematic post chain (bokeh depth of field → bloom → grade → ACES output).
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
@@ -99,10 +100,10 @@ const GRADE_SHADER = {
 };
 
 export const QUALITY = {
-  low: { pixelRatio: 0.75, samples: 0, shadows: 1024, dofIters: 0, bloom: true },
-  medium: { pixelRatio: 1, samples: 4, shadows: 2048, dofIters: 70, bloom: true },
-  high: { pixelRatio: 1.5, samples: 4, shadows: 2048, dofIters: 140, bloom: true },
-  export: { pixelRatio: 1, samples: 8, shadows: 4096, dofIters: 260, bloom: true },
+  low: { pixelRatio: 0.75, samples: 0, shadows: 1024, dofIters: 0, bloom: true, ao: false },
+  medium: { pixelRatio: 1, samples: 4, shadows: 2048, dofIters: 70, bloom: true, ao: true },
+  high: { pixelRatio: 1.5, samples: 4, shadows: 2048, dofIters: 140, bloom: true, ao: true },
+  export: { pixelRatio: 1, samples: 8, shadows: 4096, dofIters: 260, bloom: true, ao: true },
 };
 
 export class FilmRenderer {
@@ -147,6 +148,7 @@ export class FilmRenderer {
     this.rtA = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, depthBuffer: false });
     this.rtB = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, depthBuffer: false });
     this.bloom.setSize(w, h);
+    if (this.gtao) this.gtao.setSize(w, h);
   }
 
   setQuality(name) {
@@ -183,12 +185,26 @@ export class FilmRenderer {
     r.render(scene, camera);
 
     let src = this.rtScene;
+    // ambient occlusion: contact shadows in folds, under chins, around feet
+    if (this.q.ao && fx.ao !== false) {
+      if (!this.gtao) {
+        this.gtao = new GTAOPass(scene, camera, this.width, this.height);
+        this.gtao.output = GTAOPass.OUTPUT.Default;
+      }
+      const ao = this.gtao;
+      ao.scene = scene; ao.camera = camera;
+      ao.updateGtaoMaterial({ radius: fx.aoRadius ?? 0.35, distanceExponent: 1.5, thickness: 1.2, scale: 1.0, samples: 16, distanceFallOff: 1.0 });
+      ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+      ao.blendIntensity = fx.aoIntensity ?? 0.85;
+      ao.render(r, this.rtB, this.rtScene);
+      src = this.rtB;
+    }
     const aperture = this.q.dofIters > 0 ? fx.aperture ?? 0 : 0;
     {
       // always runs: clamps HDR outliers (tiny specular peaks would otherwise
       // bloom across the whole frame); blurs only when aperture > 0
       const u = this.dofQuad.material.uniforms;
-      u.tColor.value = this.rtScene.texture;
+      u.tColor.value = src.texture;
       u.tDepth.value = this.rtScene.depthTexture;
       u.cameraNear.value = camera.near;
       u.cameraFar.value = camera.far;

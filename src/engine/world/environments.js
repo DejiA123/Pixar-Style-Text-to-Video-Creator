@@ -4,6 +4,7 @@
 // placed behind the stage, with enough on the sides for angled shots.
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { pickHDRI, loadHDRI } from './hdri.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mat, fabric, canvasTexture, glowTexture, basic } from '../materials.js';
 import { makeRng, smoothstep, lerp, noise1 } from '../../util.js';
@@ -185,7 +186,18 @@ export class Environment {
     this.exposure = this.grade.exposure ?? preset.exposure;
   }
 
+  // Swap the procedural light probe for a real HDRI, normalised to this world's brightness.
+  async loadHDRI(renderer) {
+    const [setting, time] = this.key.split('|');
+    const r = await loadHDRI(renderer, pickHDRI(setting, time, this.interior));
+    if (!r) return;
+    this.envMap = r.texture;
+    this.envIntensity = (this.envIntensityOverride ?? this.envIntensity) * Math.min(3, 0.45 / Math.max(0.02, r.mean));
+    if (this._scene) { this._scene.environment = this.envMap; this._scene.environmentIntensity = this.envIntensity; }
+  }
+
   attach(scene) {
+    this._scene = scene;
     scene.add(this.group);
     scene.fog = this.fog;
     scene.background = this.background;
@@ -193,7 +205,7 @@ export class Environment {
     scene.environmentIntensity = this.envIntensity;
   }
 
-  detach(scene) { scene.remove(this.group); }
+  detach(scene) { scene.remove(this.group); this._scene = null; }
 
   update(t) { for (const u of this.updaters) u(t); }
 

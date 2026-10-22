@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { fabric, mat, canvasTexture, knitNormalMap, weaveNormalMap } from '../materials.js';
 import { lerp, smoothstep, makeRng } from '../../util.js';
+import { sdEllipsoid, sdSphere, sdCapsule, smin, smax, surfaceNets } from './sdf.js';
 
 const v3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
@@ -134,30 +135,55 @@ export function torsoGeometry(dims, opts = {}) {
 }
 
 // ---- hands ---------------------------------------------------------------------
+// Sculpted palm (knuckles, thumb mound, wrist) and tapered fingers with soft
+// knuckle bulges; fingers stay separate groups so they can curl.
+const handGeoCache = new Map();
+function sdfMesh(key, f, box, h) {
+  if (handGeoCache.has(key)) return handGeoCache.get(key);
+  const g = surfaceNets(f, box[0], box[1], h, { project: 1, exactNormals: true });
+  handGeoCache.set(key, g);
+  return g;
+}
 export function buildHand(skinMat, s, side) {
   const hand = new THREE.Group();
-  const palm = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 16), skinMat);
-  palm.scale.set(0.042 * s, 0.05 * s, 0.022 * s);
-  palm.position.y = -0.04 * s;
+  const k = Math.round(s * 100);
+  const palmG = sdfMesh('palm' + k + side, (x, y, z) => {
+    let d = sdEllipsoid(x, y, z, 0, -0.045 * s, 0, 0.04 * s, 0.045 * s, 0.017 * s);
+    d = smin(d, sdCapsule(x, y, z, -0.032 * s, -0.08 * s, 0.001 * s, 0.032 * s, -0.082 * s, 0.001 * s, 0.012 * s), 0.012 * s);
+    d = smin(d, sdEllipsoid(x, y, z, side * 0.024 * s, -0.03 * s, 0.01 * s, 0.017 * s, 0.026 * s, 0.014 * s), 0.01 * s);
+    d = smin(d, sdCapsule(x, y, z, 0, 0.012 * s, 0, 0, -0.02 * s, 0, 0.022 * s, 0.026 * s), 0.02 * s);
+    return d;
+  }, [[-0.06 * s, -0.11 * s, -0.035 * s], [0.06 * s, 0.03 * s, 0.035 * s]], 0.0022 * s);
+  const palm = new THREE.Mesh(palmG, skinMat);
   palm.castShadow = true;
   hand.add(palm);
   const fingers = [];
   for (let i = 0; i < 4; i++) {
     const f = new THREE.Group();
-    const len = (i === 1 || i === 2 ? 0.05 : 0.042) * s;
-    const seg = capsule(0.0105 * s, len, skinMat, 10);
-    seg.position.y = -len / 2 - 0.006 * s;
+    const len = (i === 1 ? 0.056 : i === 2 ? 0.052 : i === 0 ? 0.048 : 0.04) * s;
+    const r = (i === 3 ? 0.0085 : 0.0098) * s;
+    const fg = sdfMesh('finger' + k + i, (x, y, z) => {
+      let d = sdCapsule(x, y, z, 0, 0, 0, 0, -len, 0, r, r * 0.78);
+      d = smin(d, sdSphere(x, y, z, 0, -len * 0.45, 0.002 * s, r * 1.05), 0.006 * s);
+      // nail bed: a slight flattening on the back of the tip
+      d = smax(d, (z - r * 0.85) - 0.0, 0.004 * s);
+      return d;
+    }, [[-0.02 * s, -len - 0.02 * s, -0.02 * s], [0.02 * s, 0.02 * s, 0.02 * s]], 0.0018 * s);
+    const seg = new THREE.Mesh(fg, skinMat);
+    seg.castShadow = true;
     f.add(seg);
-    f.position.set((i - 1.5) * 0.02 * s, -0.082 * s, 0);
+    f.position.set((i - 1.5) * 0.019 * s, -0.082 * s, 0);
     hand.add(f);
     fingers.push(f);
   }
   const thumb = new THREE.Group();
-  const tseg = capsule(0.012 * s, 0.04 * s, skinMat, 10);
-  tseg.position.y = -0.024 * s;
+  const tg = sdfMesh('thumb' + k, (x, y, z) => smin(sdCapsule(x, y, z, 0, 0, 0, 0, -0.045 * s, 0, 0.0115 * s, 0.009 * s), sdSphere(x, y, z, 0, -0.022 * s, 0, 0.012 * s), 0.006 * s),
+    [[-0.02 * s, -0.065 * s, -0.02 * s], [0.02 * s, 0.02 * s, 0.02 * s]], 0.0018 * s);
+  const tseg = new THREE.Mesh(tg, skinMat);
+  tseg.castShadow = true;
   thumb.add(tseg);
-  thumb.position.set(side * 0.034 * s, -0.035 * s, 0.012 * s);
-  thumb.rotation.z = side * 0.75;
+  thumb.position.set(side * 0.03 * s, -0.04 * s, 0.012 * s);
+  thumb.rotation.z = side * 0.65;
   thumb.rotation.y = side * -0.5;
   hand.add(thumb);
   hand.userData.fingers = fingers;
@@ -176,27 +202,41 @@ export function setHandCurl(hand, curl, spread = 0) {
 }
 
 // ---- shoes -------------------------------------------------------------------------
+// Sculpted shoes: a foot-shaped last with a rounded toe, a sole band, and
+// laces / a toe cap depending on the style.
 export function buildShoe(color, s, style = 'sneaker') {
   const g = new THREE.Group();
-  const upperMat = mat(color, { roughness: style === 'boot' ? 0.5 : 0.65, clearcoat: style === 'dress' ? 0.6 : 0.1 });
-  const upper = new THREE.Mesh(new RoundedBoxGeometry(0.105 * s, (style === 'boot' ? 0.13 : 0.075) * s, 0.24 * s, 4, 0.035 * s), upperMat);
-  upper.position.set(0, (style === 'boot' ? 0.07 : 0.045) * s, 0.045 * s);
+  const upperMat = mat(color, { roughness: style === 'boot' ? 0.5 : 0.62, clearcoat: style === 'dress' ? 0.7 : 0.1, clearcoatRoughness: 0.25 });
+  const key = 'shoe' + style + Math.round(s * 100);
+  const boot = style === 'boot', dress = style === 'dress';
+  const last = (x, y, z) => {
+    let d = sdEllipsoid(x, y, z, 0, 0.04 * s, 0.12 * s, 0.047 * s, 0.04 * s, 0.085 * s); // toe box
+    d = smin(d, sdEllipsoid(x, y, z, 0, 0.05 * s, 0.0, 0.044 * s, 0.055 * s, 0.075 * s), 0.04 * s); // heel & instep
+    if (boot) d = smin(d, sdCapsule(x, y, z, 0, 0.05 * s, -0.005 * s, 0, 0.16 * s, -0.01 * s, 0.05 * s, 0.047 * s), 0.03 * s);
+    else d = smax(d, -sdCapsule(x, y, z, 0, 0.1 * s, 0.0, 0, 0.2 * s, -0.01 * s, 0.032 * s), 0.01 * s); // ankle opening
+    return smax(d, 0.022 * s - y, 0.006 * s);
+  };
+  const upperG = sdfMesh(key + 'u', last, [[-0.07 * s, 0.0, -0.1 * s], [0.07 * s, (boot ? 0.22 : 0.13) * s, 0.23 * s]], 0.003 * s);
+  const upper = new THREE.Mesh(upperG, upperMat);
   upper.castShadow = true;
   g.add(upper);
-  const toe = new THREE.Mesh(new THREE.SphereGeometry(0.055 * s, 20, 14), upperMat);
-  toe.scale.set(1, 0.7, 1);
-  toe.position.set(0, 0.04 * s, 0.13 * s);
-  toe.castShadow = true;
-  g.add(toe);
-  if (style !== 'dress' && style !== 'boot') {
-    const sole = new THREE.Mesh(new RoundedBoxGeometry(0.112 * s, 0.03 * s, 0.25 * s, 3, 0.012 * s), mat(0xf4f2ee, { roughness: 0.7 }));
-    sole.position.set(0, 0.012 * s, 0.05 * s);
-    sole.castShadow = true;
-    g.add(sole);
-    const laces = new THREE.Mesh(new RoundedBoxGeometry(0.05 * s, 0.012 * s, 0.08 * s, 2, 0.005 * s), mat(0xffffff, { roughness: 0.8 }));
-    laces.position.set(0, 0.085 * s, 0.07 * s);
-    laces.rotation.x = -0.2;
-    g.add(laces);
+  const sole = (x, y, z) => {
+    const r = sdEllipsoid(x, y, z, 0, 0.02 * s, 0.055 * s, 0.053 * s, 0.03 * s, 0.17 * s);
+    return Math.max(r, Math.abs(y - 0.016 * s) - (dress ? 0.008 : 0.016) * s);
+  };
+  const soleG = sdfMesh(key + 's', sole, [[-0.07 * s, -0.01 * s, -0.13 * s], [0.07 * s, 0.05 * s, 0.24 * s]], 0.003 * s);
+  const soleM = new THREE.Mesh(soleG, mat(dress ? 0x1a1414 : boot ? 0x3a2a20 : 0xf4f2ee, { roughness: 0.7 }));
+  soleM.castShadow = true;
+  g.add(soleM);
+  if (!dress && !boot) {
+    const lm = mat(0xf8f8f6, { roughness: 0.8 });
+    for (let i = 0; i < 4; i++) {
+      const lace = new THREE.Mesh(new THREE.CapsuleGeometry(0.0035 * s, 0.03 * s, 4, 8), lm);
+      lace.rotation.z = Math.PI / 2;
+      lace.rotation.x = 0.5;
+      lace.position.set(0, (0.088 - i * 0.008) * s, (0.03 + i * 0.022) * s);
+      g.add(lace);
+    }
   }
   return g;
 }
@@ -253,7 +293,7 @@ function roundedRect(path, x, y, w, h, r) {
   path.quadraticCurveTo(x, y, x + r, y);
 }
 
-export function buildBackpack(color, dims) {
+export function buildBackpack(color, dims, opts = {}) {
   const g = new THREE.Group();
   const m = mat(color, { roughness: 0.7, sheen: 0.3 });
   const bag = new THREE.Mesh(new RoundedBoxGeometry(dims.shoulderR * 1.45, dims.height * 0.62, dims.shoulderR * 0.7, 5, 0.05), m);
@@ -265,7 +305,7 @@ export function buildBackpack(color, dims) {
   g.add(pocket);
   const strapMat = mat(new THREE.Color(color).multiplyScalar(0.75).getHex(), { roughness: 0.65 });
   const H = dims.height, Z = dims.shoulderR * dims.depth;
-  for (const side of [-1, 1]) {
+  for (const side of opts.noStraps ? [] : [-1, 1]) {
     const x = side * dims.shoulderR * 0.45;
     const curve = new THREE.CatmullRomCurve3([
       v3(x * 1.1, H * 0.35, Z * 0.98),

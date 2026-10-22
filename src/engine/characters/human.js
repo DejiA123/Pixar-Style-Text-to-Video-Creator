@@ -1,7 +1,7 @@
 // Assemble a stylized human: sculpted head, hair, clothed body, accessories,
 // and a joint hierarchy the animation system drives.
 import * as THREE from 'three';
-import { skinMaterial, mat, fabric } from '../materials.js';
+import { skinMaterial, mat, fabric, fabricScan } from '../materials.js';
 import { makeRng, lerp } from '../../util.js';
 import { faceParams, headShape, sculpt, FaceField, buildHeadGeometry, buildEye, Mouth, Brow } from './head.js';
 import { buildHair, pickHairStyle } from './hair.js';
@@ -440,7 +440,7 @@ export function buildHuman(c) {
   }
 
   if (o.backpack) {
-    const bp = buildBackpack(o.backpack, dims);
+    const bp = buildBackpack(o.backpack, dims, { noStraps: o.bottom !== 'tail' });
     bp.position.y = -dims.height * 0.45 - 0.02;
     chest.add(bp);
   }
@@ -476,8 +476,9 @@ export function buildHuman(c) {
     const model = bodyModel(W, dims, { female: f, kid });
     const bones = Object.values(J).filter((j) => j.isBone);
     const skeleton = new THREE.Skeleton(bones);
-    const topMatG = o.pattern === 'solid' ? (o.top === 'armor' ? mat(o.topColor, { metalness: 0.85, roughness: 0.32 }) : fabric(o.topColor, { knit })) : clothMaterial(o.topColor, o.pattern, o.pattern2, { seed: c.seed, knit, repeat: 2 });
-    const mats = { top: topMatG, inner: fabric(o.innerColor ?? 0xf2efe8), pants: pantsMat, skirt: fabric(o.bottomColor), skin: skinPlain };
+    const topKind = { sweater: 'knit', cardigan: 'knit', hoodie: 'fleece', jacket: 'linen', coat: 'linen', suit: 'linen', robe: 'linen', gown: 'cotton', dress: 'cotton' }[o.top] || 'cotton';
+    const topMatG = o.pattern === 'solid' ? (o.top === 'armor' ? mat(o.topColor, { metalness: 0.85, roughness: 0.32 }) : fabricScan(o.topColor, topKind)) : clothMaterial(o.topColor, o.pattern, o.pattern2, { seed: c.seed, knit, repeat: 2 });
+    const mats = { top: topMatG, inner: fabricScan(o.innerColor ?? 0xf2efe8, 'cotton'), pants: o.bottom === 'jeans' ? fabricScan(o.bottomColor, 'denim') : fabricScan(o.bottomColor, 'cotton'), skirt: fabricScan(o.bottomColor, 'cotton'), skin: skinPlain, strap: o.backpack ? mat(new THREE.Color(o.backpack).multiplyScalar(0.75).getHex(), { roughness: 0.65 }) : null };
     const { meshes } = buildGarments(model, o, mats, bones, { seed: c.seed || 1 });
     for (const m of meshes) { root.add(m); m.bind(skeleton); }
     for (const k of Object.keys(A)) J[k].rotation.z = 0;
