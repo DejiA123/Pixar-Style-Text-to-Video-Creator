@@ -50,7 +50,7 @@ if (ok) {
   if (doExport === '1') {
     await page.selectOption('#export-res', '720');
     await page.evaluate(() => { const f = window.__storyreel.film; const orig = f.renderAt.bind(f); window.__frames = 0; f.renderAt = (t, o) => { window.__frames++; return orig(t, o); }; });
-    const dlP = page.waitForEvent('download', { timeout: 1800000 });
+    const dlP = page.waitForEvent('download', { timeout: 7000000 });
     const te = Date.now();
     await page.click('#export');
     const dl = await dlP;

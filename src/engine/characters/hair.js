@@ -275,7 +275,23 @@ export function buildHair(P, spec, rng, body) {
       const g = backCombed({ surf, onScalp: scalpOK, rng, psiFrom: -0.85, psiTo: Math.PI + 0.85, rowStep: 0.32, ...cfg });
       locks.push(...g);
     }
-  } else if (style === 'curly' || style === 'afro') {
+  } else if (style === 'curly') {
+    // groomed short locks, each twisted into a springy curl
+    const g = backCombed({ surf, onScalp: scalpOK, rng, psiFrom: -0.85, psiTo: Math.PI + 0.85, rowStep: 0.26, quiff: 0.12, drift: 0.2, lockLen: 0.55, width: 0.085, thick: 0.06, spacing: 0.15, tipLift: 0.1, jitter: 0.2 });
+    for (const L of g) {
+      const n = L.pts.length, ph = rng() * Math.PI * 2, rad = rng.range(0.03, 0.045);
+      const base = L.pts.map((p) => p.clone());
+      for (let i = 1; i < n; i++) {
+        const t = i / (n - 1);
+        const T = base[Math.min(n - 1, i + 1)].clone().sub(base[i - 1]).normalize();
+        const N = base[i].clone().normalize();
+        const B = new THREE.Vector3().crossVectors(T, N).normalize();
+        const a = ph + t * Math.PI * 2.6, k = rad * smoothstep(0.1, 0.45, t);
+        L.pts[i].addScaledVector(N, Math.cos(a) * k + k).addScaledVector(B, Math.sin(a) * k);
+      }
+    }
+    locks.push(...g);
+  } else if (style === 'afro') {
     for (const d of onScalp) {
       if (rng() < (style === 'afro' ? 0.45 : 0.4)) continue;
       const base = style === 'afro' ? scalpPoint(P, d, 1.0).multiplyScalar(lerp(1.02, 1.42, smoothstep(-0.4, 0.6, d.y))).add(v3(0, smoothstep(-0.4, 0.6, d.y) * 0.18, 0)) : shellPoint(P, d, vol, -0.02);

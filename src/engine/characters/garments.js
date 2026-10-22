@@ -166,7 +166,7 @@ export function buildGarments(model, o, mats, bones, opts = {}) {
   const along = (s, part, t) => (part === 'upper' ? W['shoulder' + s].clone().lerp(W['elbow' + s], t) : W['elbow' + s].clone().lerp(W['wrist' + s], t));
   const legDir = (s, part) => (part === 'thigh' ? W['knee' + s].clone().sub(W['hip' + s]) : W['ankle' + s].clone().sub(W['knee' + s])).normalize();
   const legAt = (s, part, t) => (part === 'thigh' ? W['hip' + s].clone().lerp(W['knee' + s], t) : W['knee' + s].clone().lerp(W['ankle' + s], t));
-  const neckAxisD = (x, y, z) => sdCapsule(x, y, z, W.neck.x, W.neck.y - 0.08, W.neck.z - 0.006, W.head.x, W.head.y + 0.1, W.head.z, 0);
+  const neckAxisD = (x, y, z) => sdCapsule(x, y, z, W.neck.x, W.neck.y - 0.025, W.neck.z - 0.006, W.head.x, W.head.y + 0.1, W.head.z, 0);
 
   // ---- top --------------------------------------------------------------------
   const top = o.top;
@@ -240,7 +240,7 @@ export function buildGarments(model, o, mats, bones, opts = {}) {
   {
     if (openFront) {
       // inner shirt then the open outer layer
-      const inner = makeTop({ thick: 0.004, sleeveEnd: 0.4, hemY: hy - 0.02, nr: neckR * 1.18, rib: top !== 'suit', amp: 0.002 });
+      const inner = makeTop({ thick: 0.004, sleeveEnd: 0.4, hemY: hy + 0.03, nr: neckR * 1.18, rib: top !== 'suit', amp: 0.002 });
       topMesh(inner, mats.inner, hy - 0.06, chestTopY, 'shirt');
       if (o.collar === 'collar' || top === 'suit') meshes.push(shirtCollar(model, mats.inner, bones));
       const hem = top === 'coat' ? W.kneeL.y + 0.08 : hy - (top === 'suit' ? 0.09 : 0.05);
@@ -255,14 +255,14 @@ export function buildGarments(model, o, mats, bones, opts = {}) {
       topMesh((x, y, z) => smin(body(x, y, z), skirt(x, y, z), 0.05), mats.top, len - 0.04, chestTopY, top);
     } else {
       const cfg = {
-        tshirt: { thick: 0.007, sleeveEnd: 0.45, hemY: hy - 0.03, nr: neckR * 1.3 },
-        blouse: { thick: 0.006, sleeveEnd: 0.5, hemY: hy - 0.02, nr: neckR * 1.3, vneck: 0.045, rib: false },
-        shirt: { thick: 0.007, sleeveEnd: sleeveFull, hemY: hy - 0.04, nr: neckR * 1.2, rib: false },
-        sweater: { thick: 0.012, sleeveEnd: sleeveFull, hemY: hy - 0.03, nr: neckR * 1.25, amp: 0.004 },
+        tshirt: { thick: 0.007, sleeveEnd: 0.45, hemY: hy + 0.03, nr: neckR * 1.3 },
+        blouse: { thick: 0.006, sleeveEnd: 0.5, hemY: hy + 0.03, nr: neckR * 1.3, vneck: 0.045, rib: false },
+        shirt: { thick: 0.007, sleeveEnd: sleeveFull, hemY: hy + 0.03, nr: neckR * 1.2, rib: false },
+        sweater: { thick: 0.012, sleeveEnd: sleeveFull, hemY: hy + 0.03, nr: neckR * 1.25, amp: 0.004 },
         hoodie: { thick: 0.014, sleeveEnd: sleeveFull, hemY: hy - 0.05, nr: neckR * 1.35, hood: true, pocket: true, amp: 0.0045 },
         suit: { thick: 0.01, sleeveEnd: sleeveFull, hemY: hy - 0.06, nr: neckR * 1.2 },
         armor: { thick: 0.022, sleeveEnd: sleeveFull, hemY: hy - 0.08, nr: neckR * 1.35, rib: false, amp: 0.0005 },
-      }[top] || { thick: 0.007, sleeveEnd: 0.45, hemY: hy - 0.03, nr: neckR * 1.3 };
+      }[top] || { thick: 0.007, sleeveEnd: 0.45, hemY: hy + 0.03, nr: neckR * 1.3 };
       topMesh(makeTop(cfg), mats.top, hy - 0.1, chestTopY, top);
       if (o.collar === 'collar') meshes.push(shirtCollar(model, mats.top, bones));
     }

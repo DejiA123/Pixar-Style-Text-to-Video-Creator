@@ -255,13 +255,20 @@ export function buildHuman(c) {
       }
     }
     if (o.tie) {
-      const tie = new THREE.Mesh(new THREE.ConeGeometry(dims.neckR * 0.55, dims.height * 0.55, 4, 1), mat(o.tie, { roughness: 0.45, sheen: 0.4 }));
-      tie.rotation.z = Math.PI;
-      tie.scale.set(1, 1, 0.25);
-      tie.position.set(0, neckBaseY - dims.height * 0.3, dims.chestR * dims.depth + 0.018);
+      // a flat silk tie: narrow under the knot, widening to a pointed blade
+      const ts = new THREE.Shape();
+      const L = dims.height * 0.5, wTop = dims.neckR * 0.32, wBot = dims.neckR * 0.62;
+      ts.moveTo(-wTop, 0); ts.lineTo(wTop, 0); ts.lineTo(wBot, -L * 0.9); ts.lineTo(0, -L); ts.lineTo(-wBot, -L * 0.9); ts.closePath();
+      const tm = mat(o.tie, { roughness: 0.35, sheen: 0.6, sheenColor: 0xffffff, clearcoat: 0.3 });
+      const tie = new THREE.Mesh(new THREE.ExtrudeGeometry(ts, { depth: 0.004, bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002, bevelSegments: 2 }), tm);
+      tie.position.set(0, neckBaseY - 0.03, dims.chestR * dims.depth * 1.1 + 0.012);
+      tie.rotation.x = -0.12;
+      tie.castShadow = true;
       chest.add(tie);
-      const knot = new THREE.Mesh(new THREE.SphereGeometry(dims.neckR * 0.42, 10, 8), mat(o.tie, { roughness: 0.45 }));
-      knot.position.set(0, neckBaseY - 0.012, dims.neckR * 1.1);
+      const knot = new THREE.Mesh(new THREE.CylinderGeometry(dims.neckR * 0.34, dims.neckR * 0.24, dims.neckR * 0.5, 4, 1), tm);
+      knot.rotation.y = Math.PI / 4;
+      knot.scale.set(1, 1, 0.45);
+      knot.position.set(0, neckBaseY - 0.012, dims.chestR * dims.depth * 1.05 + 0.012);
       chest.add(knot);
     }
   } else if (o.collar === 'hood') {

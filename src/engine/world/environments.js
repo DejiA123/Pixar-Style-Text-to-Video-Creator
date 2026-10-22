@@ -316,7 +316,7 @@ function room(env, rng, o) {
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), floorM);
   floor.rotation.x = -Math.PI / 2; floor.position.z = zc; floor.receiveShadow = true;
   g.add(floor);
-  const wallM = o.wallTex ? mat(0xffffff, { map: o.wallTex, roughness: 0.9 }) : surfaceMat('grey_plaster', Math.max(w, d) / 3, h / 3, { tint: o.wall, brighten: 1.45, normalScale: 0.6 });
+  const wallM = o.wallTex ? mat(0xffffff, { map: o.wallTex, roughness: 0.9 }) : surfaceMat('grey_plaster', Math.max(w, d) / 3, h / 3, { tint: o.wall, brighten: 1.85, normalScale: 0.35 });
   const mk = (W, x, z, ry) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(W, h), wallM); m.position.set(x, h / 2, z); m.rotation.y = ry; m.receiveShadow = true; g.add(m); return m; };
   mk(w, 0, zc - d / 2, 0);
   mk(d, -w / 2, zc, Math.PI / 2);
@@ -684,7 +684,7 @@ const BUILDERS = {
     P.shadowed(bed); env.add(bed, -2.5, 0, -3.6);
     const curtain = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 2.6, 24, 1, true, 0, Math.PI), mat(0x8fc8c0, { side: THREE.DoubleSide, roughness: 0.9 }));
     env.add(curtain, -2.5, 1.5, -3.6);
-    windowLightPlane(env, 2, 1.8, -5.95, 2.4, 1.6, 0, 0xdff0ff, 3);
+    windowLightPlane(env, 2, 1.8, -5.95, 2.4, 1.6, 0, 0xdff0ff, 1.6);
     pointGlow(env, 0, 3.2, -1, 0xf2fbff, 5, 12, 0);
     env.sunDir = v3(0.3, 0.7, -0.6).normalize();
     env.sun.intensity = 2.0;
