@@ -5,10 +5,11 @@ import { skinMaterial, mat, fabric } from '../materials.js';
 import { makeRng, lerp } from '../../util.js';
 import { faceParams, sculpt, surfaceAt, FaceField, buildHeadGeometry, buildEye, Mouth, Brow, buildHumanEar, buildNose } from './head.js';
 import { buildHair, pickHairStyle } from './hair.js';
+import { paintFace } from './skin.js';
 import { torsoGeometry, clothMaterial, buildHand, buildShoe, limb, capsule, buildGlasses, buildBackpack, buildBeard, buildHat } from './body.js';
 
 export const SKIN_TONES = [0xf3d6c6, 0xeac3aa, 0xddb092, 0xcd9c7e, 0xb98466, 0xa06c50, 0x87573f, 0x6c4431, 0x553426];
-export const HAIR_COLORS = [0x1c1716, 0x2a1d17, 0x3b261a, 0x553521, 0x6e4529, 0x7c3a22, 0xb4602e, 0xd2aa6a, 0x1c1716, 0x2a1d17];
+export const HAIR_COLORS = [0x2a1d17, 0x3b261a, 0x4a2f1f, 0x5a3a24, 0x6e4529, 0x7a4a2a, 0x8a5530, 0x9c5a2e, 0xc98a4a, 0xd8b27a, 0x241a16];
 export const EYE_COLORS = [0x6b3f1f, 0x4a2a15, 0x8a6a2e, 0x4f8a4b, 0x4f86c6, 0x6f8494, 0x5c3a1e];
 const SHIRT = [0x3a6fb5, 0xd9643b, 0x4b8f5a, 0x7d5ab8, 0xc9a43a, 0x4a4f5c, 0xb8455a, 0x3a9a9a, 0xe8e4dc, 0x6f7d8c, 0xe07a5f, 0x2f4858, 0xf2cc8f, 0x9c6644];
 const PANTS = [0x2e4a7a, 0x34495e, 0x3d3d45, 0x6b5b4b, 0x23324d, 0x4a5a3a, 0x2b2b30, 0x55657a];
@@ -303,19 +304,21 @@ export function buildHuman(c) {
   J.headModel = headModel;
 
   const P = faceParams({ age: c.age, gender: c.gender }, rng);
-  const headGeo = buildHeadGeometry(P, {
-    blush: f ? 0.8 : 0.45,
-    stubble: look.beard === 'stubble' || (look.beard === 'full' && false) ? { color: look.hairColor, amount: 0.55 } : null,
-  });
-  const headMesh = new THREE.Mesh(headGeo, skin);
+  const headGeo = buildHeadGeometry(P, { blush: 0, stubble: null });
+  const lipColor = new THREE.Color(look.skin).lerp(new THREE.Color(f ? 0xc0505a : 0xa85a50), f ? 0.45 : 0.28).getHex();
+  const painted = paintFace(P, {
+    skin: look.skin, lipColor, female: f, child: kid, freckles: look.freckles,
+    stubble: look.beard === 'stubble' || look.beard === 'full' ? { color: look.hairColor, amount: look.beard === 'full' ? 0.5 : 0.8 } : (c.gender === 'm' && c.age !== 'child' ? { color: look.hairColor, amount: 0.25 } : null),
+  }, c.seed || 1);
+  const faceSkin = skinMaterial(look.skin, { map: painted.map, normalMap: painted.normalMap, roughnessMap: painted.roughnessMap });
+  const headMesh = new THREE.Mesh(headGeo, faceSkin);
   headMesh.castShadow = true;
   headMesh.receiveShadow = true;
   headModel.add(headMesh);
 
   // face field for decals
   const field = new FaceField(P, -0.65, 0.65, -0.95, 0.6, 41, 41);
-  const lipColor = new THREE.Color(look.skin).lerp(new THREE.Color(f ? 0xc0505a : 0xa85a50), f ? 0.45 : 0.25).getHex();
-  const mouth = new Mouth(P, field, { width: kid ? 0.22 : 0.24, lipColor });
+  const mouth = new Mouth(P, field, { width: kid ? 0.22 : 0.255, lipColor });
   headModel.add(mouth.group);
   const browColor = new THREE.Color(look.hairColor).multiplyScalar(c.age === 'old' ? 1 : 0.85).getHex();
   const browR = new Brow(P, field, 1, browColor, P.browThick);
@@ -346,8 +349,8 @@ export function buildHuman(c) {
       headModel.add(ring);
     }
   }
-  // freckles
-  if (look.freckles) {
+  // freckles are painted into the face texture now
+  if (false) {
     const fm = new THREE.MeshBasicMaterial({ color: new THREE.Color(look.skin).multiplyScalar(0.72), transparent: true, opacity: 0.55 });
     for (let i = 0; i < 18; i++) {
       const side = i % 2 ? 1 : -1;

@@ -27,6 +27,10 @@ export function skinMaterial(color, opts = {}) {
     clearcoatRoughness: 0.6,
     vertexColors: !!opts.vertexColors,
     specularIntensity: 0.45,
+    map: opts.map || null,
+    normalMap: opts.normalMap || null,
+    normalScale: new THREE.Vector2(0.35, 0.35),
+    roughnessMap: opts.roughnessMap || null,
   });
   const sssColor = new THREE.Color(opts.sssColor ?? 0xff5a3c).multiplyScalar(opts.sssStrength ?? 0.85);
   mat.onBeforeCompile = (shader) => {
@@ -36,7 +40,7 @@ export function skinMaterial(color, opts = {}) {
       .replace('#include <common>', '#include <common>\nuniform vec3 uSSSColor;\nuniform float uSSSWrap;')
       .replace('#include <lights_physical_pars_fragment>', SSS_CHUNK);
   };
-  mat.customProgramCacheKey = () => 'skin-sss';
+  mat.customProgramCacheKey = () => 'skin-sss' + (opts.map ? '-mapped' : '');
   return mat;
 }
 
@@ -100,16 +104,16 @@ export function hairMaterial(color) {
   const sheen = new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 0.8), Math.min(0.85, hsl.l + 0.3));
   return new THREE.MeshPhysicalMaterial({
     color: c,
-    roughness: 0.5,
+    roughness: 0.58,
     metalness: 0,
-    sheen: 0.55,
+    sheen: 0.45,
     sheenColor: sheen,
-    sheenRoughness: 0.4,
-    anisotropy: 0.6,
+    sheenRoughness: 0.45,
+    anisotropy: 0.35,
     anisotropyRotation: 0,
-    specularIntensity: 0.6,
+    specularIntensity: 0.45,
     normalMap: hairStrandNormalMap(),
-    normalScale: new THREE.Vector2(0.25, 0.25),
+    normalScale: new THREE.Vector2(0.18, 0.18),
     vertexColors: true,
   });
 }

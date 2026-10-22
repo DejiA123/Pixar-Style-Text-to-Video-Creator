@@ -34,7 +34,8 @@ const DOF_SHADER = {
     }
     float blurSize(float depth) {
       float coc = clamp((1.0 / focusDist - 1.0 / depth) * focusScale, -1.0, 1.0);
-      return abs(coc) * maxBlur;
+      // a small in-focus zone keeps the whole face crisp
+      return max(0.0, abs(coc) - 0.04) / 0.96 * maxBlur;
     }
     void main() {
       float centerDepth = linDepth(vUv);
@@ -193,7 +194,8 @@ export class FilmRenderer {
       u.cameraFar.value = camera.far;
       u.focusDist.value = Math.max(0.3, fx.focusDist ?? 5);
       // focusScale: how fast blur grows away from focus; aperture is ~f-stop-ish 0..1
-      u.focusScale.value = aperture * 6.0;
+      // scale with focus distance so close-ups keep the subject sharp
+      u.focusScale.value = aperture * 6.0 * Math.min(1.6, Math.max(0.35, u.focusDist.value / 3.0));
       const maxBlur = aperture > 0.001 ? Math.max(2, this.height * (fx.maxBlurFrac ?? 0.018)) : 0;
       u.maxBlur.value = maxBlur;
       // keep iteration count bounded: iterations ≈ maxBlur² / (2·radScale)

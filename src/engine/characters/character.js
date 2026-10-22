@@ -119,9 +119,9 @@ export class Character {
     // eyes
     if (F.eyes) {
       for (const e of F.eyes) {
-        e.ball.rotation.set(-eyePitch, eyeYaw, 0);
-        let upper = base.upper + eyePitch * 0.4;
-        let lower = base.lower - eyePitch * 0.2;
+        e.ball.rotation.set(eyePitch, eyeYaw, 0);
+        let upper = base.upper - eyePitch * 0.4;
+        let lower = base.lower + eyePitch * 0.2;
         const closedU = -0.18, closedL = 0.16;
         upper = lerp(upper, closedU, blink);
         lower = lerp(lower, closedL, blink * 0.6);

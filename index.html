@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Storyreel</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Type a story and get a Pixar-style 3D animated film with voice-over, music and subtitles — rendered in your browser and downloadable as MP4.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Courier+Prime:wght@400;700&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="src/ui/styles.css">
+<script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <div>
+      <h1>Storyreel</h1>
+      <p>Type a story. Get an animated film.</p>
+    </div>
+  </div>
+  <nav class="top-links">
+    <a href="https://github.com/DejiA123/Pixar-Style-Text-to-Video-Creator" target="_blank" rel="noopener">Source</a>
+  </nav>
+</header>
+
+<main class="studio">
+  <section class="script-col" aria-labelledby="script-h">
+    <div class="col-head">
+      <h2 id="script-h">Script</h2>
+      <span class="slug">FADE IN:</span>
+    </div>
+    <div class="samples" id="samples" role="list" aria-label="Example stories"></div>
+    <label class="sr-only" for="story">Your story</label>
+    <textarea id="story" spellcheck="true" placeholder="Title on the first line, then your story. Put dialogue in &quot;quotes&quot;."></textarea>
+    <p class="hint">Name your characters, say where it happens, put speech in “quotes”. Anything works: a church service, a robot’s dream, a first day at school.</p>
+
+    <details class="settings" id="settings">
+      <summary>Film settings</summary>
+      <div class="field-grid">
+        <label class="field"><span>Render style</span>
+          <select id="render-mode">
+            <option value="3d">Built-in 3D (free, instant)</option>
+            <option value="ai">Cinematic AI (your fal.ai key)</option>
+          </select>
+        </label>
+        <label class="field"><span>Voices</span>
+          <select id="voice-engine">
+            <option value="neural">AI voices (in-browser, ~90 MB once)</option>
+            <option value="browser">Browser voices (instant, preview only)</option>
+          </select>
+        </label>
+        <label class="field"><span>Narrator</span><select id="narrator"></select></label>
+        <label class="field"><span>Frame</span>
+          <select id="aspect">
+            <option value="16:9">16:9 landscape</option>
+            <option value="9:16">9:16 vertical (Reels, TikTok)</option>
+            <option value="1:1">1:1 square</option>
+          </select>
+        </label>
+        <label class="field"><span>Preview quality</span>
+          <select id="quality">
+            <option value="low">Draft (fast)</option>
+            <option value="medium" selected>Standard</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <label class="field"><span>Export</span>
+          <select id="export-res">
+            <option value="720">720p</option>
+            <option value="1080" selected>1080p</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="music" checked> Music score</label>
+        <label class="check"><input type="checkbox" id="sfx" checked> Sound effects</label>
+        <label class="check"><input type="checkbox" id="subs" checked> Subtitles</label>
+      </div>
+      <div class="ai-box" id="ai-box" hidden>
+        <label class="field"><span>fal.ai API key</span><input id="fal-key" type="password" autocomplete="off" placeholder="key_id:key_secret"></label>
+        <label class="field"><span>Video model</span>
+          <select id="ai-video">
+            <option value="fal-ai/kling-video/v3/pro/image-to-video">Kling 3 Pro (best value)</option>
+            <option value="fal-ai/veo3.1/fast/image-to-video">Veo 3.1 Fast</option>
+            <option value="fal-ai/kling-video/v2.6/pro/image-to-video">Kling 2.6 Pro (cheapest)</option>
+          </select>
+        </label>
+        <label class="field"><span>Style reference (optional)</span><input id="style-ref" type="file" accept="image/*"></label>
+        <p class="hint">Upload one image whose look you love and every character and shot is rendered to match it. Your key stays in this browser and is sent only to fal.ai. Each shot is a paid AI render; you’ll see the estimated cost before anything runs.</p>
+      </div>
+    </details>
+
+    <button id="make" class="btn-primary" type="button">Make my movie</button>
+    <ol class="steps" id="steps" aria-live="polite"></ol>
+  </section>
+
+  <section class="screen-col" aria-label="Movie">
+    <div class="screen-wrap" id="screen-wrap">
+      <div class="screen" id="screen">
+        <canvas id="out" aria-label="Movie preview"></canvas>
+        <div class="screen-empty" id="empty">
+          <div class="clapper" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+          <p>Your film appears here.</p>
+          <p class="sub">Pick an example or write your own, then press <b>Make my movie</b>.</p>
+        </div>
+        <div class="screen-busy" id="busy" hidden>
+          <div class="busy-card">
+            <p class="busy-title" id="busy-title">Exporting</p>
+            <div class="bar"><i id="busy-bar"></i></div>
+            <p class="busy-sub" id="busy-sub"></p>
+            <button class="btn-ghost" id="busy-cancel" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="transport" id="transport">
+      <button class="btn-icon" id="play" type="button" aria-label="Play" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-icon" d="M8 5v14l11-7z"/></svg></button>
+      <span class="tc" id="tc">00:00:00:00</span>
+      <div class="scrub">
+        <div class="marks" id="marks"></div>
+        <input type="range" id="scrub" min="0" max="1000" value="0" step="1" aria-label="Seek" disabled>
+      </div>
+      <span class="tc dim" id="dur">00:00</span>
+      <button class="btn-icon" id="fs" type="button" aria-label="Fullscreen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+      <button class="btn-export" id="export" type="button" disabled>Download MP4</button>
+    </div>
+    <div class="board-head">
+      <h2>Storyboard</h2>
+      <span class="dim" id="board-meta"></span>
+    </div>
+    <div class="board" id="board" role="list"></div>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="module" src="src/ui/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body>
+<script type="module">
+import { exportVideo } from '../src/film/exporter.js';
+const q = new URLSearchParams(location.search); const c = document.createElement('canvas'); c.width = +(q.get('w') || 640); c.height = +(q.get('h') || 360);
+const g = c.getContext('2d');
+const ac = new OfflineAudioContext(2, 48000 * 3, 48000);
+const o = ac.createOscillator(); o.connect(ac.destination); o.start();
+const audio = await ac.startRendering();
+const log = [];
+const mb = await import('../vendor/mediabunny/mediabunny.min.mjs');
+window.__probe = { vp9: await mb.canEncodeVideo('vp9', { width: c.width, height: c.height }), vp9q: await mb.canEncodeVideo('vp9', { width: c.width, height: c.height, bitrate: new mb.Quality('very-high') }), avc: await mb.canEncodeVideo('avc', { width: c.width, height: c.height }), first: await mb.getFirstEncodableVideoCodec(['avc', 'hevc', 'vp9', 'av1'], { width: c.width, height: c.height, frameRate: 30 }) };
+try {
+  const out = await exportVideo({ canvas: c, duration: 3, fps: 30, soundtrack: audio,
+    renderFrame: async (t) => { g.fillStyle = `hsl(${t * 120},70%,50%)`; g.fillRect(0, 0, 640, 360); g.fillStyle = '#fff'; g.font = '40px sans-serif'; g.fillText(t.toFixed(2), 40, 80); },
+    onProgress: (p) => log.push(p.toFixed(2)) });
+  window.__result = { probe: window.__probe, size: out.blob.size, ext: out.ext, codec: out.codec, b64: await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result.split(',')[1]); fr.readAsDataURL(out.blob); }) };
+} catch (e) { window.__result = { error: String(e), stack: e.stack }; }
+window.__ready = true;
+</script></body></html>

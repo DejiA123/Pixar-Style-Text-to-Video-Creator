@@ -2,9 +2,10 @@
 // with big glossy eyes, eyelids, live mouth, brows, nose and ears.
 // All coordinates here are in "head units" (cranium radius ≈ 1), +z = face.
 import * as THREE from 'three';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeVertices, mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { skinMaterial, mat, basic } from '../materials.js';
 import { clamp, smoothstep, lerp } from '../../util.js';
+import { faceUVs } from './skin.js';
 
 const v3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
@@ -19,51 +20,64 @@ export function faceParams(spec, rng) {
   const old = spec.age === 'old';
   const f = spec.gender === 'f';
   return {
-    jaw: child ? 0.78 : f ? 0.72 : (spec.age === 'teen' ? 0.78 : 0.82) + rng.range(-0.03, 0.04),
+    jaw: child ? 0.84 : f ? 0.78 : (spec.age === 'teen' ? 0.82 : 0.86) + rng.range(-0.03, 0.03),
     jawSquare: f || child ? 0.02 : rng.range(0.04, 0.09),
     chin: child ? 0.03 : f ? 0.05 : rng.range(0.06, 0.1),
-    cheek: child ? 0.085 : f ? 0.06 : 0.04,
+    cheek: child ? 0.07 : f ? 0.045 : 0.03,
     cranium: child ? 1.08 : 1.0,
-    faceLength: child ? 0.9 : f ? 0.97 : (spec.age === 'teen' ? 0.97 : 1.02) + rng.range(-0.02, 0.03),
-    nose: child ? 0.11 : f ? 0.11 : rng.range(0.13, 0.16),
+    faceLength: child ? 0.9 : f ? 1.02 : (spec.age === 'teen' ? 1.04 : 1.08) + rng.range(-0.02, 0.03),
+    nose: child ? 0.11 : f ? 0.125 : rng.range(0.15, 0.18),
     noseDown: rng.range(-0.02, 0.03),
-    eyeR: child ? 0.285 : f ? 0.27 : spec.age === 'teen' ? 0.265 : 0.25,
-    eyeSpacing: child ? 0.37 : 0.36,
-    eyeY: child ? -0.02 : 0.03,
+    eyeR: child ? 0.26 : spec.age === 'teen' ? (f ? 0.215 : 0.205) : (f ? 0.205 : 0.195),
+    eyeSpacing: child ? 0.37 : 0.355,
+    eyeY: child ? -0.02 : 0.06,
     mouthY: child ? -0.52 : -0.56,
     browY: child ? 0.32 : 0.37,
     browThick: f ? 0.032 : 0.05 + rng.range(0, 0.012),
     old,
+    adult: !child,
+    female: f,
   };
 }
 
 // Displace a unit-sphere direction into the head surface.
 export function sculpt(d, P, out = v3()) {
   let { x, y, z } = d;
-  // regional bumps, measured on the unit sphere
+  const front = smoothstep(0.2, 0.75, z);
   let r = 1;
-  r += P.cheek * (gauss3(x, y, z, 0.5, -0.32, 0.62, 0.24) + gauss3(x, y, z, -0.5, -0.32, 0.62, 0.24));
-  r -= 0.035 * (gauss3(x, y, z, P.eyeSpacing, P.eyeY, 0.84, 0.17) + gauss3(x, y, z, -P.eyeSpacing, P.eyeY, 0.84, 0.17));
-  r += 0.03 * (gauss3(x, y, z, 0.33, P.browY - 0.05, 0.86, 0.24, 0.08) + gauss3(x, y, z, -0.33, P.browY - 0.05, 0.86, 0.24, 0.08));
-  // nose bridge: a soft ridge down the middle of the face
-  const bridge = Math.exp(-0.5 * (x / 0.075) ** 2) * smoothstep(0.2, 0.0, y) * smoothstep(-0.3, -0.12, y) * smoothstep(0.6, 0.9, z);
-  r += bridge * 0.07;
-  // muzzle / lips
-  r += 0.045 * gauss3(x, y, z, 0, P.mouthY + 0.02, 0.84, 0.22, 0.14);
-  r += 0.02 * gauss3(x, y, z, 0, P.mouthY - 0.12, 0.85, 0.14, 0.07);
-  // chin
-  r += P.chin * gauss3(x, y, z, 0, -0.86, 0.5, 0.18, 0.14);
+  const G = (cx, cy, cz, sx, sy = sx, sz = sx) => gauss3(x, y, z, cx, cy, cz, sx, sy, sz);
+  const adult = P.adult ? 1 : 0;
+  // brow ridge and forehead plane
+  r += 0.035 * front * Math.exp(-0.5 * ((y - (P.eyeY + 0.27)) / 0.07) ** 2) * smoothstep(0.62, 0.2, Math.abs(x));
+  // eye sockets
+  r -= 0.045 * (G(P.eyeSpacing, P.eyeY, 0.84, 0.15) + G(-P.eyeSpacing, P.eyeY, 0.84, 0.15));
+  // temples
+  r -= 0.025 * (G(0.74, P.eyeY + 0.3, 0.45, 0.16) + G(-0.74, P.eyeY + 0.3, 0.45, 0.16));
+  // cheekbones, soft cheeks, adult hollows
+  r += (0.04 + P.cheek * 0.6) * (G(0.5, P.eyeY - 0.2, 0.68, 0.17, 0.12) + G(-0.5, P.eyeY - 0.2, 0.68, 0.17, 0.12));
+  r += P.cheek * (G(0.45, -0.36, 0.66, 0.2) + G(-0.45, -0.36, 0.66, 0.2));
+  r -= 0.022 * adult * (G(0.52, -0.46, 0.55, 0.12) + G(-0.52, -0.46, 0.55, 0.12));
+  // nose bridge rising toward the tip
+  const bridge = Math.exp(-0.5 * (x / 0.065) ** 2) * smoothstep(P.eyeY + 0.12, P.eyeY - 0.05, y) * smoothstep(-0.32, -0.12, y) * front;
+  r += bridge * (0.05 + 0.05 * smoothstep(0.1, -0.2, y));
+  // muzzle, lips, philtrum, chin, jaw angle
+  r += 0.05 * G(0, P.mouthY + 0.02, 0.84, 0.24, 0.16);
+  r += 0.03 * G(0, P.mouthY + 0.05, 0.92, 0.17, 0.032);
+  r += 0.034 * G(0, P.mouthY - 0.06, 0.92, 0.14, 0.04);
+  r -= 0.012 * G(0, P.mouthY + 0.13, 0.95, 0.03, 0.05);
+  r -= 0.015 * G(0, P.mouthY - 0.15, 0.88, 0.14, 0.04);
+  r += (P.chin + 0.02) * G(0, -0.86, 0.55, 0.15, 0.12);
+  r += 0.03 * adult * (G(0.7, -0.55, 0.15, 0.16) + G(-0.7, -0.55, 0.15, 0.16)) * (P.female ? 0.4 : 1);
   x *= r; y *= r; z *= r;
 
   // base ellipsoid
   x *= 0.8; z *= 0.9;
-  // cranium a bit fuller at the top/back
   if (y > 0) { const k = y; x *= 1 + 0.05 * k * P.cranium; z *= 1 + 0.04 * k; y *= P.cranium; }
   if (z < 0) z *= 1.06;
-  // lower face: taper toward the chin, keep a jaw corner
   const t = smoothstep(0.1, -0.98, y);
   const jawCorner = Math.exp(-0.5 * ((y + 0.5) / 0.18) ** 2) * (z > -0.2 ? 1 : 0.5);
-  x *= lerp(1, P.jaw, Math.pow(t, 1.1)) * lerp(1, 0.93, Math.pow(t, 2.5)) * (1 + P.jawSquare * jawCorner);
+  const tj = smoothstep(-0.12, -0.98, y);
+  x *= lerp(1, P.jaw, Math.pow(tj, 1.5)) * lerp(1, 0.9, Math.pow(tj, 3)) * (1 + P.jawSquare * jawCorner);
   if (y < 0) y *= P.faceLength;
   if (z > 0) z *= lerp(1, 0.93, t);
   return out.set(x, y, z);
@@ -121,6 +135,8 @@ export function buildHeadGeometry(P, opts = {}) {
   geo.deleteAttribute('normal');
   const merged = mergeVertices(geo, 1e-5);
   const pos = merged.attributes.position;
+  const dirs = new Float32Array(pos.array);
+  merged.setAttribute('uv', new THREE.BufferAttribute(faceUVs(dirs), 2));
   const colors = new Float32Array(pos.count * 3);
   const d = v3(), p = v3();
   const blush = opts.blush ?? 0.5;
@@ -155,44 +171,51 @@ const irisCache = new Map();
 function irisTexture(color) {
   const key = color;
   if (irisCache.has(key)) return irisCache.get(key);
-  const W = 512, H = 256;
+  const W = 1024, H = 512;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d');
   const img = g.createImageData(W, H);
   const base = new THREE.Color(color);
-  const dark = base.clone().multiplyScalar(0.45);
-  const light = base.clone().lerp(new THREE.Color(0xfff1c8), 0.35);
-  const irisA = 0.5, pupilA = 0.2;
-  // deterministic streak noise
-  const streak = new Float32Array(W);
+  const dark = base.clone().multiplyScalar(0.35);
+  const light = base.clone().lerp(new THREE.Color(0xfff0c0), 0.45);
+  const irisA = 0.6, pupilA = 0.22;
+  const streak = new Float32Array(W), streak2 = new Float32Array(W);
   let s = 1234;
-  for (let i = 0; i < W; i++) { s = (s * 16807) % 2147483647; streak[i] = s / 2147483647; }
+  const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  for (let i = 0; i < W; i++) streak[i] = rnd();
+  for (let i = 0; i < W; i++) streak2[i] = (streak[i] + streak[(i + 1) % W] + streak[(i + W - 1) % W]) / 3;
+  const crypts = [];
+  for (let i = 0; i < 40; i++) crypts.push([rnd() * W, 0.3 + rnd() * 0.5, 4 + rnd() * 10]);
+  const veins = [];
+  for (let i = 0; i < 26; i++) veins.push([rnd() * W, 0.6 + rnd() * 0.35, rnd() * 0.004 + 0.002]);
   for (let y = 0; y < H; y++) {
-    const theta = (y / H) * Math.PI; // 0 at the +y pole (which becomes +z)
+    const theta = (y / H) * Math.PI;
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 4;
-      let r, gg, b;
-      if (theta < pupilA) {
-        r = 0.02; gg = 0.015; b = 0.02;
-      } else if (theta < irisA) {
+      let col;
+      if (theta < pupilA) col = new THREE.Color(0.012, 0.01, 0.014);
+      else if (theta < irisA) {
         const t = (theta - pupilA) / (irisA - pupilA);
-        const st = streak[x] * 0.5 + streak[(x * 7) % W] * 0.5;
-        const ring = smoothstep(0.75, 1.0, t); // dark limbal ring
-        const inner = smoothstep(0.25, 0.0, t); // warm collarette
-        const col = base.clone().lerp(light, (1 - t) * 0.6 * st + inner * 0.3).lerp(dark, ring * 0.85 + (1 - st) * 0.15);
-        r = col.r; gg = col.g; b = col.b;
-        const edge = smoothstep(0.0, 0.06, t);
-        r = lerp(0.02, r, edge); gg = lerp(0.015, gg, edge); b = lerp(0.02, b, edge);
+        const fib = streak2[x] * 0.7 + streak[(x * 3) % W] * 0.3;
+        const collarette = Math.exp(-(((t - 0.32) / 0.07) ** 2));
+        col = base.clone().lerp(light, collarette * 0.55 + fib * 0.35 * (1 - t)).lerp(dark, smoothstep(0.78, 1.0, t) * 0.9 + (1 - fib) * 0.25);
+        for (const [cx, ct, cr] of crypts) { const dx = Math.min(Math.abs(x - cx), W - Math.abs(x - cx)); if (dx < cr && Math.abs(t - ct) < 0.05) col.lerp(dark, 0.35); }
+        const edge = smoothstep(0.0, 0.07, t);
+        col.lerp(new THREE.Color(0.012, 0.01, 0.014), 1 - edge);
       } else {
-        const t = smoothstep(irisA, irisA + 0.05, theta);
-        const sclera = new THREE.Color(0.96, 0.95, 0.93).lerp(new THREE.Color(0.93, 0.86, 0.84), smoothstep(1.3, 1.8, theta) * 0.6);
-        const col = dark.clone().lerp(sclera, t);
-        r = col.r; gg = col.g; b = col.b;
+        const t = smoothstep(irisA, irisA + 0.04, theta);
+        col = new THREE.Color(0.95, 0.94, 0.92).lerp(new THREE.Color(0.94, 0.8, 0.78), smoothstep(1.25, 1.9, theta) * 0.7);
+        for (const [vx, vt, vw] of veins) {
+          const dx = Math.min(Math.abs(x - vx), W - Math.abs(x - vx)) / W;
+          const wig = Math.sin(theta * 30 + vx) * 0.004;
+          if (Math.abs(dx - wig) < vw && theta > vt * Math.PI * 0.8) col.lerp(new THREE.Color(0.85, 0.45, 0.45), 0.35);
+        }
+        col = dark.clone().lerp(col, t);
       }
-      img.data[i] = Math.round(Math.pow(clamp(r), 1 / 2.2) * 255);
-      img.data[i + 1] = Math.round(Math.pow(clamp(gg), 1 / 2.2) * 255);
-      img.data[i + 2] = Math.round(Math.pow(clamp(b), 1 / 2.2) * 255);
+      img.data[i] = Math.round(Math.pow(clamp(col.r), 1 / 2.2) * 255);
+      img.data[i + 1] = Math.round(Math.pow(clamp(col.g), 1 / 2.2) * 255);
+      img.data[i + 2] = Math.round(Math.pow(clamp(col.b), 1 / 2.2) * 255);
       img.data[i + 3] = 255;
     }
   }
@@ -211,7 +234,7 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   const g = new THREE.SphereGeometry(r, 48, 32);
   g.rotateX(Math.PI / 2); // texture pole → +z
   const eyeMat = new THREE.MeshPhysicalMaterial({
-    map: irisTexture(eyeColor), roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.1, specularIntensity: 0.8,
+    map: irisTexture(eyeColor), roughness: 0.3, clearcoat: 0.7, clearcoatRoughness: 0.12, specularIntensity: 0.6, envMapIntensity: 0.5,
   });
   const ballMesh = new THREE.Mesh(g, eyeMat);
   ball.add(ballMesh);
@@ -221,7 +244,7 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   corneaG.scale(1, 1, 0.55);
   corneaG.translate(0, 0, r * 0.62);
   const cornea = new THREE.Mesh(corneaG, new THREE.MeshPhysicalMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.12, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.08, depthWrite: false,
+    color: 0xffffff, transparent: true, opacity: 0.04, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.08, depthWrite: false,
   }));
   ball.add(cornea);
 
@@ -240,19 +263,42 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   // lids: hemispherical shells of skin that rotate to open/close
   const lidR = r * 1.045;
   const upperG = new THREE.SphereGeometry(lidR, 40, 20, 0, Math.PI * 2, 0, Math.PI * 0.5);
-  const lowerG = new THREE.SphereGeometry(r * 1.018, 40, 6, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.07);
+  const lowerG = new THREE.SphereGeometry(r * 1.03, 40, 4, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.04);
   const upper = new THREE.Group();
   const lower = new THREE.Group();
-  upper.add(new THREE.Mesh(upperG, skinMat));
-  lower.add(new THREE.Mesh(lowerG, skinMat));
-  // lash line along the lid edge
-  const lashMat = mat(0x1a1110, { roughness: 0.6 });
-  const lashT = opts.female ? r * 0.06 : r * 0.04;
-  const lashG = new THREE.TorusGeometry(lidR * 1.005, lashT, 6, 36, Math.PI);
+  const lidMat = skinMat.clone();
+  lidMat.side = THREE.DoubleSide;
+  lidMat.onBeforeCompile = skinMat.onBeforeCompile;
+  lidMat.customProgramCacheKey = () => 'skin-sss-lid';
+  upper.add(new THREE.Mesh(upperG, lidMat));
+  lower.add(new THREE.Mesh(lowerG, lidMat));
+  // fleshy lid rim + lash line + individual lashes curling outward
+  const lashMat = mat(0x140c0a, { roughness: 0.55 });
+  const lashT = opts.female ? r * 0.05 : r * 0.035;
+  const rimG = new THREE.TorusGeometry(lidR * 1.01, r * 0.045, 8, 40, Math.PI);
+  rimG.rotateX(Math.PI / 2);
+  upper.add(new THREE.Mesh(rimG, skinMat));
+  const lashG = new THREE.TorusGeometry(lidR * 1.03, lashT, 6, 40, Math.PI);
   lashG.rotateX(Math.PI / 2);
-  const lash = new THREE.Mesh(lashG, lashMat);
-  lash.scale.set(1, 1, 1);
-  upper.add(lash);
+  upper.add(new THREE.Mesh(lashG, lashMat));
+  {
+    const n = opts.female ? 26 : 16;
+    const strands = [];
+    for (let k = 0; k < n; k++) {
+      const a = 0.18 + (k / (n - 1)) * (Math.PI - 0.36);
+      const len = r * (opts.female ? 0.32 : 0.2) * (0.7 + 0.5 * Math.sin(a));
+      const pts = [];
+      for (let q = 0; q < 5; q++) {
+        const t = q / 4;
+        const out = lidR * 1.025 + t * len * 0.95;
+        pts.push(new THREE.Vector3(Math.cos(a) * out, -t * len * 0.12 + t * t * len * 0.55, Math.sin(a) * out));
+      }
+      const curve = new THREE.CatmullRomCurve3(pts);
+      strands.push(new THREE.TubeGeometry(curve, 4, r * 0.012, 3));
+    }
+    const lashes = new THREE.Mesh(mergeGeometries(strands), lashMat);
+    upper.add(lashes);
+  }
   if (opts.female) {
     // a little flick at the outer corner
     const flick = new THREE.Mesh(new THREE.ConeGeometry(lashT * 1.2, r * 0.45, 6), lashMat);
@@ -409,6 +455,11 @@ export function buildHumanEar(skinMat, side) {
 
 export function buildNose(P, skinMat, field) {
   const g = new THREE.Group();
+  const baseMat = skinMat;
+  skinMat = baseMat.clone();
+  skinMat.onBeforeCompile = baseMat.onBeforeCompile;
+  skinMat.customProgramCacheKey = baseMat.customProgramCacheKey;
+  skinMat.color.lerp(new THREE.Color(0xff9a8a), 0.12);
   const tipY = -0.2 + P.noseDown;
   const s = P.nose;
   const tipZ = field.zAt(0, tipY);

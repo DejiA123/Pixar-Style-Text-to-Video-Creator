@@ -27,6 +27,25 @@ scene.add(key);
 const rim = new THREE.DirectionalLight(0xbfd8ff, 3.0); rim.position.set(3, 3, -4); scene.add(rim);
 const rim2 = new THREE.DirectionalLight(0xffc9a0, 1.6); rim2.position.set(-3, 2, -3); scene.add(rim2);
 scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x8a6f5a, 0.45));
+if (params.get('set') === 'portrait') {
+  // film portrait: night street bokeh, warm key, cool/purple rims
+  scene.background = new THREE.Color(0x1a1530);
+  scene.environmentIntensity = 0.25;
+  key.color.set(0xffd2b0); key.intensity = 3.4; key.position.set(-2, 3, 3.5);
+  rim.color.set(0x8fb0ff); rim.intensity = 5; rim.position.set(3, 2.5, -3);
+  rim2.color.set(0xff7ad0); rim2.intensity = 3.5; rim2.position.set(-3, 2, -3);
+  const cols = [0xff4fa3, 0x4fd8ff, 0xffd84f, 0xff7a3d, 0xffe2a8, 0xb38cff, 0x7dffd8];
+  for (let i = 0; i < 160; i++) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.06 + Math.random() * 0.12, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(cols[i % cols.length]).multiplyScalar(2 + Math.random() * 4) }));
+    m.position.set((Math.random() - 0.5) * 14, Math.random() * 5, -5 - Math.random() * 12);
+    scene.add(m);
+  }
+  for (let i = 0; i < 10; i++) {
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.8 + Math.random(), 2 + Math.random() * 2), new THREE.MeshBasicMaterial({ color: new THREE.Color(cols[i % cols.length]).multiplyScalar(1.6) }));
+    sign.position.set((Math.random() - 0.5) * 12, 2 + Math.random() * 3, -8 - Math.random() * 6);
+    scene.add(sign);
+  }
+}
 const ground = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.MeshStandardMaterial({ color: 0x9a8f80, roughness: 0.9 }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 
@@ -44,7 +63,7 @@ window.renderAt = (t, opts = {}) => {
   const shot = opts.shot || params.get('shot') || 'closeup';
   const yaw = +(opts.yaw ?? params.get('yaw') ?? 0.25);
   const dist = shot === 'closeup' ? 0.95 : shot === 'medium' ? 2.1 : 4.6;
-  const upd = (look) => chars.forEach((ch) => ch.update({ t, localT: t, action, emotion, talk: opts.talk ?? +(params.get('talk') || 0), lookAt: look ? cam.position : null }));
+  const upd = (look) => chars.forEach((ch) => ch.update({ t, localT: t, action, emotion, talk: opts.talk ?? +(params.get('talk') || 0), lookAt: look && params.get('look') !== '0' ? cam.position : null }));
   const place = () => {
     scene.updateMatrixWorld(true);
     const head = focusChar.headWorld(new THREE.Vector3());

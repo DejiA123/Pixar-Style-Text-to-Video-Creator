@@ -79,6 +79,10 @@ function makeCollider(P, body) {
       const s = margin / Math.sqrt(k);
       p.multiplyScalar(s);
     }
+    // keep the forehead clear of hanging locks
+    if (faceGuard && p.z > 0.45 && p.y < 0.52 && p.y > 0.12 && Math.abs(p.x) < 0.62) {
+      p.x = Math.sign(p.x || 1) * lerp(Math.abs(p.x), 0.66, 0.9);
+    }
     // keep the face clear: below the hairline, in front, near the middle
     if (faceGuard && p.z > 0.25 && p.y < 0.5 && p.y > -1.25) {
       const lim = 0.78 + (p.y < -0.6 ? 0.1 : 0);
@@ -271,14 +275,14 @@ export function buildHair(P, spec, rng, body) {
     const partX = style === 'short' ? 0.32 : 0;
     const shellR = (d) => shellPoint(P, d, vol).length();
     const hug = (p, lift) => { const d = p.clone().normalize(); const r = shellR(d); return d.multiplyScalar(r + lift); };
-    const count = style === 'buzz' ? 0 : style === 'bald' ? 140 : 330;
+    const count = style === 'buzz' ? 0 : style === 'bald' ? 120 : 190;
     const roots = onScalp.slice().sort(() => rng() - 0.5).slice(0, count);
     for (const d of roots) {
       const frontness = smoothstep(0.1, 0.8, d.z) * smoothstep(0.0, 0.6, d.y);
       const top = smoothstep(0.15, 0.85, d.y);
-      let flowTarget, length, w0 = 0.17, w1 = 0.03, tipLift = 0.08, steps = 12;
+      let flowTarget, length, w0 = 0.27, w1 = 0.04, tipLift = 0.07, steps = 14;
       if (style === 'swept') { flowTarget = v3(rng.range(-0.12, 0.12) + d.x * 0.25, 0.35, -1); length = lerp(0.45, 0.95, top) * (0.85 + rng() * 0.3); tipLift = 0.05 + frontness * 0.12; }
-      else if (style === 'spiky') { flowTarget = v3(rng.range(-0.3, 0.3) + d.x * 0.3, 0.55, -1); length = lerp(0.4, 0.8, top) * (0.8 + rng() * 0.4); tipLift = 0.12 + frontness * 0.15; w1 = 0.008; w0 = 0.19; }
+      else if (style === 'spiky') { flowTarget = v3(rng.range(-0.3, 0.3) + d.x * 0.3, 0.55, -1); length = lerp(0.45, 0.85, top) * (0.8 + rng() * 0.4); tipLift = 0.1 + frontness * 0.14; w1 = 0.012; w0 = 0.26; }
       else if (style === 'short') { const sd = d.x > partX ? 1 : -1; flowTarget = v3(sd, -0.25 + frontness * 0.3, -0.35); length = lerp(0.35, 0.7, top) * (0.85 + rng() * 0.3); tipLift = 0.04; }
       else if (style === 'messy') { flowTarget = v3(rng.range(-1, 1), rng.range(-0.2, 0.7), rng.range(-1, 0.5)); length = lerp(0.3, 0.6, top) * (0.8 + rng() * 0.5); tipLift = 0.14; w1 = 0.01; }
       else { flowTarget = v3(0, -1, -0.5); length = 0.22; tipLift = 0.01; w0 = 0.1; steps = 6; }
@@ -296,7 +300,22 @@ export function buildHair(P, spec, rng, body) {
         collide(p, 1.03, true);
         pts.push(p);
       }
-      add(pts, w0 * (0.85 + rng() * 0.3), w1, 0.22, { taper: 1.4, tipLight: 0.12, radial: 8, belly: 0.25, leaf: 0.3 });
+      add(pts, w0 * (0.85 + rng() * 0.3), w1, 0.16, { taper: 1.5, tipLight: 0.12, radial: 10, belly: 0.25, leaf: 0.3 });
+    }
+    // fringe locks that break up the front hairline
+    if (style !== 'buzz' && style !== 'bald') {
+      for (let i = 0; i < 22; i++) {
+        const x = lerp(-0.62, 0.62, i / 21) + rng.range(-0.03, 0.03);
+        const d0 = v3(x, hairlineY(v3(x, 0.6, 0.78).normalize(), line) + 0.03, 0.8).normalize();
+        const pts = [];
+        const sweep = style === 'short' ? (x > partX ? 1 : -1) : x * 0.6;
+        for (let k = 0; k < 9; k++) {
+          const t = k / 8;
+          const dd = d0.clone().add(v3(sweep * 0.35 * t, (style === 'short' ? 0.15 : 0.55) * t, -0.45 * t)).normalize();
+          pts.push(hug(shellPoint(P, dd, vol), 0.004 + t * t * 0.05));
+        }
+        add(pts, 0.2, 0.02, 0.16, { taper: 1.3, leaf: 0.35, belly: 0.2, radial: 10 });
+      }
     }
   } else if (style === 'curly' || style === 'afro') {
     for (const d of onScalp) {
@@ -328,7 +347,51 @@ export function buildHair(P, spec, rng, body) {
       : style === 'braid' ? [v3(0, -0.45, -0.95)]
       : [v3(0, 0.25, -1.02)];
     const wave = style === 'wavy' ? 0.13 : style === 'long' ? 0.05 : style === 'bob' ? 0.03 : 0;
-    const longRoots = gathered ? onScalp : onScalp.filter((_, i) => i % 2 === 0);
+    const longRoots = gathered ? onScalp : onScalp.filter((_, i) => i % 3 === 0);
+    if (!gathered) {
+      // a continuous curtain of hair behind the locks so no gaps show
+      const COLS = 72, ROWS = 28;
+      const L = lengths[style];
+      const th0 = 0.62; // keep the face open (radians from the front)
+      const paths = [];
+      for (let ci = 0; ci < COLS; ci++) {
+        const th = th0 + (ci / (COLS - 1)) * (Math.PI * 2 - th0 * 2);
+        const dir = v3(Math.sin(th), 0, Math.cos(th));
+        const front = Math.cos(th);
+        const hy = lerp(line.side, front > 0 ? line.front - line.temple : line.back, Math.abs(front)) + 0.05;
+        const d = v3(dir.x * Math.sqrt(1 - hy * hy), hy, dir.z * Math.sqrt(1 - hy * hy)).normalize();
+        const root = shellPoint(P, d, vol, -0.01);
+        const pts = grow(P, collide, root, tangentToward(d, v3(dir.x * 0.4, -1, dir.z * 0.4)), {
+          length: L * (0.95 + 0.08 * Math.sin(ci * 1.7)), steps: ROWS, margin: 1.05,
+          wave, waveLen: 0.6, wavePhase: ci * 0.21, waveStart: 0.3,
+          force: (p, t) => { const f = v3(0, -0.25 - t * 0.2, 0); const out = p.clone().setY(0); if (out.lengthSq() > 1e-4) f.addScaledVector(out.normalize(), 0.06 * (1 - t)); if (style === 'bob' && t > 0.75) f.add(p.clone().setY(0).normalize().multiplyScalar(-0.25)); return f; },
+        });
+        paths.push(pts);
+      }
+      const pos = [], col = [], uvs = [], idx = [];
+      const cc = new THREE.Color(color);
+      for (let ci = 0; ci < COLS; ci++) for (let r = 0; r < ROWS; r++) {
+        const p = paths[ci][r];
+        pos.push(p.x, p.y, p.z);
+        const sh = lerp(0.72, 1.05, r / (ROWS - 1)) * (0.95 + 0.05 * Math.sin(ci * 2.3));
+        col.push(cc.r * sh, cc.g * sh, cc.b * sh);
+        uvs.push(r / (ROWS - 1) * 2, ci / (COLS - 1) * 8);
+      }
+      for (let ci = 0; ci < COLS - 1; ci++) for (let r = 0; r < ROWS - 1; r++) {
+        const a = ci * ROWS + r, b = a + 1, c2 = a + ROWS, d2 = c2 + 1;
+        idx.push(a, c2, b, b, c2, d2);
+      }
+      const cg = new THREE.BufferGeometry();
+      cg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      cg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      cg.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      cg.setIndex(idx);
+      cg.computeVertexNormals();
+      const curtain = new THREE.Mesh(cg, material.clone());
+      curtain.material.side = THREE.DoubleSide;
+      curtain.castShadow = true;
+      group.add(curtain);
+    }
     for (const d of longRoots) {
       const root = shellPoint(P, d, vol, -0.03);
       if (gathered) {
@@ -364,7 +427,7 @@ export function buildHair(P, spec, rng, body) {
           return f;
         },
       });
-      add(pts, 0.21 * (0.85 + rng() * 0.3), 0.035, 0.22, { taper: 1.3, tipLight: 0.16, leaf: 0.12, belly: 0.2, radial: 8 });
+      add(pts, 0.3 * (0.85 + rng() * 0.3), 0.04, 0.14, { taper: 1.3, tipLight: 0.16, leaf: 0.12, belly: 0.2, radial: 10 });
     }
     // gathered styles: the ponytail / bun / braid itself
     if (style === 'ponytail' || style === 'pigtails') {

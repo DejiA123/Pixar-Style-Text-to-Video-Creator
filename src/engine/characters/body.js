@@ -292,6 +292,8 @@ export function buildBeard(P, color, style, sculptFn) {
   const d = v3(), p = v3();
   const keep = new Uint8Array(pos.count);
   const full = style === 'full';
+  const rgba = new Float32Array(pos.count * 4);
+  const bc = new THREE.Color(color);
   for (let i = 0; i < pos.count; i++) {
     d.fromBufferAttribute(pos, i).normalize();
     const jaw = smoothstep(full ? -0.32 : -0.45, full ? -0.55 : -0.65, d.y + Math.abs(d.x) * 0.12) * smoothstep(-0.55, -0.1, d.z);
@@ -302,9 +304,11 @@ export function buildBeard(P, color, style, sculptFn) {
     if (style === 'mustache') m = mustache - mouthHole;
     const noise = 0.06 * Math.sin(d.x * 23) * Math.sin(d.y * 19);
     m = Math.min(1, Math.max(0, m + noise * (m > 0 && m < 0.6 ? 1 : 0)));
-    keep[i] = m > 0.12 ? 1 : 0;
+    keep[i] = m > 0.05 ? 1 : 0;
+    const sh = 0.85 + 0.3 * Math.abs(Math.sin(d.x * 61) * Math.sin(d.y * 53));
+    rgba.set([bc.r * sh, bc.g * sh, bc.b * sh, smoothstep(0.05, 0.55, m)], i * 4);
     sculptFn(d, P, p);
-    const thick = full ? 0.08 : style === 'mustache' ? 0.06 : 0.04;
+    const thick = full ? 0.045 : style === 'mustache' ? 0.04 : 0.03;
     p.addScaledVector(d, 0.006 + thick * smoothstep(0.1, 0.7, m));
     pos.setXYZ(i, p.x, p.y, p.z);
   }
@@ -312,8 +316,9 @@ export function buildBeard(P, color, style, sculptFn) {
   const kept = [];
   for (let i = 0; i < idx.length; i += 3) if (keep[idx[i]] && keep[idx[i + 1]] && keep[idx[i + 2]]) kept.push(idx[i], idx[i + 1], idx[i + 2]);
   g.setIndex(kept);
+  g.setAttribute('color', new THREE.BufferAttribute(rgba, 4));
   g.computeVertexNormals();
-  const m = new THREE.MeshPhysicalMaterial({ color, roughness: 0.7, sheen: 0.5, sheenColor: new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.35), sheenRoughness: 0.5 });
+  const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, vertexColors: true, alphaHash: true, roughness: 0.75, sheen: 0.6, sheenColor: new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.35), sheenRoughness: 0.5, normalMap: weaveNormalMap(), normalScale: new THREE.Vector2(1.2, 1.2) });
   const mesh = new THREE.Mesh(g, m);
   mesh.castShadow = true;
   return mesh;
