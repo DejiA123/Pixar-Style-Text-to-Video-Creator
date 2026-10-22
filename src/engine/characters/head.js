@@ -6,6 +6,7 @@ import { mergeVertices, mergeGeometries } from 'three/addons/utils/BufferGeometr
 import { skinMaterial, mat, basic } from '../materials.js';
 import { clamp, smoothstep, lerp } from '../../util.js';
 import { faceUVs } from './skin.js';
+import { sdEllipsoid, sdSphere, sdCapsule, smin, smax, trace, gradient, surfaceNets } from './sdf.js';
 
 const v3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
@@ -28,11 +29,11 @@ export function faceParams(spec, rng) {
     faceLength: child ? 0.9 : f ? 1.02 : (spec.age === 'teen' ? 1.04 : 1.08) + rng.range(-0.02, 0.03),
     nose: child ? 0.11 : f ? 0.125 : rng.range(0.15, 0.18),
     noseDown: rng.range(-0.02, 0.03),
-    eyeR: child ? 0.26 : spec.age === 'teen' ? (f ? 0.215 : 0.205) : (f ? 0.205 : 0.195),
-    eyeSpacing: child ? 0.37 : 0.355,
+    eyeR: child ? 0.27 : spec.age === 'teen' ? (f ? 0.238 : 0.222) : (f ? 0.222 : 0.205),
+    eyeSpacing: child ? 0.38 : 0.37,
     eyeY: child ? -0.02 : 0.06,
-    mouthY: child ? -0.52 : -0.56,
-    browY: child ? 0.32 : 0.37,
+    mouthY: child ? -0.5 : -0.52,
+    browY: child ? 0.3 : f ? 0.33 : 0.31,
     browThick: f ? 0.032 : 0.05 + rng.range(0, 0.012),
     old,
     adult: !child,
@@ -40,70 +41,105 @@ export function faceParams(spec, rng) {
   };
 }
 
-// Displace a unit-sphere direction into the head surface.
-export function sculpt(d, P, out = v3()) {
-  let { x, y, z } = d;
-  const front = smoothstep(0.2, 0.75, z);
-  let r = 1;
-  const G = (cx, cy, cz, sx, sy = sx, sz = sx) => gauss3(x, y, z, cx, cy, cz, sx, sy, sz);
-  const adult = P.adult ? 1 : 0;
-  // brow ridge and forehead plane
-  r += 0.035 * front * Math.exp(-0.5 * ((y - (P.eyeY + 0.27)) / 0.07) ** 2) * smoothstep(0.62, 0.2, Math.abs(x));
-  // eye sockets
-  r -= 0.045 * (G(P.eyeSpacing, P.eyeY, 0.84, 0.15) + G(-P.eyeSpacing, P.eyeY, 0.84, 0.15));
-  // temples
-  r -= 0.025 * (G(0.74, P.eyeY + 0.3, 0.45, 0.16) + G(-0.74, P.eyeY + 0.3, 0.45, 0.16));
-  // cheekbones, soft cheeks, adult hollows
-  r += (0.04 + P.cheek * 0.6) * (G(0.5, P.eyeY - 0.2, 0.68, 0.17, 0.12) + G(-0.5, P.eyeY - 0.2, 0.68, 0.17, 0.12));
-  r += P.cheek * (G(0.45, -0.36, 0.66, 0.2) + G(-0.45, -0.36, 0.66, 0.2));
-  r -= 0.022 * adult * (G(0.52, -0.46, 0.55, 0.12) + G(-0.52, -0.46, 0.55, 0.12));
-  // nose bridge rising toward the tip
-  const bridge = Math.exp(-0.5 * (x / 0.065) ** 2) * smoothstep(P.eyeY + 0.12, P.eyeY - 0.05, y) * smoothstep(-0.32, -0.12, y) * front;
-  r += bridge * (0.05 + 0.05 * smoothstep(0.1, -0.2, y));
-  // muzzle, lips, philtrum, chin, jaw angle
-  r += 0.05 * G(0, P.mouthY + 0.02, 0.84, 0.24, 0.16);
-  r += 0.03 * G(0, P.mouthY + 0.05, 0.92, 0.17, 0.032);
-  r += 0.034 * G(0, P.mouthY - 0.06, 0.92, 0.14, 0.04);
-  r -= 0.012 * G(0, P.mouthY + 0.13, 0.95, 0.03, 0.05);
-  r -= 0.015 * G(0, P.mouthY - 0.15, 0.88, 0.14, 0.04);
-  r += (P.chin + 0.02) * G(0, -0.86, 0.55, 0.15, 0.12);
-  r += 0.03 * adult * (G(0.7, -0.55, 0.15, 0.16) + G(-0.7, -0.55, 0.15, 0.16)) * (P.female ? 0.4 : 1);
-  x *= r; y *= r; z *= r;
-
-  // base ellipsoid
-  x *= 0.8; z *= 0.9;
-  if (y > 0) { const k = y; x *= 1 + 0.05 * k * P.cranium; z *= 1 + 0.04 * k; y *= P.cranium; }
-  if (z < 0) z *= 1.06;
-  const t = smoothstep(0.1, -0.98, y);
-  const jawCorner = Math.exp(-0.5 * ((y + 0.5) / 0.18) ** 2) * (z > -0.2 ? 1 : 0.5);
-  const tj = smoothstep(-0.12, -0.98, y);
-  x *= lerp(1, P.jaw, Math.pow(tj, 1.5)) * lerp(1, 0.9, Math.pow(tj, 3)) * (1 + P.jawSquare * jawCorner);
-  if (y < 0) y *= P.faceLength;
-  if (z > 0) z *= lerp(1, 0.93, t);
-  return out.set(x, y, z);
+// ---- sculpted SDF head ----------------------------------------------------------
+// The head is a signed distance field: cranium + cheek/jaw/chin/muzzle masses,
+// brow ridge, cheekbones, carved eye sockets, a real nose (bridge, rounded tip,
+// alae, nostrils), lip volumes and ears, all smooth-blended so the forms flow
+// into each other like a sculpt. Coordinates: head units, +z = face.
+export function headShape(P) {
+  if (P._shape) return P._shape;
+  const fl = P.faceLength, jw = P.jaw / 0.82, cr = P.cranium;
+  const child = !P.adult, fem = P.female;
+  const muzzleZ = 0.56 + (child ? -0.02 : 0);
+  const skull = (x, y, z) => {
+    const ax = Math.abs(x);
+    let d = sdEllipsoid(ax, y, z, 0, 0.08, -0.06, 0.79, 0.9 * cr, 0.95);
+    // lower face masses: cheeks, jaw angle, chin, muzzle
+    let lf = sdEllipsoid(ax, y, z, 0.24, -0.22 * fl, 0.38, 0.34, 0.34 * fl, 0.44);
+    lf = smin(lf, sdSphere(ax, y, z, 0.4 * jw, P.mouthY * fl, -0.06, 0.15 + P.jawSquare * 0.6), 0.2);
+    lf = smin(lf, sdEllipsoid(ax, y, z, 0, (P.mouthY - 0.26) * fl, 0.5 + P.chin * 0.6, 0.21 * jw, 0.14, 0.2), 0.24);
+    lf = smin(lf, sdEllipsoid(ax, y, z, 0, P.mouthY - 0.02, muzzleZ, 0.28, 0.27, 0.36), 0.18);
+    d = smin(d, lf, 0.18);
+    // brow ridge and cheekbones
+    d = smin(d, sdEllipsoid(ax, y, z, 0.3, P.eyeY + 0.25, 0.64, 0.3, 0.1, 0.2), fem || child ? 0.16 : 0.1);
+    if (child) d = smin(d, sdEllipsoid(ax, y, z, 0.4, -0.3, 0.5, 0.28, 0.24, 0.32), 0.18);
+    else d = smin(d, sdEllipsoid(ax, y, z, 0.47, P.eyeY - 0.22, 0.48, 0.22, 0.13, 0.26), 0.14);
+    return d;
+  };
+  // locate features on the skull surface
+  const zAt = (f, x, y) => { const t = trace(f, x, y, 2.5, 0, 0, -1, 5); return t < 0 ? 0 : 2.5 - t; };
+  const eyeC = [-1, 1].map((s) => {
+    const x = s * P.eyeSpacing, y = P.eyeY;
+    const z = zAt(skull, x, y);
+    const n = gradient(skull, x, y, z, 0.004);
+    // keep the gaze plane mostly forward-facing
+    n.lerp(new THREE.Vector3(s * 0.25, 0, 1).normalize(), 0.5).normalize();
+    return new THREE.Vector3(x, y, z).addScaledVector(n, -P.eyeR * 0.6);
+  });
+  const lidR = P.eyeR * 1.045;
+  const s = P.nose;
+  const tipY = -0.2 + P.noseDown;
+  const tipZ = zAt(skull, 0, tipY) + s * (child ? 0.7 : 0.85);
+  const bridgeZ = zAt(skull, 0, P.eyeY + 0.02) - 0.035;
+  const mz = zAt(skull, 0, P.mouthY);
+  const lipK = fem ? 1.12 : 1;
+  const ear = { x: 0.8, y: -0.1, z: -0.1, a: 0.35 };
+  const ca = Math.cos(ear.a), sa = Math.sin(ear.a);
+  const neckR = P.neckR ?? 0.36;
+  const full = (x, y, z) => {
+    const ax = Math.abs(x);
+    let d = skull(x, y, z);
+    // eyes: the skin flows tangentially onto a dome just under the lid shells,
+    // then the dome is cut away so the lids/eyeball show through seamlessly
+    const e = x < 0 ? eyeC[0] : eyeC[1];
+    const es = sdSphere(x, y, z, e.x, e.y, e.z, lidR);
+    d = smin(d, es + 0.004, 0.1);
+    d = Math.max(d, -(es + 0.002));
+    // nose
+    let n = sdCapsule(ax, y, z, 0, P.eyeY + 0.02, bridgeZ, 0, tipY + s * 0.15, tipZ - s * 0.42, 0.045, s * 0.42);
+    n = smin(n, sdEllipsoid(ax, y, z, 0, tipY, tipZ - s * 0.48, s * 0.6, s * 0.5, s * 0.48), 0.05);
+    n = smin(n, sdEllipsoid(ax, y, z, s * 0.66, tipY - s * 0.16, tipZ - s * 0.86, s * 0.38, s * 0.32, s * 0.4), 0.05);
+    n = smax(n, -sdEllipsoid(ax, y, z, s * 0.34, tipY - s * 0.52, tipZ - s * 0.6, s * 0.16, s * 0.1, s * 0.22), 0.02);
+    d = smin(d, n, 0.06);
+    // lips and the soft groove beneath
+    const lips = smin(
+      sdEllipsoid(ax, y, z, 0, P.mouthY + 0.03, mz - 0.06, 0.2 * lipK, 0.045, 0.075),
+      sdEllipsoid(ax, y, z, 0, P.mouthY - 0.045, mz - 0.062, 0.17 * lipK, 0.052 * lipK, 0.08), 0.03);
+    d = smin(d, lips, 0.05);
+    d = smax(d, -sdEllipsoid(ax, y, z, 0, P.mouthY - 0.135, mz + 0.035, 0.15, 0.028, 0.05), 0.05);
+    // ears
+    const px = ax - ear.x, py = y - ear.y, pz = z - ear.z;
+    const ln = px * ca - pz * sa, lt = px * sa + pz * ca;
+    let er = sdEllipsoid(ln, py + lt * 0.15, lt, 0, 0, 0, 0.055, 0.2, 0.125);
+    er = smax(er, -sdEllipsoid(ln, py, lt, 0.055, 0.0, 0.01, 0.04, 0.12, 0.075), 0.03);
+    d = smin(d, er, 0.04);
+    // neck stub so the jaw flows into the neck
+    d = smin(d, sdCapsule(ax, y, z, 0, -0.8, -0.24, 0, -1.8, -0.1, neckR), 0.07);
+    return Math.max(d, -(y + 1.72));
+  };
+  const earPos = (side) => new THREE.Vector3(side * (ear.x + 0.03), ear.y, ear.z);
+  P._shape = { skull, full, eyeC, lidR, tipY, tipZ, earPos };
+  Object.defineProperty(P, '_shape', { enumerable: false });
+  return P._shape;
 }
 
-// Iteratively find the surface point whose front projection is (x, y).
+// Surface point of the skull in direction d from the head center (for hair, beards).
+export function sculpt(d, P, out = v3()) {
+  const { skull } = headShape(P);
+  const t = trace(skull, d.x * 2.4, d.y * 2.4, d.z * 2.4, -d.x, -d.y, -d.z, 2.4);
+  const r = t < 0 ? 1 : 2.4 - t;
+  return out.set(d.x * r, d.y * r, d.z * r);
+}
+
+// Surface point (and normal) of the full face whose front projection is (x, y).
 export function surfaceAt(P, x, y) {
-  const d = v3(x, y, Math.sqrt(Math.max(0.05, 1 - x * x - y * y))).normalize();
-  const p = v3();
-  for (let i = 0; i < 8; i++) {
-    sculpt(d, P, p);
-    d.x += (x - p.x) * 0.8;
-    d.y += (y - p.y) * 0.8;
-    d.z = Math.sqrt(Math.max(0.02, 1 - d.x * d.x - d.y * d.y));
-    d.normalize();
-  }
-  sculpt(d, P, p);
-  // normal by finite difference over the sphere
-  const e = 0.01;
-  const t1 = v3(1, 0, 0).sub(d.clone().multiplyScalar(d.x)).normalize();
-  const t2 = d.clone().cross(t1).normalize();
-  const a = sculpt(d.clone().addScaledVector(t1, e).normalize(), P, v3());
-  const b = sculpt(d.clone().addScaledVector(t2, e).normalize(), P, v3());
-  const n = a.sub(p).cross(b.sub(p)).normalize();
-  if (n.dot(p) < 0) n.negate();
-  return { p, n, d };
+  const { full } = headShape(P);
+  const t = trace(full, x, y, 2.5, 0, 0, -1, 5);
+  let p;
+  if (t < 0) p = sculpt(v3(x, y, 0.3).normalize(), P);
+  else p = v3(x, y, 2.5 - t);
+  const n = gradient(full, p.x, p.y, p.z, 0.004);
+  return { p, n, d: p.clone().normalize() };
 }
 
 // Heightfield z(x, y) of the face over a rectangle — for decals that hug skin.
@@ -130,40 +166,10 @@ export class FaceField {
 }
 
 export function buildHeadGeometry(P, opts = {}) {
-  const geo = new THREE.SphereGeometry(1, opts.wSeg ?? 160, opts.hSeg ?? 120);
-  geo.deleteAttribute('uv');
-  geo.deleteAttribute('normal');
-  const merged = mergeVertices(geo, 1e-5);
-  const pos = merged.attributes.position;
-  const dirs = new Float32Array(pos.array);
-  merged.setAttribute('uv', new THREE.BufferAttribute(faceUVs(dirs), 2));
-  const colors = new Float32Array(pos.count * 3);
-  const d = v3(), p = v3();
-  const blush = opts.blush ?? 0.5;
-  const stubble = opts.stubble || null; // {color, amount}
-  const sc = stubble ? new THREE.Color(stubble.color) : null;
-  for (let i = 0; i < pos.count; i++) {
-    d.fromBufferAttribute(pos, i).normalize();
-    sculpt(d, P, p);
-    pos.setXYZ(i, p.x, p.y, p.z);
-    // vertex tint: warm cheeks, nose & ears; optional stubble shadow on the jaw
-    let rr = 1, gg = 1, bb = 1;
-    const cheek = gauss3(d.x, d.y, d.z, 0.48, -0.25, 0.7, 0.16) + gauss3(d.x, d.y, d.z, -0.48, -0.25, 0.7, 0.16);
-    const noseTip = gauss3(d.x, d.y, d.z, 0, -0.18, 0.95, 0.1);
-    const side = smoothstep(0.75, 0.95, Math.abs(d.x));
-    const warm = cheek * 0.22 * blush + noseTip * 0.12 + side * 0.06;
-    rr += warm * 0.25; gg -= warm * 0.55; bb -= warm * 0.5;
-    if (sc) {
-      const jaw = smoothstep(-0.15, -0.45, d.y) * smoothstep(-0.45, 0.1, d.z) * (1 - gauss3(d.x, d.y, d.z, 0, P.mouthY, 0.85, 0.16, 0.06));
-      const lip = gauss3(d.x, d.y, d.z, 0, P.mouthY + 0.1, 0.9, 0.18, 0.05);
-      const s = clamp((jaw + lip * 0.8) * stubble.amount);
-      rr = lerp(rr, sc.r * 1.6, s); gg = lerp(gg, sc.g * 1.6, s); bb = lerp(bb, sc.b * 1.6, s);
-    }
-    colors[i * 3] = rr; colors[i * 3 + 1] = gg; colors[i * 3 + 2] = bb;
-  }
-  merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  merged.computeVertexNormals();
-  return merged;
+  const { full } = headShape(P);
+  const geo = surfaceNets(full, [-1.0, -1.74, -1.15], [1.0, 1.15, 1.35], opts.h ?? 0.016, { project: 1, exactNormals: true });
+  geo.setAttribute('uv', new THREE.BufferAttribute(faceUVs(geo.attributes.position.array, geo.attributes.normal.array), 2));
+  return geo;
 }
 
 // ---- eyes ---------------------------------------------------------------------
@@ -261,13 +267,16 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   eye.add(cl2);
 
   // lids: hemispherical shells of skin that rotate to open/close
-  const lidR = r * 1.045;
+  const lidR = r * 1.045 + 0.004;
   const upperG = new THREE.SphereGeometry(lidR, 40, 20, 0, Math.PI * 2, 0, Math.PI * 0.5);
-  const lowerG = new THREE.SphereGeometry(r * 1.03, 40, 4, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.04);
+  const lowerG = new THREE.SphereGeometry(lidR, 40, 16, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5);
   const upper = new THREE.Group();
   const lower = new THREE.Group();
   const lidMat = skinMat.clone();
   lidMat.side = THREE.DoubleSide;
+  lidMat.polygonOffset = true;
+  lidMat.polygonOffsetFactor = -1;
+  lidMat.polygonOffsetUnits = -2;
   lidMat.onBeforeCompile = skinMat.onBeforeCompile;
   lidMat.customProgramCacheKey = () => 'skin-sss-lid';
   upper.add(new THREE.Mesh(upperG, lidMat));
@@ -277,24 +286,44 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   const lashT = opts.female ? r * 0.05 : r * 0.035;
   const rimG = new THREE.TorusGeometry(lidR * 1.01, r * 0.045, 8, 40, Math.PI);
   rimG.rotateX(Math.PI / 2);
-  upper.add(new THREE.Mesh(rimG, skinMat));
+  upper.add(new THREE.Mesh(rimG, lidMat));
+  // lid geometry samples the face texture through the same front projection
+  if (opts.center) {
+    for (const g of [upperG, lowerG, rimG]) {
+      const p = g.attributes.position.array.slice();
+      for (let i = 0; i < p.length; i += 3) { p[i] += opts.center.x; p[i + 1] += opts.center.y; p[i + 2] += opts.center.z; }
+      g.setAttribute('uv', new THREE.BufferAttribute(faceUVs(p), 2));
+    }
+  }
   const lashG = new THREE.TorusGeometry(lidR * 1.03, lashT, 6, 40, Math.PI);
   lashG.rotateX(Math.PI / 2);
   upper.add(new THREE.Mesh(lashG, lashMat));
   {
-    const n = opts.female ? 26 : 16;
+    const n = opts.female ? 44 : 30;
     const strands = [];
+    let seed = opts.side === 'L' ? 3 : 7;
+    const rr = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
     for (let k = 0; k < n; k++) {
-      const a = 0.18 + (k / (n - 1)) * (Math.PI - 0.36);
-      const len = r * (opts.female ? 0.32 : 0.2) * (0.7 + 0.5 * Math.sin(a));
+      const a = 0.22 + (k / (n - 1)) * (Math.PI - 0.44) + (rr() - 0.5) * 0.04;
+      const outer = opts.side === 'L' ? Math.cos(a) < 0 : Math.cos(a) > 0; // longer toward the outer corner
+      const len = r * (opts.female ? 0.24 : 0.15) * (0.75 + 0.35 * Math.sin(a)) * (outer ? 1.15 : 0.9) * (0.85 + rr() * 0.3);
       const pts = [];
       for (let q = 0; q < 5; q++) {
         const t = q / 4;
-        const out = lidR * 1.025 + t * len * 0.95;
-        pts.push(new THREE.Vector3(Math.cos(a) * out, -t * len * 0.12 + t * t * len * 0.55, Math.sin(a) * out));
+        const out = lidR * 1.02 + t * len * 0.7;
+        pts.push(new THREE.Vector3(Math.cos(a) * out, t * t * len * 0.75 + t * len * 0.1, Math.sin(a) * out));
       }
       const curve = new THREE.CatmullRomCurve3(pts);
-      strands.push(new THREE.TubeGeometry(curve, 4, r * 0.012, 3));
+      const tg = new THREE.TubeGeometry(curve, 4, r * 0.011, 3);
+      // taper toward the tip
+      const p = tg.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const ring = Math.floor(i / 4) / 4;
+        const c = curve.getPointAt(Math.min(1, ring));
+        const v = new THREE.Vector3().fromBufferAttribute(p, i).sub(c).multiplyScalar(1 - ring * 0.75).add(c);
+        p.setXYZ(i, v.x, v.y, v.z);
+      }
+      strands.push(tg);
     }
     const lashes = new THREE.Mesh(mergeGeometries(strands), lashMat);
     upper.add(lashes);
@@ -308,8 +337,19 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
     flick.rotation.x = -0.3;
     upper.add(flick);
   }
-  const lowerLash = new THREE.Mesh(new THREE.TorusGeometry(lidR * 1.0, lashT * 0.35, 4, 30, Math.PI), mat(0x6b4a40, { roughness: 0.8 }));
-  lowerLash.geometry.rotateX(-Math.PI / 2);
+  // lower lid margin: a soft fleshy rim with a faint lash line
+  const lowRim = new THREE.TorusGeometry(lidR, r * 0.035, 8, 40, Math.PI);
+  lowRim.rotateX(Math.PI / 2);
+  if (opts.center) {
+    const p = lowRim.attributes.position.array.slice();
+    for (let i = 0; i < p.length; i += 3) { p[i] += opts.center.x; p[i + 1] += opts.center.y; p[i + 2] += opts.center.z; }
+    lowRim.setAttribute('uv', new THREE.BufferAttribute(faceUVs(p), 2));
+  }
+  lower.add(new THREE.Mesh(lowRim, lidMat));
+  const lowerLash = new THREE.Mesh(new THREE.TorusGeometry(r * 1.06, lashT * 0.3, 4, 30, Math.PI * 0.8), mat(0x6b4a40, { roughness: 0.8 }));
+  lowerLash.geometry.rotateZ(Math.PI * 0.1);
+  lowerLash.geometry.rotateX(Math.PI / 2);
+  lowerLash.position.y = -r * 0.02;
   lower.add(lowerLash);
   eye.add(upper, lower);
   return { eye, ball, upper, lower, r };

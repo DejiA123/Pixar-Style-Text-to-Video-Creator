@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { skinMaterial, mat, fabric } from '../materials.js';
 import { makeRng, lerp } from '../../util.js';
-import { faceParams, sculpt, surfaceAt, FaceField, buildHeadGeometry, buildEye, Mouth, Brow, buildHumanEar, buildNose } from './head.js';
+import { faceParams, headShape, sculpt, FaceField, buildHeadGeometry, buildEye, Mouth, Brow } from './head.js';
 import { buildHair, pickHairStyle } from './hair.js';
 import { paintFace } from './skin.js';
 import { torsoGeometry, clothMaterial, buildHand, buildShoe, limb, capsule, buildGlasses, buildBackpack, buildBeard, buildHat } from './body.js';
@@ -304,6 +304,8 @@ export function buildHuman(c) {
   J.headModel = headModel;
 
   const P = faceParams({ age: c.age, gender: c.gender }, rng);
+  P.neckR = dims.neckR / hs;
+  const shape = headShape(P);
   const headGeo = buildHeadGeometry(P, { blush: 0, stubble: null });
   const lipColor = new THREE.Color(look.skin).lerp(new THREE.Color(f ? 0xc0505a : 0xa85a50), f ? 0.45 : 0.28).getHex();
   const painted = paintFace(P, {
@@ -324,24 +326,18 @@ export function buildHuman(c) {
   const browR = new Brow(P, field, 1, browColor, P.browThick);
   const browL = new Brow(P, field, -1, browColor, P.browThick);
   headModel.add(browR.mesh, browL.mesh);
-  headModel.add(buildNose(P, skinPlain, field));
 
   // eyes
   const eyes = [];
   for (const side of [-1, 1]) {
-    const sp = surfaceAt(P, side * P.eyeSpacing, P.eyeY);
-    const e = buildEye(P.eyeR, look.eyeColor, skinPlain, { female: f, side: side < 0 ? 'L' : 'R' });
-    e.eye.position.copy(sp.p).addScaledVector(sp.n, -P.eyeR * 0.44);
+    const e = buildEye(P.eyeR, look.eyeColor, faceSkin, { female: f, side: side < 0 ? 'L' : 'R', center: shape.eyeC[side < 0 ? 0 : 1] });
+    e.eye.position.copy(shape.eyeC[side < 0 ? 0 : 1]);
     headModel.add(e.eye);
     eyes.push(e);
   }
   // ears
   for (const side of [-1, 1]) {
-    const ear = buildHumanEar(skinPlain, side);
-    const d = new THREE.Vector3(side, -0.1, -0.08).normalize();
-    const p = sculpt(d, P, new THREE.Vector3());
-    ear.position.copy(p).multiplyScalar(0.98);
-    headModel.add(ear);
+    const ear = { position: shape.earPos(side) };
     if (look.earrings) {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.014, 8, 20), mat(0xe8c060, { metalness: 0.9, roughness: 0.25 }));
       ring.position.copy(ear.position).add(new THREE.Vector3(side * 0.02, -0.25, 0.03));
@@ -371,7 +367,7 @@ export function buildHuman(c) {
   headModel.add(hair);
   if (look.glasses) {
     const gl = buildGlasses(P, look.glasses.color, look.glasses.style);
-    gl.position.z = field.zAt(P.eyeSpacing, P.eyeY) + 0.1;
+    gl.position.z = shape.eyeC[1].z + P.eyeR * 1.1 + 0.07;
     headModel.add(gl);
   }
   if (look.beard && look.beard !== 'stubble') headModel.add(buildBeard(P, look.hairColor, look.beard, sculpt));

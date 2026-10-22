@@ -11,6 +11,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
+window.__hairLog = true;
+window.__hairDebug = new URLSearchParams(location.search).get('hairdbg');
 const fr = new FilmRenderer(canvas, { quality: params.get('q') || 'high', preserveDrawingBuffer: true });
 const W = +(params.get('w') || 720), H = +(params.get('h') || 900);
 canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
@@ -62,7 +64,7 @@ window.renderAt = (t, opts = {}) => {
   const emotion = opts.emotion || params.get('emotion') || 'happy';
   const shot = opts.shot || params.get('shot') || 'closeup';
   const yaw = +(opts.yaw ?? params.get('yaw') ?? 0.25);
-  const dist = shot === 'closeup' ? 0.95 : shot === 'medium' ? 2.1 : 4.6;
+  const dist = +(opts.dist ?? params.get('dist') ?? 0) || (shot === 'closeup' ? 0.95 : shot === 'medium' ? 2.1 : 4.6);
   const upd = (look) => chars.forEach((ch) => ch.update({ t, localT: t, action, emotion, talk: opts.talk ?? +(params.get('talk') || 0), lookAt: look && params.get('look') !== '0' ? cam.position : null }));
   const place = () => {
     scene.updateMatrixWorld(true);

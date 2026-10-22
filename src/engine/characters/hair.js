@@ -2,8 +2,11 @@
 // the head and fall with gravity. Head units (cranium radius ≈ 1).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { sculpt } from './head.js';
-import { hairMaterial } from '../materials.js';
+import { sculpt, headShape } from './head.js';
+import { sculptedHairMaterial, strandMaterial } from '../materials.js';
+import { LockField, meshLocks, lockProfile, buildStrands, resampleLock } from './hairsculpt.js';
+import { smax } from './sdf.js';
+import { backCombed, parted } from './groom.js';
 import { makeRng, clamp, smoothstep, lerp } from '../../util.js';
 
 const v3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -118,15 +121,15 @@ function scalpPoint(P, d, lift = 1.0) {
 function volumeFn(style, line) {
   const g = (d, cx, cy, cz, s) => Math.exp(-((d.x - cx) ** 2 + (d.y - cy) ** 2 + (d.z - cz) ** 2) / (2 * s * s));
   const base = {
-    swept: (d) => 0.05 + 0.3 * g(d, 0, 0.6, 0.7, 0.42) + 0.12 * smoothstep(0.1, 0.9, d.y),
+    swept: (d) => 0.035 + 0.08 * g(d, 0, 0.6, 0.7, 0.42) + 0.04 * smoothstep(0.1, 0.9, d.y),
     spiky: (d) => 0.06 + 0.24 * g(d, 0, 0.62, 0.65, 0.45) + 0.14 * smoothstep(0.1, 0.9, d.y),
     short: (d) => 0.04 + 0.07 * smoothstep(0.0, 0.9, d.y) + 0.05 * g(d, 0.35, 0.6, 0.6, 0.4),
     messy: (d) => 0.06 + 0.16 * smoothstep(0.0, 0.9, d.y),
     curly: (d) => 0.08 + 0.12 * smoothstep(0.0, 0.9, d.y),
     buzz: () => 0.018,
     bald: () => 0.02,
-    long: (d) => 0.05 + 0.05 * smoothstep(0.2, 0.9, d.y),
-    wavy: (d) => 0.06 + 0.07 * smoothstep(0.2, 0.9, d.y),
+    long: (d) => 0.03 + 0.04 * smoothstep(0.2, 0.9, d.y),
+    wavy: (d) => 0.035 + 0.045 * smoothstep(0.2, 0.9, d.y),
     bob: (d) => 0.06 + 0.06 * smoothstep(0.2, 0.9, d.y),
   }[style] || ((d) => 0.035);
   return (d) => base(d) * (0.35 + 0.65 * smoothstep(hairlineY(d, line), hairlineY(d, line) + 0.25, d.y));
@@ -201,13 +204,14 @@ export function buildHair(P, spec, rng, body) {
   const group = new THREE.Group();
   group.userData.style = style;
   if (style === 'none') return group;
-  const material = hairMaterial(color);
+  const material = sculptedHairMaterial(color);
   const collide = makeCollider(P, body);
   const geos = [];
+  const locks = [];
   const swingParts = [];
 
   const line = {
-    swept: { front: 0.62, temple: 0.22, side: 0.02, back: -0.62 },
+    swept: { front: 0.7, temple: 0.24, side: 0.02, back: -0.62 },
     short: { front: 0.6, temple: 0.2, side: 0.0, back: -0.62 },
     messy: { front: 0.58, temple: 0.18, side: 0.0, back: -0.64 },
     spiky: { front: 0.6, temple: 0.2, side: 0.05, back: -0.6 },
@@ -224,42 +228,28 @@ export function buildHair(P, spec, rng, body) {
     buzz: { front: 0.6, temple: 0.2, side: 0.05, back: -0.6 },
   }[style] || { front: 0.6, temple: 0.2, side: 0, back: -0.62 };
 
-  // --- scalp cap: the hair mass itself -----------------------------------------
+  // --- hair mass: a shell over the skull that emerges from the skin at the hairline
   const vol = volumeFn(style, line);
-  const capLift = 1.0;
-  {
-    const g = new THREE.SphereGeometry(1, 96, 72);
-    const pos = g.attributes.position;
-    const keep = new Uint8Array(pos.count);
-    const d = v3();
-    const cc = new THREE.Color(color).multiplyScalar(0.8);
-    const colors = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      d.fromBufferAttribute(pos, i).normalize();
-      let hy = hairlineY(d, line);
-      let inside = d.y > hy - 0.14;
-      if (style === 'bald') inside = d.y < 0.35 && d.y > hy - 0.05 && d.z < 0.25;
-      keep[i] = inside ? 1 : 0;
-      const sink = style === 'bald' || style === 'afro' ? 0 : 1 - smoothstep(hy - 0.08, hy + 0.08, d.y);
-      const p = style === 'afro' ? scalpPoint(P, d, capLift) : shellPoint(P, d, vol, -0.012 - sink * (0.06 + vol(d)));
-      if (style === 'afro') {
-        const bulk = 1.45 + 0.05 * Math.sin(d.x * 9) * Math.sin(d.y * 11) * Math.sin(d.z * 7);
-        const top = smoothstep(-0.4, 0.6, d.y);
-        p.multiplyScalar(lerp(1.03, bulk, top));
-        p.y += top * 0.2;
-      }
-      pos.setXYZ(i, p.x, p.y, p.z);
-      colors[i * 3] = cc.r; colors[i * 3 + 1] = cc.g; colors[i * 3 + 2] = cc.b;
-    }
-    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const idx = g.index.array;
-    const kept = [];
-    for (let i = 0; i < idx.length; i += 3) {
-      if (keep[idx[i]] && keep[idx[i + 1]] && keep[idx[i + 2]]) kept.push(idx[i], idx[i + 1], idx[i + 2]);
-    }
-    g.setIndex(kept);
-    g.computeVertexNormals();
-    geos.push(g);
+  const { skull } = headShape(P);
+  const dd = v3();
+  let mass = null;
+  if (style === 'afro') {
+    mass = (x, y, z) => {
+      dd.set(x, y, z).normalize();
+      const e = Math.sqrt((x / 1.22) ** 2 + ((y - 0.28) / 1.12) ** 2 + ((z + 0.08) / 1.2) ** 2) - 1;
+      const cut = hairlineY(dd, line) - 0.02 - dd.y;
+      return smax(Math.max(e * 1.1, -(skull(x, y, z) + 0.04)), cut, 0.06);
+    };
+  } else if (style !== 'none') {
+    mass = (x, y, z) => {
+      dd.set(x, y, z).normalize();
+      const hy = hairlineY(dd, line);
+      let thick = (0.01 + vol(dd)) * smoothstep(hy - 0.04, hy + 0.14, dd.y) - 0.012;
+      let cut = hy - 0.08 - dd.y;
+      if (style === 'bald') { thick = 0.02 * smoothstep(hy - 0.05, hy + 0.05, dd.y) - 0.005; cut = Math.max(dd.y - 0.32, hy - 0.05 - dd.y, dd.z - 0.25); }
+      const sk = skull(x, y, z);
+      return smax(Math.max(sk - thick, -(sk + 0.04)), cut, 0.04);
+    };
   }
 
   const dirs = fibonacciDirs(style === 'curly' || style === 'afro' ? 900 : 620, rng);
@@ -268,54 +258,22 @@ export function buildHair(P, spec, rng, body) {
     return d.y > hairlineY(d, line) + 0.02;
   });
 
-  const add = (pts, w0, w1, flat, opts) => geos.push(clumpGeometry(pts, w0, w1, flat, color, rng, opts));
+  const add = (pts, w0, w1, flat, opts = {}) => locks.push({ pts, ...lockProfile(pts.length, w0, w1, Math.max(0.34, flat * 2.2), opts) });
 
+  const surf = (d, lift) => shellPoint(P, d, vol).addScaledVector(d, lift);
+  const scalpOK = (d) => d.y > hairlineY(d, line) + 0.02;
   if (['swept', 'short', 'messy', 'spiky', 'buzz', 'bald'].includes(style)) {
-    // ribbons that lie on the hair mass and follow a combed flow, peeling off at the tips
-    const partX = style === 'short' ? 0.32 : 0;
-    const shellR = (d) => shellPoint(P, d, vol).length();
-    const hug = (p, lift) => { const d = p.clone().normalize(); const r = shellR(d); return d.multiplyScalar(r + lift); };
-    const count = style === 'buzz' ? 0 : style === 'bald' ? 120 : 190;
-    const roots = onScalp.slice().sort(() => rng() - 0.5).slice(0, count);
-    for (const d of roots) {
-      const frontness = smoothstep(0.1, 0.8, d.z) * smoothstep(0.0, 0.6, d.y);
-      const top = smoothstep(0.15, 0.85, d.y);
-      let flowTarget, length, w0 = 0.27, w1 = 0.04, tipLift = 0.07, steps = 14;
-      if (style === 'swept') { flowTarget = v3(rng.range(-0.12, 0.12) + d.x * 0.25, 0.35, -1); length = lerp(0.45, 0.95, top) * (0.85 + rng() * 0.3); tipLift = 0.05 + frontness * 0.12; }
-      else if (style === 'spiky') { flowTarget = v3(rng.range(-0.3, 0.3) + d.x * 0.3, 0.55, -1); length = lerp(0.45, 0.85, top) * (0.8 + rng() * 0.4); tipLift = 0.1 + frontness * 0.14; w1 = 0.012; w0 = 0.26; }
-      else if (style === 'short') { const sd = d.x > partX ? 1 : -1; flowTarget = v3(sd, -0.25 + frontness * 0.3, -0.35); length = lerp(0.35, 0.7, top) * (0.85 + rng() * 0.3); tipLift = 0.04; }
-      else if (style === 'messy') { flowTarget = v3(rng.range(-1, 1), rng.range(-0.2, 0.7), rng.range(-1, 0.5)); length = lerp(0.3, 0.6, top) * (0.8 + rng() * 0.5); tipLift = 0.14; w1 = 0.01; }
-      else { flowTarget = v3(0, -1, -0.5); length = 0.22; tipLift = 0.01; w0 = 0.1; steps = 6; }
-      if (top < 0.05 && style !== 'bald') { flowTarget = v3(d.x * 0.3, -0.7, -0.6); length = 0.26; tipLift = 0.0; w1 = 0.04; }
-      const pts = [];
-      let p = hug(shellPoint(P, d, vol), -0.025);
-      const seg = length / (steps - 1);
-      pts.push(p.clone());
-      for (let i = 1; i < steps; i++) {
-        const t = i / (steps - 1);
-        const n = p.clone().normalize();
-        const dir = tangentToward(n, flowTarget.clone().add(v3(0, -0.25 * t, 0)));
-        p = p.clone().addScaledVector(dir, seg);
-        p = hug(p, 0.006 + Math.pow(Math.max(0, t - 0.55) / 0.45, 2) * tipLift);
-        collide(p, 1.03, true);
-        pts.push(p);
-      }
-      add(pts, w0 * (0.85 + rng() * 0.3), w1, 0.16, { taper: 1.5, tipLight: 0.12, radial: 10, belly: 0.25, leaf: 0.3 });
-    }
-    // fringe locks that break up the front hairline
-    if (style !== 'buzz' && style !== 'bald') {
-      for (let i = 0; i < 22; i++) {
-        const x = lerp(-0.62, 0.62, i / 21) + rng.range(-0.03, 0.03);
-        const d0 = v3(x, hairlineY(v3(x, 0.6, 0.78).normalize(), line) + 0.03, 0.8).normalize();
-        const pts = [];
-        const sweep = style === 'short' ? (x > partX ? 1 : -1) : x * 0.6;
-        for (let k = 0; k < 9; k++) {
-          const t = k / 8;
-          const dd = d0.clone().add(v3(sweep * 0.35 * t, (style === 'short' ? 0.15 : 0.55) * t, -0.45 * t)).normalize();
-          pts.push(hug(shellPoint(P, dd, vol), 0.004 + t * t * 0.05));
-        }
-        add(pts, 0.2, 0.02, 0.16, { taper: 1.3, leaf: 0.35, belly: 0.2, radial: 10 });
-      }
+    const cfg = {
+      swept: { quiff: 0.32, drift: 0.22, lockLen: 1.0, width: 0.16, thick: 0.06, spacing: 0.2, tipLift: -0.02, frontLen: 1.25 },
+      spiky: { quiff: 0.12, drift: 0, lockLen: 0.7, width: 0.12, thick: 0.05, spacing: 0.2, tipLift: 0.16 },
+      short: { quiff: 0.05, drift: 0.5, lockLen: 0.85, width: 0.15, thick: 0.045, spacing: 0.2, tipLift: -0.02 },
+      messy: { quiff: 0.08, drift: 0.3, lockLen: 0.6, width: 0.13, thick: 0.05, spacing: 0.19, tipLift: 0.1, jitter: 0.15 },
+      buzz: null,
+      bald: null,
+    }[style];
+    if (cfg) {
+      const g = backCombed({ surf, onScalp: scalpOK, rng, psiFrom: -0.85, psiTo: Math.PI + 0.85, rowStep: 0.32, ...cfg });
+      locks.push(...g);
     }
   } else if (style === 'curly' || style === 'afro') {
     for (const d of onScalp) {
@@ -339,60 +297,23 @@ export function buildHair(P, spec, rng, body) {
     }
   } else {
     // long styles share flowing strands from a part line
-    const partX = rng.chance(0.5) ? 0 : rng.pick([-0.25, 0.25]);
-    const lengths = { long: 2.7, wavy: 2.4, bob: 1.35, ponytail: 0, bun: 0, braid: 0, pigtails: 0 };
+    const partX = rng.chance(0.3) ? 0 : rng.pick([-0.3, 0.3]);
+    const lengths = { long: 3.7, wavy: 3.5, bob: 2.1, ponytail: 0, bun: 0, braid: 0, pigtails: 0 };
     const gathered = ['ponytail', 'bun', 'braid', 'pigtails'].includes(style);
     const gatherPts = style === 'pigtails' ? [v3(-0.82, 0.05, -0.35), v3(0.82, 0.05, -0.35)]
       : style === 'bun' ? [v3(0, 0.82, -0.62)]
       : style === 'braid' ? [v3(0, -0.45, -0.95)]
       : [v3(0, 0.25, -1.02)];
     const wave = style === 'wavy' ? 0.13 : style === 'long' ? 0.05 : style === 'bob' ? 0.03 : 0;
-    const longRoots = gathered ? onScalp : onScalp.filter((_, i) => i % 3 === 0);
+    const longRoots = gathered ? onScalp.filter((_, i) => i % 2 === 0) : onScalp.filter((_, i) => i % 6 === 0);
     if (!gathered) {
-      // a continuous curtain of hair behind the locks so no gaps show
-      const COLS = 72, ROWS = 28;
-      const L = lengths[style];
-      const th0 = 0.62; // keep the face open (radians from the front)
-      const paths = [];
-      for (let ci = 0; ci < COLS; ci++) {
-        const th = th0 + (ci / (COLS - 1)) * (Math.PI * 2 - th0 * 2);
-        const dir = v3(Math.sin(th), 0, Math.cos(th));
-        const front = Math.cos(th);
-        const hy = lerp(line.side, front > 0 ? line.front - line.temple : line.back, Math.abs(front)) + 0.05;
-        const d = v3(dir.x * Math.sqrt(1 - hy * hy), hy, dir.z * Math.sqrt(1 - hy * hy)).normalize();
-        const root = shellPoint(P, d, vol, -0.01);
-        const pts = grow(P, collide, root, tangentToward(d, v3(dir.x * 0.4, -1, dir.z * 0.4)), {
-          length: L * (0.95 + 0.08 * Math.sin(ci * 1.7)), steps: ROWS, margin: 1.05,
-          wave, waveLen: 0.6, wavePhase: ci * 0.21, waveStart: 0.3,
-          force: (p, t) => { const f = v3(0, -0.25 - t * 0.2, 0); const out = p.clone().setY(0); if (out.lengthSq() > 1e-4) f.addScaledVector(out.normalize(), 0.06 * (1 - t)); if (style === 'bob' && t > 0.75) f.add(p.clone().setY(0).normalize().multiplyScalar(-0.25)); return f; },
-        });
-        paths.push(pts);
-      }
-      const pos = [], col = [], uvs = [], idx = [];
-      const cc = new THREE.Color(color);
-      for (let ci = 0; ci < COLS; ci++) for (let r = 0; r < ROWS; r++) {
-        const p = paths[ci][r];
-        pos.push(p.x, p.y, p.z);
-        const sh = lerp(0.72, 1.05, r / (ROWS - 1)) * (0.95 + 0.05 * Math.sin(ci * 2.3));
-        col.push(cc.r * sh, cc.g * sh, cc.b * sh);
-        uvs.push(r / (ROWS - 1) * 2, ci / (COLS - 1) * 8);
-      }
-      for (let ci = 0; ci < COLS - 1; ci++) for (let r = 0; r < ROWS - 1; r++) {
-        const a = ci * ROWS + r, b = a + 1, c2 = a + ROWS, d2 = c2 + 1;
-        idx.push(a, c2, b, b, c2, d2);
-      }
-      const cg = new THREE.BufferGeometry();
-      cg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      cg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-      cg.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-      cg.setIndex(idx);
-      cg.computeVertexNormals();
-      const curtain = new THREE.Mesh(cg, material.clone());
-      curtain.material.side = THREE.DoubleSide;
-      curtain.castShadow = true;
-      group.add(curtain);
+      const g = parted({
+        surf, onScalp: scalpOK, collide, rng, partX: partX, length: lengths[style], wave: style === 'wavy' ? 0.1 : style === 'long' ? 0.03 : 0, waveLen: 0.95,
+        width: style === 'bob' ? 0.19 : 0.2, thick: 0.05, rows: 13, perSide: 3, tuck: style === 'bob', frontShort: style === 'bob' ? 0.85 : 0.62,
+      });
+      locks.push(...g);
     }
-    for (const d of longRoots) {
+    for (const d of gathered ? longRoots : []) {
       const root = shellPoint(P, d, vol, -0.03);
       if (gathered) {
         // comb every strand along the scalp toward the nearest gather point
@@ -416,7 +337,7 @@ export function buildHair(P, spec, rng, body) {
       const dir0 = flow.clone().addScaledVector(d, 0.35).normalize();
       const L = lengths[style] * (0.88 + rng() * 0.22) * (front > 0.6 && style !== 'bob' ? 0.92 : 1);
       const pts = grow(P, collide, root, dir0, {
-        length: L, steps: style === 'bob' ? 14 : 22, margin: 1.05,
+        length: L, steps: style === 'bob' ? 12 : 16, margin: 1.05,
         wave, waveLen: 0.55 + rng() * 0.2, wavePhase: rng() * Math.PI * 2 + (s > 0 ? 0 : 1.3), waveStart: 0.3,
         force: (p, t) => {
           const f = v3(0, -0.22 - t * 0.2, 0);
@@ -449,11 +370,15 @@ export function buildHair(P, spec, rng, body) {
               .add(v3(Math.sin(t * 6 + i) * 0.04 * t, 0, Math.cos(t * 5 + i) * 0.04 * t));
             pts.push(p);
           }
-          parts.push(clumpGeometry(pts, 0.1, 0.02, 0.5, color, rng, { taper: 1.1, tipLight: 0.15 }));
+          parts.push({ pts, ...lockProfile(N, 0.11, 0.025, 0.6, { taper: 1.1 }) });
         }
-        const mesh = new THREE.Mesh(mergeGeometries(parts), material);
+        const pf = new LockField(parts.map((L) => ({ ...L, w: L.w.map((x) => x * 0.85), t: L.t.map((x) => Math.max(0.02, x * 0.5)) })), { k: 0.03 });
+        const mesh = new THREE.Mesh(meshLocks(pf, { color: new THREE.Color(color).multiplyScalar(0.62).getHex(), h: 0.015, tipLight: 0.05, rootDark: 0.8 }), material);
         mesh.castShadow = true;
         pivot.add(mesh);
+        const ps = new THREE.Mesh(buildStrands(parts.map((L) => resampleLock(L, 0.045)), { color, seed: 99 }), strandMaterial(color));
+        ps.frustumCulled = false;
+        pivot.add(ps);
         const tie = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.04, 8, 20), new THREE.MeshPhysicalMaterial({ color: spec.tieColor ?? 0xe0457b, roughness: 0.5 }));
         tie.lookAt(outDir);
         pivot.add(tie);
@@ -525,11 +450,28 @@ export function buildHair(P, spec, rng, body) {
     }
   }
 
-  const merged = mergeGeometries(geos.map((g) => (g.index ? g : g)), false);
-  const mesh = new THREE.Mesh(merged, material);
+  const flowDir = style === 'swept' || style === 'spiky' ? v3(0, 0.3, -1) : v3(0, -1, -0.35);
+  const dbg = typeof window !== 'undefined' ? window.__hairDebug : null;
+  if (dbg === 'mass') locks.length = 0;
+  // the sculpted base is an inner core; strands cover it
+  const core = (L) => ({ ...L, w: L.w.map((x) => x * 0.85), t: L.t.map((x) => Math.max(0.02, x * 0.5)) });
+  const field = new LockField(locks.map(core), { mass: dbg === 'locks' ? null : mass, massBox: mass ? new THREE.Box3(v3(-1.3, -0.9, -1.3), v3(1.3, style === 'afro' ? 1.5 : 1.3, 1.25)) : null, k: 0.028, massK: 0.035 });
+  const geo = meshLocks(field, {
+    color: new THREE.Color(color).multiplyScalar(0.62).getHex(), h: locks.length > 150 || style === 'afro' ? 0.017 : 0.015, tipLight: 0.05, rootDark: 0.7,
+    lockShade: (i) => 0.9 + 0.2 * ((Math.sin(i * 12.9898) * 43758.5453) % 1 + 1) % 1,
+    flowAt: (x, y, z) => { const n = v3(x, y, z).normalize(); return flowDir.clone().addScaledVector(n, -flowDir.dot(n)); },
+  });
+  for (const g of geos) { const m = new THREE.Mesh(g, material); m.castShadow = true; group.add(m); }
+  const mesh = new THREE.Mesh(geo, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   group.add(mesh);
+  // strands over the sculpted base
+  const sMat = strandMaterial(color);
+  const strands = new THREE.Mesh(buildStrands(locks.map((L) => resampleLock(L, 0.045)), { color, seed: (rng() * 1e9) | 0, density: style === 'afro' || style === 'curly' ? 300 : 520 }), sMat);
+  strands.frustumCulled = false;
+  strands.receiveShadow = true;
+  group.add(strands);
   group.userData.swingParts = swingParts;
   group.userData.material = material;
   return group;

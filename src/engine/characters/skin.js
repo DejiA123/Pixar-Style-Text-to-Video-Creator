@@ -6,7 +6,9 @@ import { makeRng, clamp, smoothstep } from '../../util.js';
 
 const SIZE = 1024;
 
-function toPx(x, y) { return [(0.5 + x * 0.5) * SIZE, (0.5 - y * 0.5) * SIZE]; }
+// Face space → texture: u = 0.5 + x/2, v = 0.55 + 0.4y (covers chin to crown).
+export const UV_SY = 0.4, UV_OY = 0.55;
+function toPx(x, y) { return [(0.5 + x * 0.5) * SIZE, (1 - (UV_OY + y * UV_SY)) * SIZE]; }
 
 // Hash noise for pores.
 function hash2(x, y) {
@@ -28,7 +30,7 @@ export function paintFace(P, look, seed = 1) {
   const radial = (x, y, r, color, alpha, sx = 1, sy = 1) => {
     const [px, py] = toPx(x, y);
     g.save();
-    g.translate(px, py); g.scale(sx, sy);
+    g.translate(px, py); g.scale(sx, sy * (UV_SY / 0.5));
     const R = r * SIZE * 0.5;
     const grd = g.createRadialGradient(0, 0, 0, 0, 0, R);
     grd.addColorStop(0, rgba(color, alpha)); grd.addColorStop(1, rgba(color, 0));
@@ -38,13 +40,13 @@ export function paintFace(P, look, seed = 1) {
   };
   const warm = '#ff8f7a', rose = '#ff6f6f', shadow = '#b07a6a';
   // subtle mottling
-  for (let i = 0; i < 260; i++) radial(rng.range(-1, 1), rng.range(-1, 1), rng.range(0.05, 0.18), rng() < 0.5 ? '#ffd2c4' : '#f2dccf', 0.12);
+  for (let i = 0; i < 160; i++) radial(rng.range(-0.75, 0.75), rng.range(-1.1, 0.7), rng.range(0.05, 0.16), rng() < 0.5 ? '#ffd2c4' : '#f2dccf', 0.07);
   // cheeks, nose, chin, forehead warmth
-  const blush = look.female ? 0.5 : 0.32;
+  const blush = look.female ? 0.3 : 0.18;
   for (const s of [-1, 1]) radial(s * 0.47, -0.25, 0.34, rose, blush, 1, 0.75);
-  radial(0, -0.2, 0.15, warm, 0.45);
+  radial(0, -0.18, 0.12, warm, 0.25);
   radial(0, -0.82, 0.2, warm, 0.18);
-  for (const s of [-1, 1]) radial(s * 0.95, -0.1, 0.25, warm, 0.4);
+  
   // eyelid crease & under-eye softness
   for (const s of [-1, 1]) {
     radial(s * P.eyeSpacing, P.eyeY + P.eyeR * 0.95, P.eyeR * 1.4, shadow, 0.25, 1.2, 0.45);
@@ -80,10 +82,10 @@ export function paintFace(P, look, seed = 1) {
   radial(0, my - 0.11, 0.08, shadow, 0.18, 1.4, 0.6); // shadow under the lower lip
   // freckles
   if (look.freckles) {
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 55; i++) {
       const s = rng() < 0.5 ? -1 : 1;
-      const x = s * rng.range(0.12, 0.6), y = rng.range(-0.38, -0.08) + (Math.abs(x) < 0.2 ? 0.08 : 0);
-      radial(x, y, rng.range(0.008, 0.016), '#9a5a3a', rng.range(0.35, 0.6));
+      const x = s * rng.range(0.1, 0.5), y = rng.range(-0.3, -0.1) + (Math.abs(x) < 0.2 ? 0.06 : 0);
+      radial(x, y, rng.range(0.006, 0.012), '#b0704a', rng.range(0.12, 0.28));
     }
   }
   // stubble: thousands of tiny dots over the jaw
@@ -112,8 +114,8 @@ export function paintFace(P, look, seed = 1) {
   const rd = new Uint8Array(N * N * 4);
   const h = new Float32Array(N * N);
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    const fx = (x / N) * 2 - 1, fy = 1 - (y / N) * 2;
-    let v = (hash2(x, y) - 0.5) * 0.6 + (hash2(x >> 1, y >> 1) - 0.5) * 0.5;
+    const fx = (x / N) * 2 - 1, fy = (1 - y / N - UV_OY) / UV_SY;
+    let v = ((hash2(x, y) - 0.5) * 0.6 + (hash2(x >> 1, y >> 1) - 0.5) * 0.5) * (1 - smoothstep(0.7, 0.9, Math.abs(fx)));
     const onLip = Math.abs(fx) < mw && fy < my + 0.06 && fy > my - 0.08;
     if (onLip) v += Math.sin(fx * 260) * 0.6;
     h[y * N + x] = v;
@@ -144,15 +146,18 @@ function rgba(color, a) {
   return `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${a})`;
 }
 
-// Front-projection UVs for a head geometry built from a unit sphere.
-// Back-facing vertices get a neutral texel so nothing paints the back.
-export function faceUVs(dirs) {
-  const n = dirs.length / 3;
+// Front-projection UVs from head-space positions. Surfaces facing away from
+// the camera get a neutral texel so nothing paints the back of the head.
+export function faceUVs(pos, nrm) {
+  const n = pos.length / 3;
   const uv = new Float32Array(n * 2);
   for (let i = 0; i < n; i++) {
-    const x = dirs[i * 3], y = dirs[i * 3 + 1], z = dirs[i * 3 + 2];
-    if (z > -0.05) { uv[i * 2] = 0.5 + x * 0.5; uv[i * 2 + 1] = 0.5 + y * 0.5; }
-    else { uv[i * 2] = 0.5; uv[i * 2 + 1] = 0.995; }
+    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+    // behind the ears the projection keeps going outward past the texture edge
+    // (clamped to the clean border), so there is no seam
+    const back = z < 0 ? Math.atan2(-z, Math.abs(x) + 1e-6) * 0.8 : 0;
+    uv[i * 2] = 0.5 + 0.5 * Math.sign(x || 1) * (Math.abs(x) + back);
+    uv[i * 2 + 1] = Math.min(0.995, Math.max(0.005, UV_OY + y * UV_SY));
   }
   return uv;
 }

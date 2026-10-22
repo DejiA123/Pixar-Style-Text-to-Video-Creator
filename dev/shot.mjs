@@ -11,16 +11,16 @@ const page = await browser.newPage({ viewport: { width: +w, height: +h } });
 const logs = [];
 page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack}`));
-await page.goto(`http://localhost:8123/${path}`);
+await page.goto(`http://localhost:8123/${path}`, { waitUntil: 'commit', timeout: 120000 });
 let failed = false;
 page.on('pageerror', () => { failed = true; });
 const t0 = Date.now();
-while (!failed && Date.now() - t0 < 90000) {
+while (!failed && Date.now() - t0 < 240000) {
   if (await page.evaluate(() => window.__ready === true).catch(() => false)) break;
   await page.waitForTimeout(250);
 }
 if (failed) logs.push('FAILED (page error)');
 if (+wait) await page.waitForTimeout(+wait);
-await page.screenshot({ path: out });
+await page.screenshot({ path: out, timeout: 180000 });
 console.log(logs.filter((l) => !l.includes('GPU stall')).slice(0, 40).join('\n'));
 await browser.close();

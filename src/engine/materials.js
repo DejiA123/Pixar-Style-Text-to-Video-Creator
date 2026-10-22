@@ -18,7 +18,7 @@ const SSS_CHUNK = THREE.ShaderChunk.lights_physical_pars_fragment.replace(
 export function skinMaterial(color, opts = {}) {
   const mat = new THREE.MeshPhysicalMaterial({
     color,
-    roughness: opts.roughness ?? 0.52,
+    roughness: opts.roughness ?? 0.58,
     metalness: 0,
     sheen: 0.35,
     sheenColor: new THREE.Color(0xff9a7a),
@@ -29,7 +29,7 @@ export function skinMaterial(color, opts = {}) {
     specularIntensity: 0.45,
     map: opts.map || null,
     normalMap: opts.normalMap || null,
-    normalScale: new THREE.Vector2(0.35, 0.35),
+    normalScale: new THREE.Vector2(0.18, 0.18),
     roughnessMap: opts.roughnessMap || null,
   });
   const sssColor = new THREE.Color(opts.sssColor ?? 0xff5a3c).multiplyScalar(opts.sssStrength ?? 0.85);
@@ -116,6 +116,79 @@ export function hairMaterial(color) {
     normalScale: new THREE.Vector2(0.18, 0.18),
     vertexColors: true,
   });
+}
+
+// Hair whose colour lives in vertex colours (root → tip), with a strand-groove
+// normal map and an anisotropic highlight stretched across the strands.
+let _sculptHairN = null;
+function sculptHairNormalMap() {
+  if (_sculptHairN) return _sculptHairN;
+  const rng = makeRng(5);
+  const H = 512;
+  const fine = new Float32Array(H).map(() => rng());
+  const sm = (arr, i, r) => { let s = 0; for (let k = -r; k <= r; k++) s += arr[(i + k + H) % H]; return s / (2 * r + 1); };
+  const f1 = new Float32Array(H).map((_, i) => sm(fine, i, 1));
+  const f2 = new Float32Array(H).map((_, i) => sm(fine, i, 6));
+  _sculptHairN = normalFromHeight(32, H, (x, y) => f1[y] * 1.2 + f2[y] * 3.0);
+  return _sculptHairN;
+}
+export function sculptedHairMaterial(color) {
+  const c = new THREE.Color(color);
+  const hsl = {};
+  c.getHSL(hsl);
+  const sheen = new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 0.7), Math.min(0.8, hsl.l + 0.35));
+  return new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    roughness: 0.4,
+    metalness: 0,
+    sheen: 0.35,
+    sheenColor: sheen,
+    sheenRoughness: 0.4,
+    anisotropy: 0.75,
+    anisotropyRotation: Math.PI / 2,
+    specularIntensity: 0.55,
+    specularColor: new THREE.Color(0xfff2e0),
+    normalMap: sculptHairNormalMap(),
+    normalScale: new THREE.Vector2(0.55, 0.55),
+  });
+}
+
+// Strand ribbons: expanded to face the camera in the vertex shader, shaded with
+// an anisotropic highlight along the strand.
+export function strandMaterial(color) {
+  const c = new THREE.Color(color);
+  const hsl = {};
+  c.getHSL(hsl);
+  const m = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    roughness: 0.36,
+    metalness: 0,
+    sheen: 0.4,
+    sheenColor: new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 0.7), Math.min(0.8, hsl.l + 0.35)),
+    sheenRoughness: 0.35,
+    anisotropy: 0.85,
+    anisotropyRotation: Math.PI / 2,
+    specularIntensity: 0.6,
+    specularColor: new THREE.Color(0xfff0dc),
+    side: THREE.DoubleSide,
+  });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aSide;\nattribute float aWidth;')
+      .replace('#include <project_vertex>', `
+        vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
+        vec3 tv = normalize( ( modelViewMatrix * vec4( tangent.xyz, 0.0 ) ).xyz );
+        vec3 sideV = normalize( cross( tv, normalize( -mvPosition.xyz ) ) );
+        float sc = length( modelViewMatrix[0].xyz );
+        // never thinner than ~0.7px so distant hair doesn't sparkle away
+        float px = 0.7 * ( -mvPosition.z ) / ( projectionMatrix[1][1] * 540.0 );
+        mvPosition.xyz += sideV * aSide * 0.5 * max( aWidth * sc, px );
+        gl_Position = projectionMatrix * mvPosition;`);
+  };
+  m.customProgramCacheKey = () => 'strand-ribbon';
+  return m;
 }
 
 export const basic = (color, opts = {}) => new THREE.MeshBasicMaterial({ color, ...opts });
