@@ -95,7 +95,16 @@ export function headShape(P) {
     // then the dome is cut away so the lids/eyeball show through seamlessly
     const e = x < 0 ? eyeC[0] : eyeC[1];
     const es = sdSphere(x, y, z, e.x, e.y, e.z, lidR);
-    d = smax(d, -(es - 0.012), 0.025);
+    // Almond eye opening: above the lower-lid line the socket is open (the
+    // eyeball and upper lid show); below it the skin wraps snugly over the
+    // eyeball, forming the lower lid as part of the face.
+    const dx = (x - e.x) / P.eyeR, ey = P.eyeR;
+    const yl = e.y - ey * 0.5 + ey * 0.28 * dx * dx;
+    const below = yl - y;
+    const hole = Math.max(es + 0.002, below);
+    d = smax(d, -hole, 0.018);
+    const lowerSkin = Math.max(sdSphere(x, y, z, e.x, e.y, e.z, ey * 1.03), -below);
+    d = smin(d, lowerSkin, 0.025);
     // nose
     let n = sdCapsule(ax, y, z, 0, P.eyeY + 0.02, bridgeZ, 0, tipY + s * 0.15, tipZ - s * 0.42, 0.045, s * 0.42);
     n = smin(n, sdEllipsoid(ax, y, z, 0, tipY, tipZ - s * 0.48, s * 0.6, s * 0.5, s * 0.48), 0.05);
@@ -168,7 +177,7 @@ export class FaceField {
 
 export function buildHeadGeometry(P, opts = {}) {
   const { full } = headShape(P);
-  const geo = surfaceNets(full, [-1.0, -1.74, -1.15], [1.0, 1.15, 1.35], opts.h ?? 0.016, { project: 1, exactNormals: true });
+  const geo = surfaceNets(full, [-1.0, -1.74, -1.15], [1.0, 1.15, 1.35], opts.h ?? 0.0115, { project: 1, exactNormals: true });
   geo.setAttribute('uv', new THREE.BufferAttribute(faceUVs(geo.attributes.position.array, geo.attributes.normal.array), 2));
   return geo;
 }
@@ -268,9 +277,9 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   eye.add(cl2);
 
   // lids: hemispherical shells of skin that rotate to open/close
-  const lidR = r * 1.045 + 0.02;
+  const lidR = r * 1.045 + 0.007;
   const upperG = new THREE.SphereGeometry(lidR, 40, 20, 0, Math.PI * 2, 0, Math.PI * 0.5);
-  const lowerG = new THREE.SphereGeometry(lidR, 40, 16, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5);
+  const lowerG = new THREE.SphereGeometry(lidR, 40, 8, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.2);
   const upper = new THREE.Group();
   const lower = new THREE.Group();
   const lidMat = skinMat.clone();
@@ -281,7 +290,7 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
   lidMat.onBeforeCompile = skinMat.onBeforeCompile;
   lidMat.customProgramCacheKey = () => 'skin-sss-lid';
   upper.add(new THREE.Mesh(upperG, lidMat));
-  lower.add(new THREE.Mesh(lowerG, lidMat));
+  void lowerG; // the sculpted face forms the lower lid
   // fleshy lid rim + lash line + individual lashes curling outward
   const lashMat = mat(0x140c0a, { roughness: 0.55 });
   const lashT = opts.female ? r * 0.05 : r * 0.035;
@@ -346,12 +355,12 @@ export function buildEye(r, eyeColor, skinMat, opts = {}) {
     for (let i = 0; i < p.length; i += 3) { p[i] += opts.center.x; p[i + 1] += opts.center.y; p[i + 2] += opts.center.z; }
     lowRim.setAttribute('uv', new THREE.BufferAttribute(faceUVs(p), 2));
   }
-  lower.add(new THREE.Mesh(lowRim, lidMat));
+  void lowRim;
   const lowerLash = new THREE.Mesh(new THREE.TorusGeometry(r * 1.06, lashT * 0.3, 4, 30, Math.PI * 0.8), mat(0x6b4a40, { roughness: 0.8 }));
   lowerLash.geometry.rotateZ(Math.PI * 0.1);
   lowerLash.geometry.rotateX(Math.PI / 2);
   lowerLash.position.y = -r * 0.02;
-  lower.add(lowerLash);
+  void lowerLash; // lower lashes are painted; a mesh here crossed the iris
   eye.add(upper, lower);
   return { eye, ball, upper, lower, r };
 }
@@ -364,8 +373,8 @@ export class Mouth {
     this.field = field;
     this.N = 28;
     this.w0 = opts.width ?? 0.2;
-    this.lipU = opts.lipU ?? 0.026;
-    this.lipL = opts.lipL ?? 0.04;
+    this.lipU = opts.lipU ?? 0.016;
+    this.lipL = opts.lipL ?? 0.026;
     this.group = new THREE.Group();
     const N = this.N;
     const mk = (color, offset, extra = {}) => {
@@ -382,13 +391,14 @@ export class Mouth {
       this.group.add(m);
       return m;
     };
-    this.cavity = mk(0x3a0f12, 0.004, { roughness: 0.9 });
+    this.cavity = mk(0x7a3a36, 0.004, { roughness: 0.9 });
+    this.cavityMat = this.cavity.material;
     this.tongue = mk(0xc0565d, 0.006, { roughness: 0.55 });
     this.teeth = mk(0xf6f1e7, 0.007, { roughness: 0.25, clearcoat: 0.4 });
     this.lowerTeeth = mk(0xefe8dc, 0.0065, { roughness: 0.3 });
     const lipColor = opts.lipColor ?? 0xb86a5e;
-    this.upperLip = mk(lipColor, 0.003, { roughness: 0.5, clearcoat: 0.05 });
-    this.lowerLip = mk(lipColor, 0.003, { roughness: 0.42, clearcoat: 0.12 });
+    this.upperLip = mk(lipColor, 0.003, { roughness: 0.62, specularIntensity: 0.3 });
+    this.lowerLip = mk(lipColor, 0.003, { roughness: 0.5, specularIntensity: 0.35 });
     this.update({ open: 0, smile: 0.3, width: 1, round: 0 });
   }
 
@@ -403,11 +413,11 @@ export class Mouth {
       const u = (i / (N - 1)) * 2 - 1; // -1..1
       const x = u * w;
       const corner = u * u;
-      const up = smile >= 0 ? smile * 0.075 * Math.pow(Math.abs(u), 1.3) : smile * 0.06 * corner;
+      const up = smile >= 0 ? smile * 0.07 * u * u * (1.2 - 0.2 * u * u) : smile * 0.06 * corner;
       const bow = -0.006 * Math.exp(-((u / 0.18) ** 2)) * (1 - open);
       const yu = y0 + up + bow + open * 0.02 * (1 - corner);
       const openK = smoothstep(0.02, 0.12, open);
-      let depth = (openH - 0.022 * (1 - openK)) * Math.pow(Math.max(0, 1 - corner), 0.55 + round * 0.4) + 0.003 * (1 - corner * 0.6);
+      let depth = (openH - 0.022 * (1 - openK)) * Math.pow(Math.max(0, 1 - corner), 0.55 + round * 0.4) + 0.0012 * (1 - corner) * (1 - corner);
       depth += Math.max(0, smile) * 0.035 * (1 - corner) * open * openK;
       xs.push(x); yU.push(yu); yL.push(yu - depth);
     }
@@ -425,6 +435,8 @@ export class Mouth {
       mesh.geometry.computeBoundingSphere();
     };
     write(this.cavity, (i) => yU[i], (i) => yL[i]);
+    // closed: a soft warm crease; open: the dark mouth interior
+    this.cavityMat.color.setHex(0x7a3a36).lerp(new THREE.Color(0x2a0c0e), smoothstep(0.03, 0.15, open));
     const openAmt = clamp((open - 0.08) / 0.25);
     const teethH = 0.055 * teethShow;
     write(this.teeth, (i) => yU[i] - 0.004, (i) => Math.max(yU[i] - 0.004 - teethH * openAmt * (1 - (2 * i / (N - 1) - 1) ** 4), yL[i]), 0.92);

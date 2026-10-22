@@ -325,10 +325,10 @@ export function buildHuman(c) {
   P.neckR = dims.neckR / hs;
   const shape = headShape(P);
   const headGeo = buildHeadGeometry(P, { blush: 0, stubble: null });
-  const lipColor = new THREE.Color(look.skin).lerp(new THREE.Color(look.glam ? 0xc8325f : f ? 0xa82a44 : 0x9a4840), look.glam ? 0.85 : f ? 0.78 : 0.45).getHex();
+  const lipColor = new THREE.Color(look.skin).multiplyScalar(0.72).lerp(new THREE.Color(look.glam ? 0xc8325f : f ? 0xb04860 : 0x8a4a46), look.glam ? 0.8 : f ? 0.45 : 0.3).getHex();
   const painted = paintFace(P, {
     skin: look.skin, lipColor, female: f, child: kid, freckles: look.freckles,
-    stubble: look.beard === 'stubble' || look.beard === 'full' ? { color: look.hairColor, amount: look.beard === 'full' ? 0.5 : 0.8 } : (c.gender === 'm' && c.age !== 'child' ? { color: look.hairColor, amount: 0.25 } : null),
+    stubble: look.beard === 'stubble' || look.beard === 'full' ? { color: look.hairColor, amount: look.beard === 'full' ? 0.5 : 0.8 } : (c.gender === 'm' && (c.age === 'adult' || c.age === 'old') ? { color: look.hairColor, amount: 0.2 } : null),
   }, c.seed || 1);
   const faceSkin = skinMaterial(look.skin, { map: painted.map, normalMap: painted.normalMap, roughnessMap: painted.roughnessMap });
   const headMesh = new THREE.Mesh(headGeo, faceSkin);
@@ -339,7 +339,7 @@ export function buildHuman(c) {
   // face field for decals
   const field = new FaceField(P, -0.65, 0.65, -0.95, 0.6, 41, 41);
   const mouthField = new FaceField(P, -0.34, 0.34, P.mouthY - 0.22, P.mouthY + 0.16, 69, 49);
-  const mouth = new Mouth(P, mouthField, { width: kid ? 0.19 : f ? 0.2 : 0.21, lipColor, lipU: f ? 0.03 : 0.022, lipL: f ? 0.046 : 0.036 });
+  const mouth = new Mouth(P, mouthField, { width: kid ? 0.17 : f ? 0.18 : 0.19, lipColor, lipU: look.glam ? 0.026 : f ? 0.019 : 0.012, lipL: look.glam ? 0.04 : f ? 0.03 : 0.022 });
   headModel.add(mouth.group);
   const browColor = new THREE.Color(look.hairColor).multiplyScalar(c.age === 'old' ? 1 : 0.85).getHex();
   const browR = new Brow(P, field, 1, browColor, P.browThick);

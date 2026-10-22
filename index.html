@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1792704768">
+<link rel="stylesheet" href="src/ui/styles.css?v=1792706044">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
@@ -93,8 +93,10 @@
             </label>
             <label class="field"><span>Export</span>
               <select id="export-res">
-                <option value="720">720p</option>
-                <option value="1080" selected>1080p</option>
+                <option value="720">720p (fastest)</option>
+                <option value="1080" selected>1080p HD</option>
+                <option value="1440">1440p 2K</option>
+                <option value="2160">2160p 4K (computer)</option>
               </select>
             </label>
             <div class="checks">
@@ -148,6 +150,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1792704768"></script>
+<script type="module" src="src/ui/app.js?v=1792706044"></script>
 </body>
 </html>

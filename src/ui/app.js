@@ -378,7 +378,6 @@ async function doExport() {
   const a = aspectNum(state.aspect);
   let W, H;
   if (a >= 1) { H = res; W = Math.round((res * a) / 2) * 2; } else { W = res; H = Math.round(res / a / 2) * 2; }
-  if (a < 1) { W = res === 1080 ? 1080 : 720; H = Math.round(W / a / 2) * 2; }
   const exportCanvas = document.createElement('canvas');
   exportCanvas.width = W; exportCanvas.height = H;
   const comp = new Compositor(exportCanvas);

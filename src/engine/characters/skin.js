@@ -50,7 +50,7 @@ export function paintFace(P, look, seed = 1) {
   // eyelid crease & under-eye softness
   for (const s of [-1, 1]) {
     radial(s * P.eyeSpacing, P.eyeY + P.eyeR * 0.95, P.eyeR * 1.4, shadow, 0.25, 1.2, 0.45);
-    radial(s * P.eyeSpacing, P.eyeY - P.eyeR * 1.05, P.eyeR * 1.2, '#c99a8f', 0.18, 1.2, 0.4);
+    radial(s * P.eyeSpacing, P.eyeY - P.eyeR * 1.05, P.eyeR * 1.2, '#c99a8f', 0.05, 1.2, 0.4);
   }
   // nostril shadow and philtrum
   radial(0, P.mouthY + 0.22, 0.09, shadow, 0.25, 0.6, 1);
@@ -121,7 +121,7 @@ export function paintFace(P, look, seed = 1) {
     h[y * N + x] = v;
     const nose = Math.exp(-((fx / 0.18) ** 2 + ((fy + 0.2) / 0.2) ** 2));
     const fore = Math.exp(-((fx / 0.4) ** 2 + ((fy - 0.6) / 0.25) ** 2));
-    let rough = 0.56 - nose * 0.12 - fore * 0.06 - (onLip ? 0.2 : 0);
+    let rough = 0.68 - nose * 0.08 - fore * 0.04 - (onLip ? 0.15 : 0);
     rd[(y * N + x) * 4 + 1] = clamp(rough) * 255;
     rd[(y * N + x) * 4 + 3] = 255;
   }

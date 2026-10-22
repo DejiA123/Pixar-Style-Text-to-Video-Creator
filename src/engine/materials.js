@@ -18,15 +18,15 @@ const SSS_CHUNK = THREE.ShaderChunk.lights_physical_pars_fragment.replace(
 export function skinMaterial(color, opts = {}) {
   const mat = new THREE.MeshPhysicalMaterial({
     color,
-    roughness: opts.roughness ?? 0.58,
+    roughness: opts.roughness ?? 0.64,
     metalness: 0,
     sheen: 0.35,
     sheenColor: new THREE.Color(0xff9a7a),
     sheenRoughness: 0.55,
-    clearcoat: 0.06,
+    clearcoat: 0,
     clearcoatRoughness: 0.6,
     vertexColors: !!opts.vertexColors,
-    specularIntensity: 0.45,
+    specularIntensity: 0.32,
     map: opts.map || null,
     normalMap: opts.normalMap || null,
     normalScale: new THREE.Vector2(0.18, 0.18),
