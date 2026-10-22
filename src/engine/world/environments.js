@@ -193,7 +193,9 @@ export class Environment {
     const r = await loadHDRI(renderer, pickHDRI(setting, time, this.interior));
     if (!r) return;
     this.envMap = r.texture;
-    this.envIntensity = (this.envIntensityOverride ?? this.envIntensity) * Math.min(3, 0.45 / Math.max(0.02, r.mean));
+    // normalise toward a per-time target so dark night HDRIs aren't boosted into haze
+    const target = { night: 0.08, sunset: 0.3, dawn: 0.3 }[time] ?? 0.45;
+    this.envIntensity = (this.envIntensityOverride ?? this.envIntensity) * Math.min(1.6, Math.max(0.25, target / Math.max(0.02, r.mean)));
     if (this._scene) { this._scene.environment = this.envMap; this._scene.environmentIntensity = this.envIntensity; }
   }
 
