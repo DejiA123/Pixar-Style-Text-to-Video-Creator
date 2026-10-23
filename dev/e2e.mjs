@@ -21,7 +21,7 @@ const page = await ctx.newPage();
 const logs = [];
 page.on('console', (m) => { if (!/GPU stall|Automatic fallback/.test(m.text())) logs.push(`[${m.type()}] ${m.text()}`); });
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
-await page.goto(`http://${host}:8123/index.html`);
+await page.goto(process.env.BASE || `http://${host}:8123/index.html`);
 await page.waitForFunction(() => !!window.__storyreel);
 console.log('secure:', await page.evaluate(() => ({ secure: isSecureContext, vc: typeof VideoEncoder, ac: typeof AudioEncoder })));
 if (storyFile) await page.evaluate((t) => { const el = document.getElementById('story'); el.value = t; el.dispatchEvent(new Event('input', { bubbles: true })); }, fs.readFileSync(storyFile, 'utf8'));

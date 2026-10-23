@@ -12,6 +12,7 @@ import { Player } from '../film/player.js';
 import { exportVideo } from '../film/exporter.js';
 import { castVoices, KOKORO_NARRATORS } from '../audio/voices.js';
 import { Painter, PaintedFilm, painterSize } from '../ai/painter.js';
+import { renderFreeFilm } from '../ai/freefilm.js';
 import { KokoroEngine, WebSpeechEngine } from '../audio/tts.js';
 import { renderSoundtrack, lipEnvelope, clipDuration } from '../audio/mixer.js';
 import { timecode, formatTime } from '../util.js';
@@ -61,7 +62,11 @@ function init() {
   }
   $('fal-key').value = store.get('fal-key', '');
   $('fal-key').addEventListener('change', () => store.set('fal-key', $('fal-key').value.trim()));
-  if (store.get('render-mode', null) == null) Painter.supported().then((r) => { $('render-mode').value = r.ok ? 'painted' : '3d'; });
+  if (store.get('render-mode', null) == null) $('render-mode').value = 'free';
+  $('hf-token').value = store.get('hf-token', '');
+  $('hf-token').addEventListener('change', () => store.set('hf-token', $('hf-token').value.trim()));
+  $('free-animate').checked = store.get('free-animate', true);
+  $('free-animate').addEventListener('change', () => store.set('free-animate', $('free-animate').checked));
   onSettings('render-mode');
   $('style-ref').addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
@@ -92,7 +97,7 @@ function init() {
 }
 
 function onSettings(id) {
-  if (id === 'render-mode') $('ai-box').hidden = $('render-mode').value !== 'ai';
+  if (id === 'render-mode') { $('ai-box').hidden = $('render-mode').value !== 'ai'; $('free-box').hidden = $('render-mode').value !== 'free'; }
   if (id === 'aspect' && !state.player) setAspect($('aspect').value);
   if (id === 'subs' && state.compositor) { state.compositor.subtitles = $('subs').checked; state.player?.render(); }
   if (id === 'quality' && state.fr && !state.ai) { state.fr.setQuality($('quality').value); resizePreview(); }
@@ -173,6 +178,7 @@ async function makeMovie() {
   if (state.player) { state.player.dispose(); state.player = null; }
   const ai = $('render-mode').value === 'ai';
   let painted = $('render-mode').value === 'painted';
+  const freeAI = $('render-mode').value === 'free';
   if (painted) {
     const sup = await Painter.supported();
     if (!sup.ok) { painted = false; toast(`AI painting needs a newer browser or device (${sup.why}) — making the 3D version instead.`, false, 9000); }
@@ -182,7 +188,7 @@ async function makeMovie() {
   steps.reset([
     ['plan', ai ? 'AI director is reading your story' : 'Reading your story'],
     ['voices', neural ? 'Recording voices' : 'Casting voices'],
-    ['build', ai ? 'Rendering shots with AI' : 'Building the world'],
+    ['build', ai || freeAI ? 'Painting shots with free AI' : 'Building the world'],
     ...(painted ? [['paint', 'Painting every shot with AI']] : []),
     ['score', 'Composing music & sound'],
   ]);
@@ -249,6 +255,13 @@ async function makeMovie() {
   if (ai) {
     film = await aiDirector.render(tl, (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); }, confirmCost);
     state.ai = true;
+  } else if (freeAI) {
+    film = await renderFreeFilm(tl, {
+      aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked,
+      onProgress: (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); },
+    });
+    state.ai = true;
+    if ($('free-animate').checked) toast(film.animatedCount ? `${film.animatedCount} of ${tl.shots.length} shots animated with free AI video${film.reason ? ` (${film.reason}; the rest move as paintings)` : ''}.` : `Shots play as moving AI paintings${film.reason ? ` — ${film.reason}` : ''}. Add a free Hugging Face token in Settings for more AI video.`, false, 9000);
   } else {
     if (!state.fr) state.fr = new FilmRenderer(state.glCanvas, { quality: $('quality').value });
     state.fr.setQuality($('quality').value);

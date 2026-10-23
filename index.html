@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1792707776">
+<link rel="stylesheet" href="src/ui/styles.css?v=1792729469">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
@@ -73,8 +73,9 @@
           <div class="field-grid">
             <label class="field"><span>Render style</span>
               <select id="render-mode">
-                <option value="painted">AI painted (free, on your device)</option>
-                <option value="3d">Built-in 3D (free, fastest)</option>
+                <option value="free">AI film — free, online (any phone)</option>
+                <option value="painted">AI painted — free, on this device</option>
+                <option value="3d">Built-in 3D — free, fastest</option>
               </select>
             </label>
             <label class="field"><span>Voices</span>
@@ -104,6 +105,11 @@
               <label class="check"><input type="checkbox" id="sfx" checked> Sound FX</label>
               <label class="check"><input type="checkbox" id="subs" checked> Subtitles</label>
             </div>
+          </div>
+          <div class="ai-box" id="free-box">
+            <label class="check"><input type="checkbox" id="free-animate" checked> Animate shots with free AI video (daily free limit)</label>
+            <label class="field"><span>Free Hugging Face token (optional, more free video per day)</span><input id="hf-token" type="password" autocomplete="off" placeholder="hf_…"></label>
+            <p class="hint">Shots are painted by a free public AI service and animated by the free public LTX-Video server. No payment, ever. Without a token you get a small daily allowance of AI video; shots beyond it play as moving paintings. A free token from huggingface.co (Settings → Access Tokens) raises the allowance. It's stored only in this browser and sent only to Hugging Face.</p>
           </div>
           <div class="ai-box" id="ai-box" hidden>
             <label class="field"><span>fal.ai API key</span><input id="fal-key" type="password" autocomplete="off" placeholder="key_id:key_secret"></label>
@@ -150,6 +156,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1792707776"></script>
+<script type="module" src="src/ui/app.js?v=1792729469"></script>
 </body>
 </html>
