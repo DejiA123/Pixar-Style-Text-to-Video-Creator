@@ -45,9 +45,9 @@ function sizeFor(aspect) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // One free image; retries politely when the free tier asks us to slow down.
-async function paintFree(prompt, { w, h, seed }, signal) {
+async function paintFree(prompt, { w, h, seed }, signal, onWait) {
   const url = `${IMG}${encodeURIComponent(prompt)}?width=${w}&height=${h}&seed=${seed}&nologo=true&enhance=false`;
-  for (let attempt = 0; attempt < 8; attempt++) {
+  for (let attempt = 0; attempt < 18; attempt++) {
     const sig = AbortSignal.any ? AbortSignal.any([AbortSignal.timeout(120000), ...(signal ? [signal] : [])]) : signal;
     const res = await fetch(url, { signal: sig }).catch((e) => ({ ok: false, status: 0, err: e }));
     if (res.ok && (res.headers.get('content-type') || '').startsWith('image/')) {
@@ -56,7 +56,9 @@ async function paintFree(prompt, { w, h, seed }, signal) {
       return { img, blob };
     }
     if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
-    const wait = +(res.headers?.get?.('retry-after') || 0) * 1000 || 4000 * (attempt + 1);
+    // the free tier answers "busy, retry in ~10 s" when it's crowded
+    const wait = +(res.headers?.get?.('retry-after') || 0) * 1000 || 9000 + Math.random() * 4000;
+    onWait?.(attempt + 1);
     await sleep(Math.min(30000, wait));
   }
   throw new Error('The free image service is busy right now — try again in a minute.');
@@ -87,11 +89,28 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
   // the same seed for a scene keeps its look (and its people) steadier across shots
   const seedOf = (s) => 1000 + ([...(s.scene.text || '')].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % 90000);
   const blobs = [];
+  let failed = 0;
   for (let i = 0; i < shots.length; i++) {
-    const { img, blob } = await paintFree(freeShotPrompt(shots[i], castById), { ...size, seed: seedOf(shots[i]) }, signal);
-    media[i].still = await toImage(img);
-    blobs[i] = blob;
+    try {
+      const { img, blob } = await paintFree(freeShotPrompt(shots[i], castById), { ...size, seed: seedOf(shots[i]) }, signal,
+        (n) => onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} — free AI is busy, waiting (${n})…`));
+      media[i].still = await toImage(img);
+      blobs[i] = blob;
+    } catch (e) {
+      if (e?.name === 'AbortError') throw e;
+      failed++;
+      console.warn('Shot painting failed; reusing a neighbouring shot', e);
+    }
     onProgress(++done / total, `Painting shot ${i + 1} of ${shots.length} with free AI`);
+  }
+  if (failed === shots.length) throw new Error('The free AI image service is too busy right now — please try again in a few minutes, or switch Render style to Built-in 3D.');
+  // a shot that couldn't be painted borrows the nearest painted one
+  for (let i = 0; i < shots.length; i++) {
+    if (media[i].still) continue;
+    for (let d = 1; d < shots.length; d++) {
+      const j = [i - d, i + d].find((k) => k >= 0 && k < shots.length && blobs[k]);
+      if (j != null) { media[i].still = media[j].still; break; }
+    }
   }
   if (animate) {
     let client = null, handle_file = null, quotaLeft = true, reason = '';
@@ -101,7 +120,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
       client = await mod.Client.connect(LTX_SPACE, hfToken ? { hf_token: hfToken } : {});
     } catch (e) { quotaLeft = false; reason = 'the free video server is unavailable'; console.warn(e); }
     for (let i = 0; i < shots.length; i++) {
-      if (quotaLeft && shots[i].kind !== 'title') {
+      if (quotaLeft && shots[i].kind !== 'title' && blobs[i]) {
         try {
           const vb = await animateFree(client, blobs[i], `${freeShotPrompt(shots[i], castById)}, gentle natural motion, characters breathe, blink and move`, shots[i], size, handle_file);
           if (vb) media[i].clip = { blob: vb };
