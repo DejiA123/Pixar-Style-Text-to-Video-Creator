@@ -45,7 +45,8 @@ function sizeFor(aspect) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // One free image; retries politely when the free tier asks us to slow down.
-async function paintFree(prompt, { w, h, seed }, signal, onWait) {
+async function paintFree(prompt, { w, h, seed }, signal, onWait, maxWaitMs = 75000) {
+  const t0 = Date.now();
   const url = `${IMG}${encodeURIComponent(prompt)}?width=${w}&height=${h}&seed=${seed}&nologo=true&enhance=false`;
   for (let attempt = 0; attempt < 18; attempt++) {
     const sig = AbortSignal.any ? AbortSignal.any([AbortSignal.timeout(120000), ...(signal ? [signal] : [])]) : signal;
@@ -56,6 +57,7 @@ async function paintFree(prompt, { w, h, seed }, signal, onWait) {
       return { img, blob };
     }
     if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
+    if (Date.now() - t0 > maxWaitMs) break;
     // the free tier answers "busy, retry in ~10 s" when it's crowded
     const wait = +(res.headers?.get?.('retry-after') || 0) * 1000 || 9000 + Math.random() * 4000;
     onWait?.(attempt + 1);
@@ -79,66 +81,117 @@ async function animateFree(client, blob, prompt, shot, size, handle_file) {
   return (await fetch(url)).blob();
 }
 
-export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, onProgress = () => {}, signal } = {}) {
+// ---- your own AI server (server/storyreel_server.py): unlimited, no quotas -------------
+export async function checkServer(url) {
+  if (!url) return null;
+  try {
+    const res = await fetch(`${url.replace(/\/+$/, '')}/health`, { signal: AbortSignal.timeout(8000) });
+    const j = await res.json();
+    return j && j.ok ? j : null;
+  } catch { return null; }
+}
+async function serverImage(url, prompt, { w, h, seed }, signal) {
+  const res = await fetch(`${url}/image`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, width: w, height: h, seed }), signal });
+  if (!res.ok) throw new Error(`AI server image failed (${res.status})`);
+  const blob = await res.blob();
+  return { img: await createImageBitmap(blob), blob };
+}
+async function serverVideo(url, blob, prompt, shot, size, signal) {
+  const dataUrl = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
+  const res = await fetch(`${url}/video`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
+    body: JSON.stringify({ prompt, image: dataUrl, width: Math.round(size.w * 0.75), height: Math.round(size.h * 0.75), seconds: Math.max(2, Math.min(8, shot.end - shot.start)), seed: 7 }),
+  });
+  if (!res.ok) throw new Error(`AI server video failed (${res.status})`);
+  return res.blob();
+}
+
+// Never-stop chain for every shot:
+//   image: your AI server → free online AI → on-device AI painter / 3D frame (fallbackStill)
+//   video: your AI server (unlimited) → free online AI video (daily quota) → moving painting
+export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, server = '', fallbackStill = null, onProgress = () => {}, signal } = {}) {
   const castById = new Map(tl.cast.map((c) => [c.id, c]));
   const size = sizeFor(aspect);
   const shots = tl.shots;
   const media = shots.map(() => ({ still: null, clip: null }));
   const total = shots.length * (animate ? 2 : 1);
   let done = 0;
-  // the same seed for a scene keeps its look (and its people) steadier across shots
+  const srv = server ? server.replace(/\/+$/, '') : '';
+  const health = srv ? await checkServer(srv) : null;
+  const useSrv = !!(health && health.image);
+  const srvVideo = !!(health && health.video);
   const seedOf = (s) => 1000 + ([...(s.scene.text || '')].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % 90000);
   const blobs = [];
-  let failed = 0;
+  const sources = { server: 0, online: 0, device: 0 };
+  let onlineDown = false;
   for (let i = 0; i < shots.length; i++) {
-    try {
-      const { img, blob } = await paintFree(freeShotPrompt(shots[i], castById), { ...size, seed: seedOf(shots[i]) }, signal,
-        (n) => onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} — free AI is busy, waiting (${n})…`));
-      media[i].still = await toImage(img);
-      blobs[i] = blob;
-    } catch (e) {
-      if (e?.name === 'AbortError') throw e;
-      failed++;
-      console.warn('Shot painting failed; reusing a neighbouring shot', e);
+    const prompt = freeShotPrompt(shots[i], castById);
+    const opts = { ...size, seed: seedOf(shots[i]) };
+    let got = null;
+    if (useSrv) {
+      try { got = await serverImage(srv, prompt, opts, signal); sources.server++; } catch (e) { console.warn(e); }
     }
-    onProgress(++done / total, `Painting shot ${i + 1} of ${shots.length} with free AI`);
+    if (!got && !onlineDown) {
+      try {
+        got = await paintFree(prompt, opts, signal, (n) => onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} — free AI is busy, waiting (${n})…`));
+        sources.online++;
+      } catch (e) {
+        if (e?.name === 'AbortError') throw e;
+        onlineDown = true; // don't keep waiting on a service that's down; go local for the rest
+        console.warn('Free online AI unavailable; continuing on this device', e);
+      }
+    }
+    if (got) {
+      media[i].still = await toImage(got.img);
+      blobs[i] = got.blob;
+    } else if (fallbackStill) {
+      onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} on this device`);
+      const c = await fallbackStill(i, prompt);
+      c.naturalWidth = c.width; c.naturalHeight = c.height;
+      media[i].still = c;
+      blobs[i] = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92));
+      sources.device++;
+    }
+    onProgress(++done / total, `Painting shot ${i + 1} of ${shots.length}`);
   }
-  if (failed === shots.length) throw new Error('The free AI image service is too busy right now — please try again in a few minutes, or switch Render style to Built-in 3D.');
-  // a shot that couldn't be painted borrows the nearest painted one
   for (let i = 0; i < shots.length; i++) {
     if (media[i].still) continue;
-    for (let d = 1; d < shots.length; d++) {
-      const j = [i - d, i + d].find((k) => k >= 0 && k < shots.length && blobs[k]);
-      if (j != null) { media[i].still = media[j].still; break; }
-    }
+    const j = blobs.findIndex(Boolean);
+    if (j < 0) throw new Error('No painter was available. Switch Render style to Built-in 3D.');
+    media[i].still = media[j].still;
   }
+  let reason = '';
   if (animate) {
-    let client = null, handle_file = null, quotaLeft = true, reason = '';
-    try {
-      const mod = await import(/* @vite-ignore */ GRADIO);
-      handle_file = mod.handle_file;
-      client = await mod.Client.connect(LTX_SPACE, hfToken ? { hf_token: hfToken } : {});
-    } catch (e) { quotaLeft = false; reason = 'the free video server is unavailable'; console.warn(e); }
+    let client = null, handle_file = null, quotaLeft = !srvVideo;
+    if (!srvVideo) {
+      try {
+        const mod = await import(/* @vite-ignore */ GRADIO);
+        handle_file = mod.handle_file;
+        client = await mod.Client.connect(LTX_SPACE, hfToken ? { hf_token: hfToken } : {});
+      } catch (e) { quotaLeft = false; reason = 'the free video server is unavailable'; console.warn(e); }
+    }
     for (let i = 0; i < shots.length; i++) {
-      if (quotaLeft && shots[i].kind !== 'title' && blobs[i]) {
+      if (shots[i].kind !== 'title' && blobs[i]) {
+        const mp = `${freeShotPrompt(shots[i], castById)}, gentle natural motion, characters breathe, blink and move`;
         try {
-          const vb = await animateFree(client, blobs[i], `${freeShotPrompt(shots[i], castById)}, gentle natural motion, characters breathe, blink and move`, shots[i], size, handle_file);
-          if (vb) media[i].clip = { blob: vb };
+          if (srvVideo) media[i].clip = { blob: await serverVideo(srv, blobs[i], mp, shots[i], size, signal) };
+          else if (quotaLeft) { const vb = await animateFree(client, blobs[i], mp, shots[i], size, handle_file); if (vb) media[i].clip = { blob: vb }; }
         } catch (e) {
           const msg = String(e?.message || e);
-          console.warn('Free animation failed', msg);
-          if (/quota|exceeded|GPU|token/i.test(msg)) { quotaLeft = false; reason = 'today’s free video quota is used up'; }
+          console.warn('Animation failed', msg);
+          if (!srvVideo && /quota|exceeded|GPU|token/i.test(msg)) { quotaLeft = false; reason = 'today’s free video quota is used up'; }
         }
       }
-      onProgress(++done / total, quotaLeft ? `Animating shot ${i + 1} of ${shots.length} with free AI video` : `Finishing shots (${reason})`);
+      onProgress(++done / total, srvVideo ? `Animating shot ${i + 1} of ${shots.length} on your AI server` : quotaLeft ? `Animating shot ${i + 1} of ${shots.length} with free AI video` : `Finishing shots as moving paintings`);
     }
-    if (!quotaLeft) media.reason = reason;
   }
   const film = new AiFilm(tl, media, aspect);
   const W = aspect === '9:16' ? 720 : aspect === '1:1' ? 1024 : 1280, H = aspect === '9:16' ? 1280 : aspect === '1:1' ? 1024 : 720;
   film.canvas.width = W; film.canvas.height = H;
   film.animatedCount = media.filter((m) => m.clip).length;
-  film.reason = media.reason || '';
+  film.reason = reason;
+  film.sources = sources;
+  film.usedServer = useSrv;
   return film;
 }
 
