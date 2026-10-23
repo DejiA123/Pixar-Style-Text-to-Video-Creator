@@ -232,7 +232,7 @@ export const ACTIONS = {
   stomp: ['stomp', 'roar', 'growl', 'grumble'],
   ride: ['ride', 'drive', 'pilot', 'steer', 'sail'],
   stand: ['stand', 'wait', 'stay', 'meet'],
-  groom: ['brush', 'comb', 'style her hair', 'style his hair', 'do her hair', 'braid', 'makeup', 'make-up', 'get ready', 'getting ready', 'pamper', 'primp'],
+  groom: ['brush', 'comb', 'style her hair', 'style his hair', 'do her hair', 'makeup', 'make-up', 'get ready', 'getting ready', 'pamper', 'primp'],
   pray: ['saved', 'born again', 'pray', 'kneel', 'worship', 'bless', 'repent', 'confess', 'praise', 'baptize', 'baptise', 'preach'],
 };
 
@@ -347,7 +347,8 @@ export const FX = {
   godrays: ['light', 'heaven', 'heavenly', 'glory', 'holy', 'spirit', 'born again', 'saved', 'grace', 'faith', 'god', 'jesus', 'lord', 'blessing', 'miracle', 'angel', 'sunbeam', 'sunlight'],
 };
 
-export const STOPWORDS_CAPS = new Set(('The A An And But Or So Then When While After Before Once One Two Three Every Each ' +
+export const STOPWORDS_CAPS = new Set(('African American European Asian Nigerian Ghanaian Kenyan Indian Chinese Japanese Korean Mexican Latino Latina Hispanic Arab British English French German Spanish Italian Christian Muslim Jewish Catholic Black White Brown Sunday Monday Tuesday Wednesday Thursday Friday Saturday God Jesus Lord Bible Christmas Easter ' +
+  'The A An And But Or So Then When While After Before Once One Two Three Every Each ' +
   'Suddenly Finally Later Soon Meanwhile Today Tomorrow Yesterday Tonight Long Far Deep High Up Down In On At To ' +
   'Of For With Without From Into Onto Under Over Above Below Behind Beside Near Through Across Around Inside Outside ' +
   'This That These Those There Here It Its He She They We You I Me My Your Our Their His Her Him Them Us ' +

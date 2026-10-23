@@ -205,7 +205,7 @@ function detectCast(sentences) {
       if (/^(little|small|tiny)$/.test(a) && m.kind === 'human' && m.age !== 'old') m.age = 'child';
       if (/^(grown|adult)$/.test(a) && m.kind === 'human') m.age = 'adult';
       if (m.kind === 'human') {
-        const tone = { black: 'dark', african: 'dark', 'dark-skinned': 'dark', nigerian: 'dark', ghanaian: 'dark', brown: 'brown', 'brown-skinned': 'brown', indian: 'brown', 'south-asian': 'brown', latina: 'tan', latino: 'tan', hispanic: 'tan', mexican: 'tan', arab: 'tan', asian: 'light-warm', chinese: 'light-warm', japanese: 'light-warm', korean: 'light-warm', white: 'light', caucasian: 'light', 'pale': 'light', 'fair-skinned': 'light' }[a];
+        const tone = { black: 'dark', african: 'dark', kenyan: 'dark', 'african-american': 'dark', 'dark-skinned': 'dark', nigerian: 'dark', ghanaian: 'dark', brown: 'brown', 'brown-skinned': 'brown', indian: 'brown', 'south-asian': 'brown', latina: 'tan', latino: 'tan', hispanic: 'tan', mexican: 'tan', arab: 'tan', asian: 'light-warm', chinese: 'light-warm', japanese: 'light-warm', korean: 'light-warm', white: 'light', caucasian: 'light', 'pale': 'light', 'fair-skinned': 'light' }[a];
         if (tone) { m.skinTone = tone; if (a === 'black' || a === 'brown' || a === 'white') m.color = null; }
       }
     }
@@ -697,7 +697,8 @@ export function parseStory(rawText, opts = {}) {
       const from = prior.length ? prior[0].idx : 0;
       const between = lowerNQ.slice(from, hit.idx);
       const np = between.match(/\b(?:and|while|as|but|then|when)\s+(?:the|a|an|his|her|their|its)\s+(?:[a-z-]+\s+)?([a-z-]+)\s*$/);
-      if (np && !CHARACTER_NOUNS[np[1]] && !cast.some((c) => c.noun === np[1])) continue;
+      // "…and the dog runs" hands the verb to someone else; "…with braids and a backpack walks" doesn't
+      if (np && !CHARACTER_NOUNS[np[1]] && !cast.some((c) => c.noun === np[1]) && !/\bwith\b/.test(between)) continue;
       if (!prior.length) {
         const lead = lowerNQ.slice(0, hit.idx).match(/(?:^|[,;]\s*|\band\s+)(?:the|a|an|some|many)\s+(?:[a-z-]+\s+)?([a-z-]+)\s+$/);
         if (lead && !CHARACTER_NOUNS[lead[1]] && !cast.some((c) => c.noun === lead[1])) continue;
