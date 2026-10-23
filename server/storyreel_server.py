@@ -63,6 +63,9 @@ def make_image(prompt, width, height, seed):
     from PIL import Image, ImageDraw
     w, h = snap(width, 64, 256, 1280), snap(height, 64, 256, 1280)
     if state['mock']:
+        pics = sorted(f for f in os.listdir(os.environ.get('STORYREEL_MOCK_IMAGES', '.')) if f.lower().endswith(('.png', '.jpg', '.jpeg'))) if os.environ.get('STORYREEL_MOCK_IMAGES') else []
+        if pics:  # test mode: hand out real pictures from a folder
+            return Image.open(os.path.join(os.environ['STORYREEL_MOCK_IMAGES'], pics[seed % len(pics)])).convert('RGB').resize((w, h))
         im = Image.new('RGB', (w, h), (40 + seed % 150, 70, 120))
         ImageDraw.Draw(im).text((20, 20), prompt[:120], fill=(255, 255, 255))
         return im
@@ -114,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith('/health'):
-            return self._json(200, {'ok': True, 'image': bool(state['image']) or state['mock'], 'video': bool(state['video']) or state['mock'],
+            return self._json(200, {'ok': True, 'image': bool(state['image']) or state['mock'], 'video': bool(state['video']) or (state['mock'] and not state.get('novideo')),
                                     'device': state['device'], 'mock': state['mock'], 'name': 'storyreel-server'})
         self._json(404, {'error': 'not found'})
 
@@ -174,6 +177,7 @@ def main():
     ap.add_argument('--tunnel', action='store_true', help='open a free HTTPS link (cloudflared) for phones')
     a = ap.parse_args()
     state['mock'] = a.mock
+    state['novideo'] = a.no_video
     if not a.mock:
         load_models(want_video=not a.no_video)
     srv = ThreadingHTTPServer(('0.0.0.0', a.port), Handler)

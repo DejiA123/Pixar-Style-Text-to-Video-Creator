@@ -3,7 +3,7 @@
 // Hugging Face quota allows — animated into a real AI video clip by the public
 // LTX-Video Space. Shots that can't be animated play as the painted still with
 // slow camera drift. Playback/export reuse AiFilm from the cinematic renderer.
-import { AiFilm } from './cinematic.js';
+import { LivingFilm } from './living.js';
 
 const IMG = 'https://image.pollinations.ai/prompt/';
 const GRADIO = 'https://cdn.jsdelivr.net/npm/@gradio/client@2.5.0/dist/browser.js';
@@ -210,7 +210,12 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
       onProgress(++done / total, srvVideo ? `Animating shot ${i + 1} of ${shots.length} on your AI server` : quotaLeft ? `Animating shot ${i + 1} of ${shots.length} with free AI video` : `Finishing shots as moving paintings`);
     }
   }
-  const film = new AiFilm(tl, media, aspect);
+  const film = new LivingFilm(tl, media, aspect);
+  // shots without an AI video clip come to life on the device: depth parallax,
+  // talking mouths, blinking eyes, breathing
+  if (media.some((m) => m.still && !m.clip)) {
+    try { await film.bringToLife((p, msg) => onProgress(Math.min(0.999, done / total), msg)); } catch (e) { console.warn('motion AI unavailable', e); }
+  }
   const W = aspect === '9:16' ? 720 : aspect === '1:1' ? 1024 : 1280, H = aspect === '9:16' ? 1280 : aspect === '1:1' ? 1024 : 720;
   film.canvas.width = W; film.canvas.height = H;
   film.animatedCount = media.filter((m) => m.clip).length;

@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8">
+<script type="importmap">{"imports":{"three":"../vendor/three/build/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+</head><body style="margin:0;background:#111">
+<script type="module">
+// Living-picture lab: ?img=_a.jpg&talk=1 → renders frames over time into a grid
+import { analyze, LivingPicture } from '../src/ai/living.js';
+import * as THREE from 'three';
+const q = new URLSearchParams(location.search);
+const img = new Image(); img.src = q.get('img') || '_a.jpg'; await img.decode();
+const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; c.getContext('2d').drawImage(img, 0, 0);
+const info = await analyze(c, (m) => console.log(m));
+console.log('faces', info.faces.length, 'depth', info.dw, info.dh);
+const Delaunator = (await import('https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm')).default;
+const L = new LivingPicture(c, info, Delaunator);
+const W = 640, H = Math.round(640 * img.height / img.width);
+const r = new THREE.WebGLRenderer({ preserveDrawingBuffer: true }); r.setSize(W, H);
+const scene = new THREE.Scene(); scene.add(L.group);
+const cam = new THREE.PerspectiveCamera(30, W / H, 1, 1e5);
+const out = document.createElement('canvas'); out.width = W * 3; out.height = H * 2; const g = out.getContext('2d');
+const frames = [[0, 0, 0], [0.5, 0.9, 0], [1.0, 0.4, 1], [1.5, 1, 0], [2, 0, 0.6], [2.5, 0.7, 0]];
+frames.forEach(([u, talk, blink], k) => {
+  L.pose(u * 2, [talk, talk], [blink, blink]);
+  const fovY = THREE.MathUtils.degToRad(cam.fov), cover = Math.max(L.H, L.W / cam.aspect) / 1.12;
+  const dist = cover / 2 / Math.tan(fovY / 2) + L.relief * 0.5, e = u / 2.5;
+  cam.position.set((e - 0.5) * L.W * 0.05, (0.5 - e) * L.H * 0.02, dist * (1 - 0.07 * e)); cam.lookAt(0, 0, L.relief * 0.35); cam.updateProjectionMatrix();
+  r.render(scene, cam);
+  g.drawImage(r.domElement, (k % 3) * W, Math.floor(k / 3) * H);
+  g.fillStyle = '#ff0'; g.font = '16px sans-serif'; g.fillText(`t=${u} talk=${talk} blink=${blink}`, (k % 3) * W + 8, Math.floor(k / 3) * H + 20);
+});
+document.body.appendChild(out); window.__ready = true;
+</script></body></html>
