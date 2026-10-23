@@ -130,6 +130,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
   const srv = server ? server.replace(/\/+$/, '') : '';
   const health = srv ? await checkServer(srv) : null;
   const useSrv = !!(health && health.image);
+  console.log('[storyreel] AI server', srv || '(none)', health ? 'connected' : 'not reachable');
   const srvVideo = !!(health && health.video);
   const seedOf = (s) => 1000 + ([...(s.scene.text || '')].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % 90000);
   const blobs = [];
