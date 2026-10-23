@@ -30,6 +30,11 @@ const setSel = (id, v) => page.evaluate(([id, v]) => { const el = document.getEl
 await setSel('voice-engine', voice);
 await setSel('aspect', aspect);
 await setSel('quality', 'low');
+const setVal = (id, v) => page.evaluate(([id, v]) => { const el = document.getElementById(id); if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); }, [id, v]);
+if (process.env.RENDER) await setSel('render-mode', process.env.RENDER);
+if (process.env.LENGTH) await setSel('length', process.env.LENGTH);
+if (process.env.AISERVER) await setVal('ai-server', process.env.AISERVER);
+if (process.env.NOANIM) await setVal('free-animate', '0');
 const t0 = Date.now();
 await page.click('#make');
 let ok = false;
