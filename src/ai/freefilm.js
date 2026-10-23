@@ -8,6 +8,7 @@ import { AiFilm } from './cinematic.js';
 const IMG = 'https://image.pollinations.ai/prompt/';
 const GRADIO = 'https://cdn.jsdelivr.net/npm/@gradio/client@2.5.0/dist/browser.js';
 const LTX_SPACE = 'Lightricks/ltx-video-distilled';
+const FLUX_SPACE = 'black-forest-labs/FLUX.1-schnell';
 const STYLE = 'hyper realistic 3d pixar disney animation style, appealing cartoon characters with big expressive eyes, soft skin, detailed hair, rich fabric, cinematic lighting, shallow depth of field, 4k render';
 
 const FRAMING = {
@@ -106,6 +107,16 @@ async function serverVideo(url, blob, prompt, shot, size, signal) {
   return res.blob();
 }
 
+// Second free image source: the public FLUX.1-schnell Space (Hugging Face free GPU quota).
+async function fluxImage(gr, prompt, { w, h, seed }) {
+  const res = await gr.flux.predict('/infer', { prompt, seed, randomize_seed: false, width: Math.round(w / 64) * 64, height: Math.round(h / 64) * 64, num_inference_steps: 4 });
+  const out = res.data?.[0];
+  const url = out?.url || (typeof out === 'string' ? out : null);
+  if (!url) throw new Error('FLUX returned nothing');
+  const blob = await (await fetch(url)).blob();
+  return { img: await createImageBitmap(blob), blob };
+}
+
 // Never-stop chain for every shot:
 //   image: your AI server → free online AI → on-device AI painter / 3D frame (fallbackStill)
 //   video: your AI server (unlimited) → free online AI video (daily quota) → moving painting
@@ -122,50 +133,64 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
   const srvVideo = !!(health && health.video);
   const seedOf = (s) => 1000 + ([...(s.scene.text || '')].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % 90000);
   const blobs = [];
-  const sources = { server: 0, online: 0, device: 0 };
-  let onlineDown = false;
-  for (let i = 0; i < shots.length; i++) {
+  const sources = { server: 0, online: 0, flux: 0, device: 0 };
+  // gradio client (for FLUX images and LTX video) loads once, lazily
+  const gr = { mod: null, flux: null, fluxDown: false };
+  const gradio = async () => (gr.mod ||= await import(/* @vite-ignore */ GRADIO));
+  const tryFlux = async (prompt, opts) => {
+    if (gr.fluxDown) return null;
+    try {
+      if (!gr.flux) gr.flux = await (await gradio()).Client.connect(FLUX_SPACE, hfToken ? { hf_token: hfToken } : {});
+      const r = await fluxImage(gr, prompt, opts); sources.flux++; return r;
+    } catch (e) { console.warn('FLUX unavailable', e); if (/quota|exceeded/i.test(String(e?.message || e))) gr.fluxDown = true; return null; }
+  };
+  // AI only, never a 3D frame: try every free AI source in turn
+  const paintShot = async (i, waitMs) => {
     const prompt = freeShotPrompt(shots[i], castById);
     const opts = { ...size, seed: seedOf(shots[i]) };
-    let got = null;
-    if (useSrv) {
-      try { got = await serverImage(srv, prompt, opts, signal); sources.server++; } catch (e) { console.warn(e); }
+    if (useSrv) { try { const r = await serverImage(srv, prompt, opts, signal); sources.server++; return r; } catch (e) { console.warn(e); } }
+    try {
+      const r = await paintFree(prompt, opts, signal, (n) => onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} — free AI is busy, waiting (${n})…`), waitMs);
+      sources.online++; return r;
+    } catch (e) { if (e?.name === 'AbortError') throw e; }
+    const f = await tryFlux(prompt, opts);
+    if (f) return f;
+    if (fallbackStill) {
+      onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} with AI on this device`);
+      const c = await fallbackStill(i, prompt).catch(() => null);
+      if (c) { sources.device++; return { img: c, blob: await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92)) }; }
     }
-    if (!got && !onlineDown) {
-      try {
-        got = await paintFree(prompt, opts, signal, (n) => onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} — free AI is busy, waiting (${n})…`));
-        sources.online++;
-      } catch (e) {
-        if (e?.name === 'AbortError') throw e;
-        onlineDown = true; // don't keep waiting on a service that's down; go local for the rest
-        console.warn('Free online AI unavailable; continuing on this device', e);
-      }
-    }
-    if (got) {
-      media[i].still = await toImage(got.img);
-      blobs[i] = got.blob;
-    } else if (fallbackStill) {
-      onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} on this device`);
-      const c = await fallbackStill(i, prompt);
-      c.naturalWidth = c.width; c.naturalHeight = c.height;
-      media[i].still = c;
-      blobs[i] = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92));
-      sources.device++;
-    }
+    return null;
+  };
+  const place = async (i, r) => { media[i].still = await toImage(r.img); blobs[i] = r.blob; };
+  for (let i = 0; i < shots.length; i++) {
+    const r = await paintShot(i, 75000);
+    if (r) await place(i, r);
     onProgress(++done / total, `Painting shot ${i + 1} of ${shots.length}`);
   }
+  // second pass for any shot the busy services missed
+  for (let i = 0; i < shots.length; i++) if (!blobs[i]) { const r = await paintShot(i, 120000); if (r) await place(i, r); }
+  // still nothing at all? keep waiting for a free AI — never fall back to 3D
+  for (let tries = 1; !blobs.some(Boolean); tries++) {
+    if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
+    onProgress(done / total, `All free AI services are busy — retrying (${tries})… you can leave this running`);
+    const r = await paintShot(0, 180000);
+    if (r) await place(0, r);
+  }
+  // any remaining gaps reuse the nearest AI-painted shot
   for (let i = 0; i < shots.length; i++) {
     if (media[i].still) continue;
-    const j = blobs.findIndex(Boolean);
-    if (j < 0) throw new Error('No painter was available. Switch Render style to Built-in 3D.');
-    media[i].still = media[j].still;
+    for (let d = 1; d < shots.length; d++) {
+      const j = [i - d, i + d].find((k) => k >= 0 && k < shots.length && blobs[k]);
+      if (j != null) { media[i].still = media[j].still; break; }
+    }
   }
   let reason = '';
   if (animate) {
     let client = null, handle_file = null, quotaLeft = !srvVideo;
     if (!srvVideo) {
       try {
-        const mod = await import(/* @vite-ignore */ GRADIO);
+        const mod = await gradio();
         handle_file = mod.handle_file;
         client = await mod.Client.connect(LTX_SPACE, hfToken ? { hf_token: hfToken } : {});
       } catch (e) { quotaLeft = false; reason = 'the free video server is unavailable'; console.warn(e); }

@@ -180,10 +180,10 @@ async function makeMovie() {
   if (state.player) { state.player.dispose(); state.player = null; }
   const ai = $('render-mode').value === 'ai';
   let painted = $('render-mode').value === 'painted';
-  const freeAI = $('render-mode').value === 'free';
+  let freeAI = $('render-mode').value === 'free' || $('render-mode').value === '3d';
   if (painted) {
     const sup = await Painter.supported();
-    if (!sup.ok) { painted = false; toast(`AI painting needs a newer browser or device (${sup.why}) — making the 3D version instead.`, false, 9000); }
+    if (!sup.ok) { painted = false; freeAI = true; toast('This device can’t run the on-device AI painter, so your film is being painted by the free online AI instead.', false, 8000); }
   }
   const neural = $('voice-engine').value === 'neural';
   setAspect($('aspect').value);
@@ -260,12 +260,11 @@ async function makeMovie() {
   } else if (freeAI) {
     film = await renderFreeFilm(tl, {
       aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server: $('ai-server').value.trim(),
-      fallbackStill: makeLocalPainter(tl, text),
+      fallbackStill: makeLocalPainter(),
       onProgress: (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); },
     });
     state.ai = true;
-    if (film.sources?.device) toast(`The free online AI was busy, so ${film.sources.device} shot${film.sources.device > 1 ? 's were' : ' was'} painted on this device instead.`, false, 8000);
-    else if ($('free-animate').checked) toast(film.usedServer && film.animatedCount ? `All ${film.animatedCount} shots animated on your AI server.` : film.animatedCount ? `${film.animatedCount} of ${tl.shots.length} shots animated with free AI video${film.reason ? ` (${film.reason}; the rest move as paintings)` : ''}.` : `Shots play as moving AI paintings${film.reason ? ` — ${film.reason}` : ''}. Add a free Hugging Face token in Settings for more AI video.`, false, 9000);
+    if ($('free-animate').checked) toast(film.usedServer && film.animatedCount ? `All ${film.animatedCount} shots animated on your AI server.` : film.animatedCount ? `${film.animatedCount} of ${tl.shots.length} shots animated with free AI video${film.reason ? ` (${film.reason}; the rest move as paintings)` : ''}.` : `Shots play as moving AI paintings${film.reason ? ` — ${film.reason}` : ''}. Add a free Hugging Face token in Settings for more AI video.`, false, 9000);
   } else {
     if (!state.fr) state.fr = new FilmRenderer(state.glCanvas, { quality: $('quality').value });
     state.fr.setQuality($('quality').value);
@@ -297,7 +296,8 @@ async function makeMovie() {
       console.warn('AI painting failed, using the 3D film', e);
       state.painter = null;
       steps.set('paint', 'error');
-      toast(`AI painting couldn’t run on this device (${e.message || e}), so here is the 3D version.`, false, 9000);
+      toast(`The on-device AI painter couldn’t run here (${e.message || e}). Switch Render style to “AI film — free, online”.`, true, 9000);
+      throw e;
     }
   } else if (painted) steps.set('paint', 'done');
   state.film = film;
@@ -348,34 +348,21 @@ async function captureThumbs(tl) {
 }
 
 // In-page confirmation for paid AI renders (no window.confirm in sandboxes).
-// Last link of the never-stop chain: a shot painted on this device — the 3D
-// render of the shot, repainted by the on-device AI when this device can run it
-// and its model is already here (no surprise 2.6 GB download mid-film).
-function makeLocalPainter(tl, text) {
-  let film = null, painter = undefined;
+// Last link of the never-stop chain: the on-device AI painter draws the shot
+// from its description (AI only — never a 3D frame). Used only on devices that
+// can run it and already have the model, so there's no surprise download.
+function makeLocalPainter() {
+  let painter = undefined;
   return async (i, prompt) => {
-    if (!film) {
-      if (!state.fr) state.fr = new FilmRenderer(state.glCanvas, { quality: 'high' });
-      state.fr.setQuality('high');
-      film = new Film(state.fr, tl, { aspect: aspectNum(state.aspect), storyText: text });
-      await film.prepare();
-    }
-    const size = painterSize(state.aspect);
-    state.fr.setSize(size.width, size.height, 1);
-    const s = tl.shots[i];
-    film.renderAt((s.start + s.end) / 2, { dof: false });
-    const snap = document.createElement('canvas');
-    snap.width = state.glCanvas.width; snap.height = state.glCanvas.height;
-    snap.getContext('2d').drawImage(state.glCanvas, 0, 0);
     if (painter === undefined) {
       painter = null;
       try {
+        const size = painterSize(state.aspect);
         const cached = await (await caches.open('storyreel-models')).match('https://huggingface.co/schmuell/sd-turbo-ort-web/resolve/main/unet/model.onnx');
         if (cached && (await Painter.supported()).ok) { painter = state.painter && state.painter.W === size.width ? state.painter : new Painter(size); await painter.load(); state.painter = painter; }
       } catch (e) { console.warn('on-device painter unavailable', e); painter = null; }
     }
-    if (painter) { try { return await painter.paint(prompt, { init: snap, strength: 0.55, seed: 1000 + i }); } catch (e) { console.warn(e); } }
-    return snap;
+    return painter ? painter.paint(prompt, { seed: 1000 + i }) : null;
   };
 }
 

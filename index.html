@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1792733589">
+<link rel="stylesheet" href="src/ui/styles.css?v=1792733825">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
@@ -75,7 +75,6 @@
               <select id="render-mode">
                 <option value="free">AI film — free, online (any phone)</option>
                 <option value="painted">AI painted — free, on this device</option>
-                <option value="3d">Built-in 3D — free, fastest</option>
               </select>
             </label>
             <label class="field"><span>Voices</span>
@@ -110,7 +109,7 @@
             <label class="check"><input type="checkbox" id="free-animate" checked> Animate shots with free AI video (daily free limit)</label>
             <label class="field"><span>Your AI server (optional, unlimited AI video)</span><input id="ai-server" type="url" autocomplete="off" placeholder="https://….trycloudflare.com"></label>
             <label class="field"><span>Free Hugging Face token (optional, more free video per day)</span><input id="hf-token" type="password" autocomplete="off" placeholder="hf_…"></label>
-            <p class="hint">Shots are painted by a free public AI service and animated by the free public LTX-Video server. No payment, ever. Without a token you get a small daily allowance of AI video; shots beyond it play as moving paintings. A free token from huggingface.co (Settings → Access Tokens) raises the allowance; it's stored only in this browser and sent only to Hugging Face. For <b>no limits at all</b>, run the free Storyreel AI server on any computer with a gaming graphics card (see server/README in the project) and paste its link above. If every online option is busy, your film is painted on this device instead, so it always finishes.</p>
+            <p class="hint">Shots are painted by a free public AI service and animated by the free public LTX-Video server. No payment, ever. Without a token you get a small daily allowance of AI video; shots beyond it play as moving paintings. A free token from huggingface.co (Settings → Access Tokens) raises the allowance; it's stored only in this browser and sent only to Hugging Face. For <b>no limits at all</b>, run the free Storyreel AI server on any computer with a gaming graphics card (see server/README in the project) and paste its link above. If the free services are busy, Storyreel tries the next free AI and keeps retrying until every shot is AI-painted.</p>
           </div>
           <div class="ai-box" id="ai-box" hidden>
             <label class="field"><span>fal.ai API key</span><input id="fal-key" type="password" autocomplete="off" placeholder="key_id:key_secret"></label>
@@ -157,6 +156,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1792733589"></script>
+<script type="module" src="src/ui/app.js?v=1792733825"></script>
 </body>
 </html>
