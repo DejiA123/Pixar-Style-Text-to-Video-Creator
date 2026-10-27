@@ -37,6 +37,48 @@ export function freeShotPrompt(shot, castById) {
   return [frame, who, `in a ${PLACE[sc.setting] || sc.setting}`, LIGHT[sc.time] || '', STYLE, 'no text'].filter(Boolean).join(', ').slice(0, 900);
 }
 
+// What moves in an AI video shot: each character's whole-body action, the
+// background and the camera. Video models move as much as the prompt asks.
+const MOTION = {
+  walk: 'walks forward with natural strides, arms swinging, hair and clothes moving with each step',
+  run: 'runs fast, arms pumping, hair flying', dance: 'dances with full body movement, spinning and swaying',
+  wave: 'raises an arm and waves happily', talk: 'talks with lively expressions, mouth moving, hands gesturing',
+  sit: 'sits, leans forward and gestures while talking', hug: 'steps forward and hugs warmly',
+  pray: 'bows the head in prayer, then slowly looks up', groom: 'brushes her hair with long strokes, turning her head',
+  cry: 'sobs, shoulders shaking, wiping tears', laugh: 'laughs, head tilting back, shoulders shaking',
+  sing: 'sings with feeling, mouth moving, swaying to the music', cook: 'stirs a pot and moves around the kitchen',
+  eat: 'eats and chews, reaching for food', read: 'reads, turning a page, eyes moving', play: 'plays energetically, moving around',
+  cheer: 'cheers, jumping with arms raised', jump: 'jumps up and lands', fly: 'flies through the air', sleep: 'sleeps, chest rising and falling',
+};
+const SCENE_MOTION = {
+  city: 'cars and people pass in the background, lights flicker', forest: 'leaves and branches sway in the wind, sunlight flickers',
+  meadow: 'grass and trees sway in the breeze, birds fly past', beach: 'waves roll onto the shore, palm trees sway',
+  church: 'candles flicker, people in the pews move', home: 'curtains sway gently, light shifts', school: 'classmates move in the background',
+  market: 'busy crowd moves between the stalls', village: 'people walk by, smoke drifts', space: 'stars drift, planets slowly turn',
+  farm: 'animals move, crops sway in the wind', castle: 'flags flutter, torches flicker', stage: 'stage lights sweep, the crowd moves',
+  hospital: 'staff walk past in the background', underwater: 'fish swim by, seaweed sways, bubbles rise',
+};
+const CAMERA = {
+  establishing: 'the camera glides slowly forward', title: 'the camera glides slowly forward', wide: 'the camera slowly dollies in',
+  medium: 'the camera moves slightly', closeup: 'the camera slowly pushes in', 'over-shoulder': 'the camera drifts over the shoulder',
+  tracking: 'the camera tracks alongside', lowangle: 'the camera slowly tilts up', 'two-shot': 'the camera slowly arcs around them',
+};
+export function motionPrompt(shot, castById) {
+  const sc = shot.scene;
+  const ids = shot.kind === 'title' ? [] : (shot.ids || sc.characters || []).slice(0, 3);
+  const speaking = new Set((shot.lines || []).map((l) => l.speaker));
+  const people = ids.map((id) => {
+    const c = castById.get(id);
+    if (!c) return '';
+    const a = sc.actions?.[id];
+    const act = MOTION[a] || (speaking.has(id) ? MOTION.talk : 'moves naturally, turning the head and gesturing with the hands');
+    return `the ${c.kind === 'human' ? person(c) : c.noun || c.kind} ${act}`;
+  }).filter(Boolean);
+  const bg = SCENE_MOTION[sc.setting] || 'the background is alive with movement';
+  const cam = CAMERA[shot.kind === 'title' ? 'title' : shot.type] || CAMERA.medium;
+  return [people.join(', while '), bg, cam, 'smooth realistic motion, everything moves, not a still image'].filter(Boolean).join('; ');
+}
+
 function sizeFor(aspect) {
   if (aspect === '9:16') return { w: 576, h: 1024 };
   if (aspect === '1:1') return { w: 832, h: 832 };
@@ -102,7 +144,7 @@ async function serverImage(url, prompt, { w, h, seed }, signal) {
 }
 async function serverVideo(url, blob, prompt, shot, size, signal, jobs = false) {
   const dataUrl = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
-  const body = JSON.stringify({ prompt, image: dataUrl, width: Math.round(size.w * 0.75), height: Math.round(size.h * 0.75), seconds: Math.max(2, Math.min(8, shot.end - shot.start)), seed: 7 });
+  const body = JSON.stringify({ prompt, image: dataUrl, width: Math.round(size.w * 0.75), height: Math.round(size.h * 0.75), seconds: Math.max(2, Math.min(10, shot.end - shot.start)), seed: 7 });
   if (!jobs) {
     const res = await fetch(`${url}/video`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body });
     if (!res.ok) throw new Error(`AI server video failed (${res.status})`);
@@ -227,8 +269,9 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
       } catch (e) { quotaLeft = false; reason = 'the free video server is unavailable'; console.warn(e); }
     }
     for (let i = 0; i < shots.length; i++) {
-      if (shots[i].kind !== 'title' && blobs[i]) {
-        const mp = `${freeShotPrompt(shots[i], castById)}, gentle natural motion, characters breathe, blink and move`;
+      // with your own server every shot is animated, the opening title too
+      if (blobs[i] && (srvVideo || shots[i].kind !== 'title')) {
+        const mp = `${motionPrompt(shots[i], castById)}. ${freeShotPrompt(shots[i], castById)}`.slice(0, 1400);
         try {
           if (srvVideo) media[i].clip = { blob: await serverVideo(srv, blobs[i], mp, shots[i], size, signal, !!health.jobs) };
           else if (quotaLeft) { const vb = await animateFree(client, blobs[i], mp, shots[i], size, handle_file); if (vb) media[i].clip = { blob: vb }; }

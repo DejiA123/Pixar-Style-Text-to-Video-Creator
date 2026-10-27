@@ -29,7 +29,7 @@ from urllib.parse import urlparse, parse_qs
 
 IMAGE_MODEL = os.environ.get('STORYREEL_IMAGE_MODEL', 'stabilityai/sdxl-turbo')
 VIDEO_MODEL = os.environ.get('STORYREEL_VIDEO_MODEL', 'Lightricks/LTX-Video-0.9.8-13B-distilled')
-NEGATIVE = 'worst quality, inconsistent motion, blurry, jittery, distorted, deformed, text, watermark'
+NEGATIVE = 'worst quality, static, still image, frozen, no motion, inconsistent motion, blurry, jittery, distorted, deformed, text, watermark'
 # the distilled LTX models are tuned for these exact timesteps (diffusers docs)
 DISTILLED_TIMESTEPS = [1000, 993, 987, 981, 975, 909, 725, 0.03]
 PRICE = float(os.environ.get('STORYREEL_GPU_PRICE', '0') or 0)  # your GPU's $/hour, for cost reports
@@ -125,7 +125,7 @@ def make_image(prompt, width, height, seed):
 
 def make_video(prompt, image, width, height, seconds, seed):
     w, h = snap(width, 32, 256, 960), snap(height, 32, 256, 960)
-    frames = int(max(2, min(8, seconds)) * 24) // 8 * 8 + 1  # LTX wants 8k+1 frames
+    frames = int(max(2, min(10, seconds)) * 24) // 8 * 8 + 1  # LTX wants 8k+1 frames
     out = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False).name
     if state['mock']:
         if not shutil.which('ffmpeg'):
