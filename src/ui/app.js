@@ -264,7 +264,8 @@ async function makeMovie() {
       onProgress: (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); },
     });
     state.ai = true;
-    if ($('free-animate').checked) toast(film.usedServer && film.animatedCount ? `All ${film.animatedCount} shots animated on your AI server.` : film.animatedCount ? `${film.animatedCount} of ${tl.shots.length} shots animated with free AI video${film.reason ? ` (${film.reason}; the rest move as paintings)` : ''}.` : `Shots play as moving AI paintings${film.reason ? ` — ${film.reason}` : ''}. Add a free Hugging Face token in Settings for more AI video.`, false, 9000);
+    if (film.serverDown) toast('Your AI server isn’t running, so free online AI was used instead. Start it again in RunPod (or on your PC) and paste its new link in Settings.', false, 12000);
+    else if ($('free-animate').checked) toast(film.usedServer && film.animatedCount ? `All ${film.animatedCount} shots animated on your AI server${film.serverSeconds != null ? ` (GPU time ${Math.round(film.serverSeconds)} s${film.serverCost != null ? `, about $${film.serverCost.toFixed(3)}` : ''})` : ''}.` : film.animatedCount ? `${film.animatedCount} of ${tl.shots.length} shots animated with free AI video${film.reason ? ` (${film.reason}; the rest move as paintings)` : ''}.` : `Shots play as moving AI paintings${film.reason ? ` — ${film.reason}` : ''}. Add a free Hugging Face token in Settings for more AI video.`, false, 9000);
   } else {
     if (!state.fr) state.fr = new FilmRenderer(state.glCanvas, { quality: $('quality').value });
     state.fr.setQuality($('quality').value);

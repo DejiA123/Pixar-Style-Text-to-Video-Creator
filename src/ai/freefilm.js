@@ -43,7 +43,10 @@ function sizeFor(aspect) {
   return { w: 1024, h: 576 };
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms, signal) => new Promise((r, j) => {
+  const t = setTimeout(r, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(t); j(new DOMException('Aborted', 'AbortError')); }, { once: true });
+});
 
 // One free image; retries politely when the free tier asks us to slow down.
 async function paintFree(prompt, { w, h, seed }, signal, onWait, maxWaitMs = 75000) {
@@ -97,14 +100,40 @@ async function serverImage(url, prompt, { w, h, seed }, signal) {
   const blob = await res.blob();
   return { img: await createImageBitmap(blob), blob };
 }
-async function serverVideo(url, blob, prompt, shot, size, signal) {
+async function serverVideo(url, blob, prompt, shot, size, signal, jobs = false) {
   const dataUrl = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
-  const res = await fetch(`${url}/video`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
-    body: JSON.stringify({ prompt, image: dataUrl, width: Math.round(size.w * 0.75), height: Math.round(size.h * 0.75), seconds: Math.max(2, Math.min(8, shot.end - shot.start)), seed: 7 }),
-  });
-  if (!res.ok) throw new Error(`AI server video failed (${res.status})`);
-  return res.blob();
+  const body = JSON.stringify({ prompt, image: dataUrl, width: Math.round(size.w * 0.75), height: Math.round(size.h * 0.75), seconds: Math.max(2, Math.min(8, shot.end - shot.start)), seed: 7 });
+  if (!jobs) {
+    const res = await fetch(`${url}/video`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body });
+    if (!res.ok) throw new Error(`AI server video failed (${res.status})`);
+    return res.blob();
+  }
+  // background job + polling: proxies (RunPod, Cloudflare) cut requests after ~100 s
+  const start = await fetch(`${url}/video/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body });
+  if (!start.ok) throw new Error(`AI server video failed (${start.status})`);
+  const { id } = await start.json();
+  for (let misses = 0; ;) {
+    await sleep(3000, signal);
+    let res;
+    try { res = await fetch(`${url}/video/result?id=${id}`, { signal }); } catch (e) {
+      if (e?.name === 'AbortError' || ++misses > 10) throw e;
+      continue;  // a dropped poll is fine, the job keeps running
+    }
+    if (res.status === 202) continue;
+    if (!res.ok) throw new Error(`AI server video failed (${res.status})`);
+    return res.blob();
+  }
+}
+
+// Waits while your AI server downloads and loads its models (first start).
+async function waitForServer(url, health, onProgress, signal) {
+  const t0 = Date.now();
+  while (health && !health.ready && health.loading && Date.now() - t0 < 30 * 60000) {
+    onProgress(0, `Your AI server is starting: ${health.loading}…`);
+    await sleep(5000, signal);
+    health = (await checkServer(url)) || health;
+  }
+  return health;
 }
 
 // Second free image source: the public FLUX.1-schnell Space (Hugging Face free GPU quota).
@@ -128,7 +157,8 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
   const total = shots.length * (animate ? 2 : 1);
   let done = 0;
   const srv = server ? server.replace(/\/+$/, '') : '';
-  const health = srv ? await checkServer(srv) : null;
+  let health = srv ? await checkServer(srv) : null;
+  if (health) health = await waitForServer(srv, health, onProgress, signal);
   const useSrv = !!(health && health.image);
   console.log('[storyreel] AI server', srv || '(none)', health ? 'connected' : 'not reachable');
   const srvVideo = !!(health && health.video);
@@ -200,7 +230,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
       if (shots[i].kind !== 'title' && blobs[i]) {
         const mp = `${freeShotPrompt(shots[i], castById)}, gentle natural motion, characters breathe, blink and move`;
         try {
-          if (srvVideo) media[i].clip = { blob: await serverVideo(srv, blobs[i], mp, shots[i], size, signal) };
+          if (srvVideo) media[i].clip = { blob: await serverVideo(srv, blobs[i], mp, shots[i], size, signal, !!health.jobs) };
           else if (quotaLeft) { const vb = await animateFree(client, blobs[i], mp, shots[i], size, handle_file); if (vb) media[i].clip = { blob: vb }; }
         } catch (e) {
           const msg = String(e?.message || e);
@@ -223,6 +253,15 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
   film.reason = reason;
   film.sources = sources;
   film.usedServer = useSrv;
+  film.serverDown = !!srv && !health;  // a link is set but nothing answers (pod deleted or stopped)
+  // what this film used of your server: GPU busy time and, if the server knows its price, the cost
+  if (useSrv && health.stats) {
+    const after = await checkServer(srv);
+    if (after?.stats) {
+      film.serverSeconds = after.stats.busy_seconds - health.stats.busy_seconds;
+      film.serverCost = after.price_per_hour ? film.serverSeconds / 3600 * after.price_per_hour : null;
+    }
+  }
   return film;
 }
 

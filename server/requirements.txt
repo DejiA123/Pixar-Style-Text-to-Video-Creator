@@ -1,5 +1,5 @@
 torch>=2.3
-diffusers>=0.33
+diffusers>=0.34
 transformers>=4.44
 accelerate>=0.33
 sentencepiece

@@ -6,13 +6,14 @@ video**. You get no quotas, no accounts, no watermarks, and no cost beyond your
 electricity.
 
 - **Images:** SDXL-Turbo, about 1 second per picture
-- **Video:** LTX-Video (Lightricks), image-to-video, about 1–3 minutes per clip depending on your graphics card
+- **Video:** LTX-Video 0.9.8 13B distilled (Lightricks), image-to-video, a fast 8-step model
 
 ## What you need
 
-- A Windows or Linux PC with an **NVIDIA graphics card with 12 GB or more** for video. 8 GB works for images only (`--no-video`).
+- A Windows or Linux PC with an **NVIDIA graphics card with 24 GB** (RTX 3090/4090) for video, and 48 GB of RAM. 8 GB cards work for images only (`--no-video`).
+- No such PC? [Rent one on RunPod](RUNPOD.md) for about $0.34 an hour, all from your phone.
 - [Python 3.10+](https://www.python.org/downloads/)
-- About 30 GB of free disk space for the models. They download automatically the first time.
+- About 60 GB of free disk space for the models. They download automatically the first time.
 
 ## Set up (once)
 
@@ -49,6 +50,7 @@ on your PC, with no limits.
 Options:
 - `--no-video`: images only, for smaller graphics cards
 - `--port 7860`: change the port
+- `--idle-stop 20`: on RunPod, shut the pod down after 20 idle minutes
 - `--mock`: no GPU needed. It returns placeholder pictures and clips so you can test the connection.
 
 Keep the window open while you make films. The link changes each time you
@@ -56,6 +58,8 @@ start the server, so paste the new one into Settings.
 
 ## No graphics card?
 
-The app still never stops. It uses the free online AI while that's available,
+[Rent one on RunPod](RUNPOD.md). It costs a few cents a film and you can set it up from your phone.
+
+Without a server, the app still never stops. It uses the free online AI while that's available,
 and otherwise paints shots on your device (the "AI painted" style) or renders
 them in 3D.
