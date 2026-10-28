@@ -5,6 +5,11 @@ Runs open models and serves them to the Storyreel app (phone or browser). No
 accounts, no quotas, no watermarks.
 
   image: SDXL-Turbo                    (stabilityai/sdxl-turbo)                 ~7 GB VRAM
+  voice: Chatterbox                    (ResembleAI/chatterbox)                  ~4 GB VRAM
+         realistic, emotional speech in the voice of a short reference clip
+  lips:  LatentSync 1.6                (ByteDance/LatentSync-1.6)               ~18 GB VRAM
+         re-renders the mouth so it matches the words; runs in its own Python
+         environment as server/lipsync_worker.py (set up by server/runpod/start.sh)
   video: LTX-Video 0.9.8 13B distilled (Lightricks/LTX-Video-0.9.8-13B-distilled)
          24 GB cards (RTX 4090/3090) run it with fp8 weights; 48 GB cards (A40, L40S) in bf16
          with CPU offload; 80 GB cards keep everything on the card
@@ -23,6 +28,9 @@ API (CORS open; JSON in, media out):
   POST /video/start  (same body)  -> {"id"}         start a clip in the background
   GET  /video/result?id=…         -> 202 {"status"} while working, then video/mp4
        (use the job API behind proxies that cut requests after ~100 s, like RunPod's and Cloudflare's)
+  POST /tts    {"text", "ref": data-URL wav (optional), "emotion": 0..1, "seed"} -> audio/wav
+  POST /lipsync/start {"video": data-URL mp4, "audio": data-URL wav} -> {"id"}
+  GET  /lipsync/result?id=…       -> 202 while working, then video/mp4 (500 if no face was found)
 """
 import argparse, base64, io, json, os, re, shutil, subprocess, sys, tempfile, threading, time, uuid, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -34,12 +42,13 @@ NEGATIVE = 'worst quality, static, still image, frozen, no motion, inconsistent 
 # the distilled LTX models are tuned for these exact timesteps (diffusers docs)
 DISTILLED_TIMESTEPS = [1000, 993, 987, 981, 975, 909, 725, 0.03]
 PRICE = float(os.environ.get('STORYREEL_GPU_PRICE', '0') or 0)  # your GPU's $/hour, for cost reports
+LIPSYNC_URL = os.environ.get('STORYREEL_LIPSYNC_URL', 'http://127.0.0.1:7862')  # lipsync_worker.py
 
 gpu_lock = threading.Lock()  # one generation at a time on the GPU
-state = {'image': None, 'video': None, 'video_kind': None, 'device': 'cpu', 'gpu': '', 'mock': False,
+state = {'image': None, 'video': None, 'video_kind': None, 'tts': None, 'device': 'cpu', 'gpu': '', 'mock': False,
          'loading': 'starting', 'error': None, 'last_use': time.time()}
-stats = {'images': 0, 'videos': 0, 'video_seconds': 0.0, 'busy_seconds': 0.0, 'since': time.time()}
-jobs = {}  # id -> {'status', 'body', 'error', 't'}
+stats = {'images': 0, 'videos': 0, 'video_seconds': 0.0, 'lines': 0, 'lipsyncs': 0, 'busy_seconds': 0.0, 'since': time.time()}
+jobs = {}  # id -> {'status', 'body', 'type', 'error', 't'}
 
 
 def snap(v, m, lo, hi):
@@ -170,8 +179,110 @@ def load_models(want_video=True):
         except Exception as e:  # image-only servers still help a lot
             print(f'[storyreel] video model unavailable ({e}); serving images only', flush=True)
             state['error'] = f'video model failed to load: {e}'
+    load_tts(dev)
     state['loading'] = None
     print('[storyreel] ready', flush=True)
+
+
+def load_tts(dev):
+    state['loading'] = 'loading the voice model'
+    try:
+        from chatterbox.tts import ChatterboxTTS
+        m = ChatterboxTTS.from_pretrained(device=dev)
+        state['tts'], state['tts_default'], state['tts_refs'] = m, m.conds, {}
+        print('[storyreel] voice model ready', flush=True)
+    except Exception as e:  # films still get the in-browser voices
+        print(f'[storyreel] voice model unavailable ({e})', flush=True)
+
+
+def wav_bytes(samples, sr):
+    """Float samples (-1..1) to a 16-bit mono WAV file."""
+    import wave, numpy as np
+    pcm = (np.clip(np.asarray(samples, dtype=np.float32), -1, 1) * 32767).astype('<i2')
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(pcm.tobytes())
+    return buf.getvalue()
+
+
+def make_speech(text, ref, emotion, seed):
+    """Speech for one line. ref: WAV bytes of the character's voice (cloned), emotion: 0 calm .. 1 intense."""
+    import hashlib
+    text = re.sub(r'\s+', ' ', text).strip()[:1200]
+    if state['mock']:  # a soft tone as long as the line would take to say
+        import numpy as np
+        t = np.arange(int(24000 * max(0.6, len(text) * 0.065))) / 24000
+        return wav_bytes(0.2 * np.sin(2 * np.pi * 220 * t) * (np.sin(2 * np.pi * 3 * t) > 0), 24000)
+    import torch, numpy as np
+    m = state['tts']
+    exaggeration = 0.35 + 0.6 * max(0.0, min(1.0, emotion))  # Chatterbox: 0.5 is neutral, higher is more dramatic
+    cfg = 0.5 - 0.25 * max(0.0, min(1.0, emotion))            # lower cfg slows dramatic lines down a little
+    # long narration in pieces of a few sentences, so nothing gets cut off
+    parts, cur = [], ''
+    for sent in re.split(r'(?<=[.!?])\s+', text):
+        if cur and len(cur) + len(sent) > 280:
+            parts.append(cur); cur = sent
+        else:
+            cur = (cur + ' ' + sent).strip()
+    if cur:
+        parts.append(cur)
+    out = []
+    with gpu_lock:
+        if ref:
+            key = hashlib.sha1(ref).hexdigest()
+            if key not in state['tts_refs']:
+                path = tempfile.NamedTemporaryFile(suffix='.wav', delete=False).name
+                open(path, 'wb').write(ref)
+                m.prepare_conditionals(path, exaggeration=exaggeration)
+                os.unlink(path)
+                state['tts_refs'][key] = m.conds
+            m.conds = state['tts_refs'][key]
+        else:
+            m.conds = state['tts_default']
+        for i, p in enumerate(parts):
+            torch.manual_seed(int(seed) + i)
+            w = m.generate(p, exaggeration=exaggeration, cfg_weight=cfg)
+            out.append(w.squeeze(0).cpu().numpy())
+            out.append(np.zeros(int(m.sr * 0.18), dtype=np.float32))
+    return wav_bytes(np.concatenate(out[:-1]), m.sr)
+
+
+_lipsync = {'ok': False, 't': 0}
+
+
+def lipsync_ready():
+    """Is the LatentSync worker up? (checked at most every 15 s)"""
+    if state['mock']:
+        return True
+    if time.time() - _lipsync['t'] > 15:
+        try:
+            _lipsync['ok'] = json.load(urllib.request.urlopen(LIPSYNC_URL + '/health', timeout=2)).get('ok', False)
+        except Exception:
+            _lipsync['ok'] = False
+        _lipsync['t'] = time.time()
+    return _lipsync['ok']
+
+
+def make_lipsync(video, audio):
+    """Re-render the speaking face's mouth in an MP4 to match a WAV. Raises if no face is found."""
+    if state['mock']:
+        return video
+    d = tempfile.mkdtemp()
+    vin, ain, out = os.path.join(d, 'in.mp4'), os.path.join(d, 'in.wav'), os.path.join(d, 'out.mp4')
+    open(vin, 'wb').write(video); open(ain, 'wb').write(audio)
+    try:
+        with gpu_lock:
+            req = urllib.request.Request(LIPSYNC_URL + '/sync', json.dumps({'video': vin, 'audio': ain, 'out': out}).encode(),
+                                         {'Content-Type': 'application/json'})
+            try:
+                res = json.load(urllib.request.urlopen(req, timeout=900))
+            except urllib.error.HTTPError as e:
+                res = json.load(e)
+        if not res.get('ok'):
+            raise RuntimeError(res.get('error', 'lip sync failed'))
+        return open(out, 'rb').read()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def make_image(prompt, width, height, seed):
@@ -248,12 +359,30 @@ def video_from_request(req):
     return body
 
 
-def run_job(jid, req):
+def lipsync_from_request(req):
+    t0 = time.time()
+    body = make_lipsync(base64.b64decode(re.sub(r'^data:[^,]+,', '', req.get('video', ''))),
+                        base64.b64decode(re.sub(r'^data:[^,]+,', '', req.get('audio', ''))))
+    took = time.time() - t0
+    free_memory()
+    stats['lipsyncs'] += 1; stats['busy_seconds'] += took
+    print(f'[storyreel] lip sync in {took:.1f}s', flush=True)
+    return body
+
+
+def start_job(fn, req):
+    jid = uuid.uuid4().hex
+    jobs[jid] = {'status': 'running', 'body': None, 'error': None, 't': time.time()}
+    threading.Thread(target=run_job, args=(jid, fn, req), daemon=True).start()
+    return jid
+
+
+def run_job(jid, fn, req):
     try:
-        jobs[jid]['body'] = video_from_request(req)
+        jobs[jid]['body'] = fn(req)
         jobs[jid]['status'] = 'done'
     except Exception as e:
-        print('[storyreel] video job error', e, flush=True)
+        print(f'[storyreel] {fn.__name__} job error', e, flush=True)
         jobs[jid]['status'], jobs[jid]['error'] = 'error', str(e)
     finally:
         state['last_use'] = time.time()
@@ -285,9 +414,10 @@ class Handler(BaseHTTPRequestHandler):
             mock = state['mock']
             return self._json(200, {'ok': True, 'ready': not state['loading'], 'loading': state['loading'], 'error': state['error'],
                                     'image': bool(state['image']) or mock, 'video': bool(state['video']) or (mock and not state.get('novideo')),
+                                    'tts': bool(state['tts']) or mock, 'lipsync': not state['loading'] and lipsync_ready(),
                                     'jobs': True, 'device': state['device'], 'gpu': state['gpu'], 'mock': mock, 'name': 'storyreel-server',
                                     'stats': {**stats, 'busy_seconds': round(stats['busy_seconds'], 1)}, 'memory': memory_use(), 'price_per_hour': PRICE})
-        if url.path == '/video/result':
+        if url.path in ('/video/result', '/lipsync/result'):
             jid = (parse_qs(url.query).get('id') or [''])[0]
             job = jobs.get(jid)
             if not job:
@@ -321,10 +451,20 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(503, {'error': 'video model not loaded'})
                 if path == '/video':
                     return self._send(200, video_from_request(req), 'video/mp4')
-                jid = uuid.uuid4().hex
-                jobs[jid] = {'status': 'running', 'body': None, 'error': None, 't': time.time()}
-                threading.Thread(target=run_job, args=(jid, req), daemon=True).start()
-                return self._json(200, {'id': jid})
+                return self._json(200, {'id': start_job(video_from_request, req)})
+            if path == '/tts':
+                if not (state['tts'] or state['mock']):
+                    return self._json(503, {'error': 'voice model not loaded'})
+                t0 = time.time()
+                ref = base64.b64decode(re.sub(r'^data:[^,]+,', '', req['ref'])) if req.get('ref') else None
+                body = make_speech(str(req.get('text', '')), ref, float(req.get('emotion', 0.3)), int(req.get('seed', 1)) % (2 ** 31))
+                took = time.time() - t0
+                stats['lines'] += 1; stats['busy_seconds'] += took
+                return self._send(200, body, 'audio/wav')
+            if path == '/lipsync/start':
+                if not lipsync_ready():
+                    return self._json(503, {'error': 'lip sync not available'})
+                return self._json(200, {'id': start_job(lipsync_from_request, req)})
             self._json(404, {'error': 'not found'})
         except Exception as e:
             print('[storyreel] error', e, flush=True)
