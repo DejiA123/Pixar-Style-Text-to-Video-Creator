@@ -59,6 +59,18 @@ def fetch_model(repo):
                              ignore_patterns=[f'{c}/*/*' for c in parts] + ['*.bin', '*.msgpack', '*.onnx*'])
 
 
+def memory_gb():
+    """RAM this container may use (its cgroup limit, else the machine's)."""
+    for f in ('/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes'):
+        try:
+            v = open(f).read().strip()
+            if v.isdigit() and int(v) < 1 << 50:
+                return int(v) / 2**30
+        except OSError:
+            pass
+    return os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / 2**30
+
+
 def load_models(want_video=True):
     import torch
     from diffusers import AutoPipelineForText2Image, DiffusionPipeline
@@ -67,7 +79,10 @@ def load_models(want_video=True):
     vram = torch.cuda.get_device_properties(0).total_memory / 2**30 if dev == 'cuda' else 0
     if dev == 'cuda':
         state['gpu'] = f'{torch.cuda.get_device_name(0)} {vram:.0f} GB'
-    small = dev == 'cuda' and vram < 40  # 24 GB cards: fp8 weights + CPU offload
+    ram = memory_gb()
+    # fp8 weights (13 GB instead of 26) on 24 GB cards, and wherever system RAM is tight
+    small = dev == 'cuda' and (vram < 40 or ram < 64)
+    print(f'[storyreel] {vram:.0f} GB GPU memory, {ram:.0f} GB RAM', flush=True)
     offload = dev == 'cuda' and vram < 70  # 48 GB cards: bf16, but only the working model on the card
     dtype = torch.float16 if dev != 'cpu' else torch.float32
     state['loading'] = 'downloading the image model'
