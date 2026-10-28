@@ -63,6 +63,13 @@ button, select, input, textarea { font: inherit; color: inherit; }
 }
 .screen.v916 { width: auto; height: max(320px, calc(100dvh - var(--dock-h) - 150px)); }
 .screen.v11 { width: auto; height: max(300px, calc(100dvh - var(--dock-h) - 150px)); }
+/* on wider screens the welcome screen stays wide whatever frame is picked; the frame
+   shape applies once there's a film (phones have their own welcome layout below) */
+@media (min-width: 641px) {
+  .screen.v916:has(#empty:not([hidden])), .screen.v11:has(#empty:not([hidden])) {
+    width: min(100%, calc((100dvh - var(--dock-h) - 150px) * 16 / 9)); height: auto; aspect-ratio: 16 / 9 !important;  /* over the frame set inline */
+  }
+}
 .screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .screen:fullscreen { border-radius: 0; max-height: none; }
 
