@@ -81,6 +81,8 @@ function runpodEndpoint(base, id, key) {
     const { id: job } = await res.json();
     const cancel = () => fetch(`${api}/cancel/${job}`, { method: 'POST', headers }).catch(() => {});
     signal?.addEventListener('abort', cancel, { once: true });
+    const queued = Date.now();
+    let waited = false;
     try {
       for (let misses = 0; ;) {
         await sleep(2500, signal);
@@ -89,7 +91,10 @@ function runpodEndpoint(base, id, key) {
           if (e?.name === 'AbortError' || ++misses > 10) throw e;
           continue;
         }
-        if (st.status === 'IN_QUEUE' || st.status === 'IN_PROGRESS') continue;
+        // still queued = no GPU free or awake yet: let the app say so
+        if (st.status === 'IN_QUEUE') { waited = true; client.onWait?.(op, (Date.now() - queued) / 1000); continue; }
+        if (waited) { waited = false; client.onWait?.(op, -1); }
+        if (st.status === 'IN_PROGRESS') continue;
         spent += (st.executionTime || 0) / 1000;
         const out = st.output || {};
         const err = out.error || st.error;
@@ -102,8 +107,9 @@ function runpodEndpoint(base, id, key) {
       }
     } finally { signal?.removeEventListener('abort', cancel); }
   };
-  return {
+  const client = {
     kind: 'serverless', label: `RunPod Serverless ${id}`,
+    onWait: null,  // (op, seconds queued) while waiting for a GPU; seconds < 0 when the wait is over
     async health() {
       if (!key) return { ok: false, ready: false, needsKey: true };
       try {
@@ -124,6 +130,7 @@ function runpodEndpoint(base, id, key) {
     usage: async () => spent,
     price: async () => null,
   };
+  return client;
 }
 
 // Waits while a linked server downloads and loads its models (first start).

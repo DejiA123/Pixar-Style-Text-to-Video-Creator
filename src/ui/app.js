@@ -240,10 +240,81 @@ function resizePreview() {
 // ---------------------------------------------------------------------------
 // progress steps
 // ---------------------------------------------------------------------------
+// One live bar for the whole film. Each step owns a slice of 0–100%; between updates the
+// bar keeps creeping toward the next one (never past it) so it never looks frozen, and
+// the time left comes from how fast this film is actually going.
+// voicesDl: the in-browser voice model downloading; voices: its lines; voices2: realistic voices on your server
+const SLICES = { plan: [0, 3], voicesDl: [3, 5], voices: [5, 10], voices2: [10, 18], build: [18, 95], paint: [90, 95], score: [95, 100] };
+const meter = {
+  start() {
+    clearInterval(this.timer);
+    Object.assign(this, { pct: 0, shown: 0, end: 3, step: 0, stepMs: 8000, last: Date.now(), t0: Date.now(), samples: [], paused: 0, pausedAt: 0, note: '' });
+    $('p-strip').hidden = true; $('p-strip').innerHTML = '';
+    this.timer = setInterval(() => this.tick(), 250);
+    this.tick();
+  },
+  stage(key, frac) {
+    const [a, b] = SLICES[key] || [0, 0];
+    let f = Math.max(0, Math.min(1, frac));
+    this.end = Math.max(this.end || 0, b);  // the bar may creep, but never past the current step's share
+    if (key === 'build') f = f <= 0.5 ? f / 0.5 * 0.22 : 0.22 + (f - 0.5) / 0.5 * 0.78;  // painting is quick, animating isn't
+    this.to(a + (b - a) * f);
+  },
+  to(pct) {
+    if (pct <= this.pct) return;
+    const now = Date.now();
+    this.step = pct - this.pct; this.stepMs = Math.max(4000, now - this.last); this.last = now;
+    this.pct = pct;
+    this.samples.push([now - this.paused, pct]);
+  },
+  now(text) { $('p-now').textContent = text; },
+  pause(text) { this.pausedAt = Date.now(); this.note = text; },
+  resume() { if (this.pausedAt) this.paused += Date.now() - this.pausedAt; this.pausedAt = 0; this.note = ''; this.last = Date.now(); },
+  finish() { this.pct = this.shown = 100; this.tick(); clearInterval(this.timer); },
+  stop() { clearInterval(this.timer); },
+  tick() {
+    const now = Date.now();
+    // catch up quickly to real progress, then creep toward most of the next expected step
+    const ceiling = this.pausedAt ? this.pct : Math.min(99, this.end - 0.5, this.pct + this.step * 0.85);
+    if (this.shown < this.pct) this.shown = Math.min(this.pct, this.shown + Math.max(0.4, (this.pct - this.shown) * 0.25));
+    else if (this.shown < ceiling) this.shown += (ceiling - this.shown) * Math.min(0.08, 250 / this.stepMs);
+    $('p-pct').textContent = `${Math.floor(this.shown)}%`;
+    $('p-fill').style.width = `${this.shown}%`;
+    const active = now - this.t0 - this.paused - (this.pausedAt ? now - this.pausedAt : 0);
+    const clock = (ms) => { const sec = Math.round(ms / 1000); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`; };
+    let left = '';
+    if (this.pausedAt) left = this.note;
+    else {
+      const recent = this.samples.filter(([t]) => t >= now - this.paused - 150000);
+      // time left only once the shots are being made: before that there's too little to go on
+      if (recent.length >= 2 && this.pct >= 20 && recent[recent.length - 1][0] - recent[0][0] > 10000) {
+        const [t1, p1] = recent[0], [t2, p2] = recent[recent.length - 1];
+        const rate = (p2 - p1) / Math.max(1, t2 - t1);  // % per ms
+        if (rate > 0) { const sec = (100 - this.pct) / rate / 1000; left = sec < 50 ? 'under a minute left' : `about ${Math.round(sec / 60)} min left`; }
+      }
+    }
+    $('p-time').textContent = [clock(active), left].filter(Boolean).join(' · ');
+  },
+  // the film's shots as a filmstrip: grey until painted, then the picture, ✓ once animated
+  shots(n, aspect) {
+    const strip = $('p-strip'); strip.innerHTML = '';
+    for (let i = 0; i < n; i++) { const d = document.createElement('div'); d.className = `p-shot ${aspect === '9:16' ? 'v916' : aspect === '1:1' ? 'v11' : ''}`; strip.appendChild(d); }
+    strip.hidden = !n;
+  },
+  shot(i, blob, state) {
+    const d = $('p-strip').children[i];
+    if (!d) return;
+    if (blob) { if (d._url) URL.revokeObjectURL(d._url); d._url = URL.createObjectURL(blob); d.style.backgroundImage = `url(${d._url})`; }
+    d.dataset.state = state;
+    if (state === 'painted' && blob) d.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  },
+};
+
 const steps = {
   list: [],
   reset(names) {
     const ol = $('steps'); ol.innerHTML = '';
+    meter.start();
     this.list = names.map(([key, label]) => { const li = document.createElement('li'); li.dataset.key = key; li.innerHTML = `<span>${label}</span><span class="pct"></span>`; ol.appendChild(li); return li; });
   },
   set(key, status, pct) {
@@ -253,8 +324,18 @@ const steps = {
     if (status) li.classList.add(status);
     if (pct != null) li.querySelector('.pct').textContent = typeof pct === 'number' ? `${Math.round(pct * 100)}%` : pct;
     else if (status === 'done') li.querySelector('.pct').textContent = '';
+    // feed the overall bar: a fraction, an "a/b" count, or done
+    const frac = typeof pct === 'number' ? pct : typeof pct === 'string' && /^\d+\/\d+$/.test(pct) ? pct.split('/')[0] / pct.split('/')[1] : null;
+    if (status === 'done') { meter.stage(key, 1); if (key === 'voices') meter.stage('voices2', 1); }
+    else if (frac != null) meter.stage(key === 'voices' && typeof pct === 'number' ? 'voicesDl' : key, frac);
+    if (status === 'active' && !$('p-now').textContent) meter.now(li.firstChild.textContent);
+    if (status === 'error') meter.stop();
   },
-  label(key, text) { const li = this.list.find((l) => l.dataset.key === key); if (li) li.firstChild.textContent = text; },
+  label(key, text) {
+    const li = this.list.find((l) => l.dataset.key === key);
+    if (li) li.firstChild.textContent = text;
+    if (li?.classList.contains('active')) meter.now(text);
+  },
 };
 
 function toast(msg, err = false, ms = 6000) {
@@ -266,6 +347,7 @@ function toast(msg, err = false, ms = 6000) {
 
 function fail(e) {
   console.error(e);
+  meter.stop();
   state.busy = false;
   $('make').disabled = false;
   $('make').textContent = 'Generate';
@@ -293,13 +375,23 @@ async function makeMovie() {
     if (!sup.ok) { painted = false; freeAI = true; toast('This device can’t run the on-device AI painter, so your film is being painted by the free online AI instead.', false, 8000); }
   }
   const neural = $('voice-engine').value === 'neural';
+  // one AI server client for the whole film; a serverless GPU waking up shows in the progress card
+  const server = freeAI ? currentServer() : null;
+  if (server) {
+    server.onWait = (op, sec) => {
+      if (sec < 0) { const li = steps.list.find((l) => l.classList.contains('active')); if (li) meter.now(li.firstChild.textContent); return; }
+      if (sec < 8) return;
+      const t = `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+      meter.now(`Waking up a GPU on RunPod… ${t} (usually 2–3 min; the very first start also downloads the AI models, about 20 min)`);
+    };
+  }
   setAspect($('aspect').value);
   steps.reset([
     ['plan', ai ? 'AI director is reading your story' : 'Reading your story'],
     ['voices', neural ? 'Recording voices' : 'Casting voices'],
-    ['build', ai || freeAI ? 'Painting shots with free AI' : 'Building the world'],
+    ['build', ai || freeAI ? 'Painting and animating your shots' : 'Building the world'],
     ...(painted ? [['paint', 'Painting every shot with AI']] : []),
-    ['score', 'Composing music & sound'],
+    ['score', 'Mixing voices and sound'],
   ]);
 
   // 1) plan
@@ -345,15 +437,14 @@ async function makeMovie() {
       }
       usedNeural = true;
       // realistic voices: your AI server re-speaks every line in the same voices, with emotion
-      const srv = freeAI ? currentServer() : null;
+      const srv = server;
       let health = srv ? await srv.health() : null;
       if (health?.ok === false) health = null;
       if (health) health = await waitForServer(srv, health, (p, msg) => steps.label('voices', msg));
-      if (health?.serverless) steps.label('voices', 'Recording realistic voices (a RunPod GPU may take a few minutes to start)');
       if (health?.tts) {
-        if (!health.serverless) steps.label('voices', 'Recording realistic voices on your AI server');
+        steps.label('voices', 'Recording realistic voices on your AI server');
         try {
-          if (await serverVoices(srv, plan, clips, voices, { onProgress: (p, n) => steps.set('voices', 'active', n) })) {
+          if (await serverVoices(srv, plan, clips, voices, { onProgress: (p, n) => { steps.set('voices', 'active', n); meter.stage('voices2', p); } })) {
             for (const [sp, v] of voices) voices.set(sp, { ...v, rate: 1 });  // speed and pitch are in the new recordings
             for (const [key, clip] of clips) durations.set(key, clipDuration(clip, 1));
           }
@@ -380,10 +471,15 @@ async function makeMovie() {
     film = await aiDirector.render(tl, (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); }, confirmCost);
     state.ai = true;
   } else if (freeAI) {
+    meter.shots(tl.shots.length, state.aspect);
     film = await renderFreeFilm(tl, {
-      aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server: currentServer(),
+      aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server,
       fallbackStill: makeLocalPainter(), voice: usedNeural ? { clips, voices } : null,
-      review: $('free-animate').checked && $('review-first').checked ? (r) => { steps.label('build', 'Waiting for you to check the shots'); return reviewShots(r); } : null,
+      review: $('free-animate').checked && $('review-first').checked ? async (r) => {
+        steps.label('build', 'Waiting for you to check the shots'); meter.pause('waiting for you');
+        try { await reviewShots(r); } finally { meter.resume(); }
+      } : null,
+      onShot: (i, blob, st) => meter.shot(i, blob, st),
       onProgress: (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); },
     });
     state.ai = true;
@@ -431,6 +527,7 @@ async function makeMovie() {
   state.soundtrack = await renderSoundtrack(tl, clips, voices, { music: false, sfx: $('sfx').checked, seed: plan.title.length });
   state.hasVoiceAudio = usedNeural;
   steps.set('score', 'done');
+  meter.finish();
 
   // 5) player
   $('empty').hidden = true;

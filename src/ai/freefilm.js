@@ -156,7 +156,7 @@ async function fluxImage(gr, prompt, { w, h, seed }) {
 // film's dialogue, for lip sync on your server.
 // review({shots, blobs, notes, repaint}): called once every shot is painted and before
 // anything is animated; the film continues when it resolves (repaint(i, note) redraws a shot).
-export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, server = null, fallbackStill = null, voice = null, review = null, onProgress = () => {}, signal } = {}) {
+export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, server = null, fallbackStill = null, voice = null, review = null, onShot = () => {}, onProgress = () => {}, signal } = {}) {
   const castById = new Map(tl.cast.map((c) => [c.id, c]));
   const size = sizeFor(aspect);
   const shots = tl.shots;
@@ -203,7 +203,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
     }
     return null;
   };
-  const place = async (i, r) => { media[i].still = await toImage(r.img); blobs[i] = r.blob; };
+  const place = async (i, r) => { media[i].still = await toImage(r.img); blobs[i] = r.blob; onShot(i, r.blob, 'painted'); };
   for (let i = 0; i < shots.length; i++) {
     const r = await paintShot(i, 75000);
     if (r) await place(i, r);
@@ -254,6 +254,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
           if (srvVideo) {
             const blob = await serverVideo(srv, blobs[i], mp, shots[i], size, signal);
             media[i].clip = { blob };
+            onShot(i, null, 'animated');
             // lip sync: the on-screen speakers' words, on the clip's clock as the player will show it
             const len = shots[i].end - shots[i].start;
             if (health.lipsync && voice && len <= 11) {
@@ -262,11 +263,11 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
               if (wav) {
                 onProgress(done / total, `Syncing lips in shot ${i + 1} of ${shots.length}`);
                 const synced = await lipsyncClip(srv, blob, wav, signal).catch((e) => { if (e?.name === 'AbortError') throw e; return null; });
-                if (synced) { media[i].clip = { blob: synced }; lipsynced++; }
+                if (synced) { media[i].clip = { blob: synced }; lipsynced++; onShot(i, null, 'synced'); }
               }
             }
           }
-          else if (quotaLeft) { const vb = await animateFree(client, blobs[i], mp, shots[i], size, handle_file); if (vb) media[i].clip = { blob: vb }; }
+          else if (quotaLeft) { const vb = await animateFree(client, blobs[i], mp, shots[i], size, handle_file); if (vb) { media[i].clip = { blob: vb }; onShot(i, null, 'animated'); } }
         } catch (e) {
           const msg = String(e?.message || e);
           console.warn('Animation failed', msg);

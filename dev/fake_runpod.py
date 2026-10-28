@@ -22,7 +22,12 @@ jobs = {}
 lock = threading.Lock()  # one worker: jobs run one at a time, like a single RunPod worker
 
 
+COLD = float(os.environ.get('FAKE_COLD_START', '0'))  # seconds the first jobs wait for a "GPU"
+STARTED = time.time()
+
+
 def work(jid):
+    time.sleep(max(0, STARTED + COLD - time.time()))
     with lock:
         job = jobs[jid]
         if job['status'] == 'CANCELLED':

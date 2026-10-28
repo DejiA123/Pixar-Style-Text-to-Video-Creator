@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1793190570">
+<link rel="stylesheet" href="src/ui/styles.css?v=1793192816">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
@@ -32,7 +32,13 @@
           <h1>What story do you want to bring to life?</h1>
           <p class="sub">Describe it below — characters, place, what they say. Storyreel turns it into an AI film: every shot animated, with realistic voices and subtitles.</p>
         </div>
-        <ol class="steps" id="steps" aria-live="polite"></ol>
+        <div class="progress" id="progress">
+          <div class="p-head"><span class="p-pct" id="p-pct">0%</span><span class="p-time" id="p-time"></span></div>
+          <div class="p-bar"><i id="p-fill"></i></div>
+          <p class="p-now" id="p-now" aria-live="polite"></p>
+          <div class="p-strip" id="p-strip" hidden></div>
+          <ol class="steps" id="steps"></ol>
+        </div>
         <div class="screen-busy" id="busy" hidden>
           <div class="busy-card">
             <p class="busy-title" id="busy-title">Exporting</p>
@@ -170,6 +176,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793190570"></script>
+<script type="module" src="src/ui/app.js?v=1793192816"></script>
 </body>
 </html>

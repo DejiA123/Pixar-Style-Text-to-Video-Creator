@@ -90,6 +90,7 @@ export async function serverVoices(server, plan, clips, voices, { onProgress = (
   }
   const out = new Map();
   let seed = 7;
+  onProgress(0, `0/${uniq.length}`);
   for (const l of uniq) {
     const emotion = l.speaker === 'narrator' ? 0.35 : Math.min(1, (EMOTION_LEVEL[l.emo] ?? 0.4) + (/!/.test(l.text) ? 0.1 : 0));
     const ref = refs.get(l.speaker);
