@@ -78,7 +78,7 @@ function referenceVoices(lines, clips, voices) {
 // Re-speak every line on the server (an aiserver.js client). Replaces entries in `clips` and returns true
 // only if every line succeeded (otherwise the in-browser voices stay as they were).
 export async function serverVoices(server, plan, clips, voices, { onProgress = () => {}, signal } = {}) {
-  const lines = [{ speaker: 'narrator', text: plan.title, emo: 'neutral' }];
+  const lines = plan.titleVoice === false ? [] : [{ speaker: 'narrator', text: plan.title, emo: 'neutral' }];
   for (const s of plan.scenes) for (const l of s.lines) lines.push({ ...l, emo: s.emotions?.[l.speaker] });
   const uniq = [...new Map(lines.map((l) => [lineKey(l.speaker, l.text), l])).values()].filter((l) => clips.has(lineKey(l.speaker, l.text)));
   if (!uniq.length) return false;

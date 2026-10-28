@@ -32,11 +32,11 @@ export function buildTimeline(plan, durations = new Map(), opts = {}) {
   // title shot: establishing view of the first scene, narrator reads the title
   const first = plan.scenes[0];
   if (first) {
-    const titleLine = { speaker: 'narrator', text: plan.title };
-    const d = dur('narrator', plan.title);
+    const spoken = plan.titleVoice !== false;  // characters tell the story: the title is only on screen
+    const d = spoken ? dur('narrator', plan.title) : 0;
     shots.push(makeShot({
       kind: 'title', scene: { ...first, lines: [], actions: {}, shot: 'establishing' },
-      start: t, lines: [{ ...titleLine, start: t + 0.9, end: t + 0.9 + d }], end: t + Math.max(4.2, 0.9 + d + TITLE_HOLD),
+      start: t, lines: spoken ? [{ speaker: 'narrator', text: plan.title, start: t + 0.9, end: t + 0.9 + d }] : [], end: t + Math.max(spoken ? 4.2 : 3.2, 0.9 + d + TITLE_HOLD),
     }));
     t = shots[0].end;
   }
@@ -118,7 +118,8 @@ function sceneNatural(plan, scene, i, durations, opts) {
 }
 function naturalLength(plan, durations, opts) {
   const dur = (sp, text) => durations.get(lineKey(sp, text)) ?? estimateDuration(text, opts.rate ?? 1);
-  const title = plan.scenes[0] ? Math.max(4.2, 0.9 + dur('narrator', plan.title) + TITLE_HOLD) : 0;
+  const spoken = plan.titleVoice !== false;
+  const title = plan.scenes[0] ? Math.max(spoken ? 4.2 : 3.2, 0.9 + (spoken ? dur('narrator', plan.title) : 0) + TITLE_HOLD) : 0;
   return title + plan.scenes.reduce((a, sc, i) => a + sceneNatural(plan, sc, i, durations, opts), 0) + END_CARD;
 }
 

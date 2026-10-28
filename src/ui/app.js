@@ -2,6 +2,7 @@
 // soundtrack → player, plus export. Two render paths: the built-in 3D engine
 // and the Cinematic AI renderer (fal.ai).
 import { parseStory, displayName } from '../story/parser.js';
+import { tellByCharacters } from '../story/firstperson.js';
 import { SAMPLES } from '../story/samples.js';
 import { SETTING_LABEL, INTERIOR_SETTINGS } from '../story/lexicon.js';
 import { FilmRenderer } from '../engine/renderer.js';
@@ -61,7 +62,7 @@ function init() {
     if (v != null && [...el.options].some((o) => o.value === v)) el.value = v;
     el.addEventListener('change', () => { store.set(id, el.value); onSettings(id); });
   }
-  for (const id of ['sfx', 'subs']) {
+  for (const id of ['sfx', 'subs', 'char-voices']) {
     const el = $(id); const v = store.get(id, null);
     if (v != null) el.checked = v;
     el.addEventListener('change', () => { store.set(id, el.checked); onSettings(id); });
@@ -410,6 +411,8 @@ async function makeMovie() {
     plan = parseStory(text);
   }
   if (!plan.scenes.length) throw new Error('I couldn’t find any sentences in that story.');
+  // no narrator: each character tells their part in the first person
+  if ($('char-voices').checked) tellByCharacters(plan);
   state.plan = plan;
   steps.set('plan', 'done');
 
@@ -426,7 +429,7 @@ async function makeMovie() {
       k.onProgress = (p) => { steps.label('voices', 'Downloading voice model (one time)'); steps.set('voices', 'active', p); };
       k.onReady = () => { steps.label('voices', 'Starting voice engine'); steps.set('voices', 'active', ''); };
       await k.load();
-      const lines = [{ speaker: 'narrator', text: plan.title }];
+      const lines = plan.titleVoice === false ? [] : [{ speaker: 'narrator', text: plan.title }];
       for (const s of plan.scenes) for (const l of s.lines) lines.push(l);
       const uniq = [...new Map(lines.map((l) => [lineKey(l.speaker, l.text), l])).values()];
       steps.label('voices', 'Recording voices');

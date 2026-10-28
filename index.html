@@ -107,6 +107,7 @@
             <div class="checks">
               <label class="check"><input type="checkbox" id="sfx" checked> Sound FX</label>
               <label class="check"><input type="checkbox" id="subs" checked> Subtitles</label>
+              <label class="check"><input type="checkbox" id="char-voices" checked> Characters tell the story</label>
             </div>
           </div>
           <div class="ai-box" id="free-box">
@@ -176,6 +177,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793195322"></script>
+<script type="module" src="src/ui/app.js?v=1793196730"></script>
 </body>
 </html>

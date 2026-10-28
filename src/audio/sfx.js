@@ -1,7 +1,7 @@
 // Sound design: ambience beds per setting and one-shot effects keyed to the
 // actions and effects in each shot. Times mirror the visual formulas so the
 // thunder lands with the lightning and the booms with the fireworks.
-import { noiseBed, noiseHit, chirp, bell, kick, pluck } from './synth.js';
+import { noiseBed, noiseHit, chirp, kick, pluck } from './synth.js';
 import { hash01, makeRng } from '../util.js';
 
 export function scheduleSfx(ctx, out, timeline, opts = {}) {
@@ -32,15 +32,13 @@ export function scheduleSfx(ctx, out, timeline, opts = {}) {
         const step = a === 'run' || a === 'chase' ? 0.28 : a === 'sneak' ? 0.7 : 0.48;
         for (let t = s.start + 0.25; t < s.end - 0.3; t += step) noiseHit(ctx, out, t, { type: 'lowpass', freq: sc.setting === 'snow' ? 2400 : 900, vel: a === 'sneak' ? 0.03 : 0.07, dur: 0.06, offset: t * 7 });
       }
-      if (a === 'magic') for (let k = 0; k < 6; k++) bell(ctx, out, s.start + 0.3 + k * 0.17, 84 + ((k * 5) % 12), 0.05, 1.4);
+      if (a === 'magic') whoosh(ctx, out, s.start + 0.3, 0.06, 1.2);  // no bells or chimes anywhere: they grate
       if (a === 'fall') { whoosh(ctx, out, s.start + 0.05, 0.1); kick(ctx, out, s.start + 0.55, 0.5); }
       if (a === 'fly') whoosh(ctx, out, s.start + 0.2, 0.08, 2.5);
       if (a === 'swim') for (let t = s.start + 0.3; t < s.end; t += 0.55) noiseHit(ctx, out, t, { type: 'bandpass', freq: 1800, vel: 0.06, dur: 0.18 });
       if (a === 'cheer' || (a === 'dance' && sc.fx?.includes('confetti'))) crowdCheer(ctx, out, s.start + 0.2, Math.min(3, len), 0.05, rng);
-      if (a === 'hug') for (let k = 0; k < 3; k++) bell(ctx, out, s.start + 0.6 + k * 0.22, 79 + k * 4, 0.04, 1.6);
     }
     for (const f of sc.fx || []) {
-      if (f === 'sparkles' || f === 'godrays') for (let k = 0; k < 8; k++) bell(ctx, out, s.start + 0.2 + rng() * Math.max(0.5, len - 1), 88 + rng.int(0, 7), 0.025, 1.6);
       if (f === 'confetti') for (let k = 0; k < 4; k++) pop(ctx, out, s.start + 0.15 + k * 0.12, 0.12);
       if (f === 'poof') pop(ctx, out, s.start + 0.05, 0.2);
       if (f === 'fireworks') {
@@ -60,8 +58,6 @@ export function scheduleSfx(ctx, out, timeline, opts = {}) {
     }
     for (const p of s.props || []) if (p.type === 'campfire') noiseBed(ctx, out, s.start, s.end, { type: 'bandpass', freq: 2500, q: 0.8, vel: 0.03, lfoRate: 9, lfoDepth: 0.9 });
   }
-  // title shimmer
-  for (let k = 0; k < 7; k++) bell(ctx, out, 0.4 + k * 0.11, 84 + [0, 4, 7, 11, 12, 16, 19][k], 0.04, 2.2);
 }
 
 function ambienceKey(sc) {
@@ -79,7 +75,7 @@ function ambience(ctx, out, b, end, rng) {
   if (sc.setting === 'underwater') { noiseBed(ctx, out, t0, t1, { type: 'lowpass', freq: 260, vel: 0.08, lfoRate: 0.2, lfoDepth: 0.5 }); for (let t = t0 + 0.3; t < t1; t += 0.4 + rng() * 0.9) chirp(ctx, out, t, 300 + rng() * 300, 900 + rng() * 600, 0.08, 0.025); }
   if (['city', 'market'].includes(sc.setting)) { noiseBed(ctx, out, t0, t1, { type: 'lowpass', freq: 380, vel: 0.06 }); crowdBed(ctx, out, t0, t1, 0.03); }
   if (['school', 'church', 'stage'].includes(sc.setting)) { noiseBed(ctx, out, t0, t1, { type: 'lowpass', freq: 300, vel: 0.02 }); if (sc.setting !== 'church') crowdBed(ctx, out, t0, t1, 0.012); }
-  if (sc.setting === 'cave') for (let t = t0 + 0.5; t < t1; t += 1.2 + rng() * 2) bell(ctx, out, t, 96 + rng.int(0, 5), 0.02, 0.6);
+  if (sc.setting === 'cave') for (let t = t0 + 0.5; t < t1; t += 1.2 + rng() * 2) noiseHit(ctx, out, t, { type: 'bandpass', freq: 1600, q: 4, vel: 0.02, dur: 0.05 });  // drips
   if (sc.setting === 'space') noiseBed(ctx, out, t0, t1, { type: 'lowpass', freq: 120, vel: 0.05 });
   if (outdoorsGreen && !night && sc.weather !== 'rain' && sc.weather !== 'storm') {
     for (let t = t0 + 0.3 + rng() * 1.2; t < t1 - 0.3; t += 0.8 + rng() * 2.2) {
