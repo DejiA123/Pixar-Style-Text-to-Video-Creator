@@ -1,0 +1,4 @@
+# the worker image only needs server/
+*
+!server/
+server/__pycache__

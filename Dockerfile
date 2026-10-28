@@ -1,4 +1,5 @@
 # Storyreel AI server as a RunPod Serverless worker (see server/SERVERLESS.md).
+# RunPod builds this file from GitHub; the worker code is server/serverless/handler.py.
 # Build context: the repository root. Models are not baked in: they download to
 # the endpoint's network volume on the first start and load from it afterwards.
 FROM runpod/pytorch:0.7.0-cu1241-torch260-ubuntu2204

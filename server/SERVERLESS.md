@@ -28,7 +28,7 @@ starts and loads the models; films right after it start straight away.
    | Setting | Value |
    |---|---|
    | Branch | `claude/jolly-ramanujan-vzdz0b` |
-   | Dockerfile Path | `server/serverless/Dockerfile` |
+   | Dockerfile Path | `/Dockerfile` (the default) |
    | Endpoint Name | `storyreel` |
    | Endpoint Type | **Queue** |
    | GPU | **48 GB** and/or **48 GB PRO** (A40, RTX A6000, L40, L40S, RTX 6000 Ada), with **80 GB** (A100, H100) as a second choice. Not RTX 5090 / RTX PRO 6000 / B200: the worker's software doesn't support that newest generation yet |
