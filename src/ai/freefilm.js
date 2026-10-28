@@ -193,7 +193,9 @@ async function fluxImage(gr, prompt, { w, h, seed }) {
 //   image: your AI server → free online AI → on-device AI painter / 3D frame (fallbackStill)
 //   video: your AI server (unlimited) → free online AI video (daily quota) → moving painting
 // voice: {clips, voices} of the film's dialogue, for lip sync on your server.
-export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, server = '', fallbackStill = null, voice = null, onProgress = () => {}, signal } = {}) {
+// review({shots, blobs, notes, repaint}): called once every shot is painted and before
+// anything is animated; the film continues when it resolves (repaint(i, note) redraws a shot).
+export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, server = '', fallbackStill = null, voice = null, review = null, onProgress = () => {}, signal } = {}) {
   const castById = new Map(tl.cast.map((c) => [c.id, c]));
   const size = sizeFor(aspect);
   const shots = tl.shots;
@@ -220,9 +222,10 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
     } catch (e) { console.warn('FLUX unavailable', e); if (/quota|exceeded/i.test(String(e?.message || e))) gr.fluxDown = true; return null; }
   };
   // AI only, never a 3D frame: try every free AI source in turn
-  const paintShot = async (i, waitMs) => {
-    const prompt = freeShotPrompt(shots[i], castById);
-    const opts = { ...size, seed: seedOf(shots[i]) };
+  const notes = shots.map(() => '');  // your changes from the review, first in the prompt so they win
+  const paintShot = async (i, waitMs, seed = seedOf(shots[i])) => {
+    const prompt = [notes[i], freeShotPrompt(shots[i], castById)].filter(Boolean).join(', ').slice(0, 900);
+    const opts = { ...size, seed };
     if (useSrv) { try { const r = await serverImage(srv, prompt, opts, signal); sources.server++; return r; } catch (e) { console.warn(e); } }
     try {
       const r = await paintFree(prompt, opts, signal, (n) => onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} — free AI is busy, waiting (${n})…`), waitMs);
@@ -260,6 +263,15 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
       if (j != null) { media[i].still = media[j].still; break; }
     }
   }
+  if (review) {
+    const repaint = async (i, note = '') => {
+      notes[i] = note.trim();
+      const r = await paintShot(i, 75000, 1 + Math.floor(Math.random() * 999999));
+      if (r) await place(i, r);
+      return r ? blobs[i] : null;
+    };
+    await review({ shots, blobs, notes, repaint });
+  }
   let reason = '';
   let lipsynced = 0;
   if (animate) {
@@ -274,7 +286,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
     for (let i = 0; i < shots.length; i++) {
       // with your own server every shot is animated, the opening title too
       if (blobs[i] && (srvVideo || shots[i].kind !== 'title')) {
-        const mp = `${motionPrompt(shots[i], castById)}. ${freeShotPrompt(shots[i], castById)}`.slice(0, 1400);
+        const mp = [notes[i], `${motionPrompt(shots[i], castById)}. ${freeShotPrompt(shots[i], castById)}`].filter(Boolean).join('. ').slice(0, 1400);
         try {
           if (srvVideo) {
             const blob = await serverVideo(srv, blobs[i], mp, shots[i], size, signal, !!health.jobs);

@@ -35,12 +35,22 @@ if (process.env.RENDER) await setSel('render-mode', process.env.RENDER);
 if (process.env.LENGTH) await setSel('length', process.env.LENGTH);
 if (process.env.AISERVER) await setVal('ai-server', process.env.AISERVER);
 if (process.env.NOANIM) await setVal('free-animate', '0');
+await setVal('review-first', process.env.REVIEW ? '1' : '0');
 const t0 = Date.now();
 await page.click('#make');
 let ok = false;
 while (Date.now() - t0 < 900000) {
   const st = await page.evaluate(() => ({ player: !!window.__storyreel.player, busy: window.__storyreel.busy, steps: [...document.querySelectorAll('#steps li')].map((l) => l.className + ':' + l.textContent).join(' | '), toast: document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent }));
   if (st.player && !st.busy) { ok = true; break; }
+  // REVIEW=1: check the shot review, redo shot 2 with a note, then animate
+  if (process.env.REVIEW && await page.evaluate(() => !document.getElementById('review').hidden && !document.getElementById('review-go').disabled && !window.__reviewed)) {
+    await page.screenshot({ path: `${outDir}/review.png`, timeout: 300000 });
+    await page.evaluate(() => { window.__reviewed = 1; const c = document.querySelectorAll('.review-card')[1]; c.querySelector('input').value = 'wearing a bright red dress'; c.querySelector('button').click(); });
+    await page.waitForFunction(() => !document.getElementById('review-go').disabled, null, { timeout: 300000 });
+    await page.screenshot({ path: `${outDir}/review_redo.png`, timeout: 300000 });
+    await page.click('#review-go');
+    console.log('review: redid shot 2 and animated');
+  }
   if (!st.busy && !st.player) { logs.push('FAILED: ' + st.steps + ' ' + st.toast); break; }
   await page.waitForTimeout(2000);
 }

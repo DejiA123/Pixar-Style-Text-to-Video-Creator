@@ -72,6 +72,8 @@ function init() {
   $('hf-token').addEventListener('change', () => store.set('hf-token', $('hf-token').value.trim()));
   $('free-animate').checked = store.get('free-animate', true);
   $('free-animate').addEventListener('change', () => store.set('free-animate', $('free-animate').checked));
+  $('review-first').checked = store.get('review-first', true);
+  $('review-first').addEventListener('change', () => store.set('review-first', $('review-first').checked));
   onSettings('render-mode');
   $('style-ref').addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0];
@@ -99,6 +101,54 @@ function init() {
   $('story').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); makeMovie().catch(fail); } });
   document.addEventListener('click', (e) => { const d = $('settings'); if (d.open && !d.contains(e.target)) d.open = false; });
   window.__storyreel = state; // handy for debugging and automated tests
+}
+
+// Shot review: every picture is shown before anything is animated. Redo repaints one
+// shot (a note like "she wears a red dress" goes first in its picture and video
+// prompts); Animate film continues, Cancel stops the film.
+function reviewShots({ shots, blobs, repaint }) {
+  return new Promise((resolve, reject) => {
+    const panel = $('review'), grid = $('review-grid'), go = $('review-go');
+    const urls = [];
+    const url = (b) => { const u = URL.createObjectURL(b); urls.push(u); return u; };
+    let busy = 0;
+    const sync = () => { go.disabled = busy > 0; go.textContent = busy ? 'Painting…' : 'Animate film'; };
+    grid.innerHTML = '';
+    shots.forEach((shot, i) => {
+      const card = document.createElement('div'); card.className = 'review-card';
+      const pic = document.createElement('div'); pic.className = 'pic';
+      const img = document.createElement('img'); img.alt = `Shot ${i + 1}`;
+      const state = document.createElement('span'); state.className = 'state';
+      if (blobs[i]) img.src = url(blobs[i]); else state.textContent = 'Not painted yet: tap Redo';
+      pic.append(img, state);
+      const cap = document.createElement('p'); cap.className = 'cap';
+      const said = shot.kind === 'title' ? 'Opening title' : (shot.lines.map((l) => l.text).join(' ') || shot.scene.text || '');
+      const num = document.createElement('b'); num.textContent = `Shot ${i + 1}`;
+      cap.append(num, ` · ${said.length > 140 ? said.slice(0, 137) + '…' : said}`);
+      const row = document.createElement('div'); row.className = 'row';
+      const note = document.createElement('input'); note.type = 'text'; note.placeholder = 'What to change (optional)'; note.setAttribute('aria-label', `What to change in shot ${i + 1}`);
+      const redo = document.createElement('button'); redo.type = 'button'; redo.className = 'btn-ghost'; redo.textContent = 'Redo';
+      redo.onclick = async () => {
+        busy++; sync(); redo.disabled = true; pic.classList.add('busy'); state.textContent = 'Painting…';
+        try {
+          const b = await repaint(i, note.value);
+          if (b) { img.src = url(b); state.textContent = ''; } else state.textContent = 'Couldn’t paint it: try again';
+        } catch (e) { console.warn(e); state.textContent = 'Couldn’t paint it: try again'; }
+        busy--; sync(); redo.disabled = false; pic.classList.remove('busy');
+      };
+      note.addEventListener('keydown', (e) => { if (e.key === 'Enter') redo.click(); });
+      row.append(note, redo);
+      const meta = document.createElement('div'); meta.className = 'meta';
+      meta.append(cap, row);
+      card.append(pic, meta);
+      grid.append(card);
+    });
+    const close = () => { panel.hidden = true; go.onclick = $('review-cancel').onclick = null; setTimeout(() => urls.forEach((u) => URL.revokeObjectURL(u)), 1000); };
+    go.onclick = () => { close(); resolve(); };
+    $('review-cancel').onclick = () => { close(); reject(new DOMException('Stopped', 'AbortError')); };
+    sync();
+    panel.hidden = false;
+  });
 }
 
 // Live status of your AI server: a line under its link in Settings and a pill next
@@ -314,6 +364,7 @@ async function makeMovie() {
     film = await renderFreeFilm(tl, {
       aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server: $('ai-server').value.trim(),
       fallbackStill: makeLocalPainter(), voice: usedNeural ? { clips, voices } : null,
+      review: $('free-animate').checked && $('review-first').checked ? (r) => { steps.label('build', 'Waiting for you to check the shots'); return reviewShots(r); } : null,
       onProgress: (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); },
     });
     state.ai = true;
