@@ -6,10 +6,11 @@ entirely from your phone. Every shot is painted (SDXL-Turbo) and animated with
 real AI video (LTX-Video 0.9.8 13B distilled), so people walk, turn, gesture and
 talk, and the background moves.
 
-**Cost:** an RTX 4090 costs about **$0.34 an hour** on Community Cloud, and you
-only pay while the pod exists. The pod **deletes itself after 20 idle minutes**,
-so a forgotten pod can't run up a bill. After each film, the app shows the GPU
-time it used and its cost, so you see the real price per film.
+**Cost, measured:** on an A40 (48 GB, $0.59 an hour) a 5-second AI clip takes
+about 26 seconds. A 14-shot film (about a minute of AI video) used 5 minutes of
+GPU time, roughly **$0.05**. You only pay while the pod exists, and the pod
+**deletes itself after 20 idle minutes**, so a forgotten pod can't run up a
+bill. After each film, the app shows the GPU time it used and its cost.
 
 ## One-time setup (about 5 minutes)
 
@@ -39,14 +40,18 @@ time it used and its cost, so you see the real price per film.
    |---|---|---|
    | Allowed CUDA versions | 12.4 and newer | the image is built for CUDA 12.4, which also runs on newer machines |
    | Minimum vRAM | `24` GB | the video model needs a 24 GB card |
-   | Minimum RAM | `48` GB | room to load the models |
+   | Minimum RAM | `40` GB | room to load the models |
 
 3. Tap **Create**.
 
 ## Every time you make films
 
-1. Open **Pods → Deploy**. Pick **RTX 4090** (Community Cloud is cheapest),
-   tap **Change Template**, choose **Storyreel AI server**, and tap **Deploy On-Demand**.
+1. Open **Templates**, tap **⋮** on Storyreel AI server, and choose **Deploy**.
+   Under **Compute**, open the **Available** tab and tap the first card with
+   **24 GB or more**: **A40** or **RTX A6000** (48 GB, about $0.35–0.59/hr) are
+   ideal; **RTX A5000 / 3090 / 4090** (24 GB) work too. Cheap cards sell out
+   within minutes, so tap **Deploy Pod** straight away. Don't use
+   "Deploy when available": it starts later on its own and bills you.
 2. Open the pod and look at its **Logs**. The first minutes are spent downloading
    the AI models, about 55 GB. Then you'll see:
 
@@ -76,11 +81,13 @@ Each new pod gets a new link, so paste the new one into Settings.
 
 ## Other GPUs
 
-- **RTX 4090 / RTX 3090 (24 GB):** the server stores the video model's weights in
-  fp8 and moves parts between the card and memory as needed. The 3090 is cheaper
-  but slower.
-- **L40S / A6000 / A40 (48 GB):** the whole model stays on the card. These cost
-  more per hour but don't need the fp8 trick.
+- **A40 / RTX A6000 / L40S (48 GB):** best value. The video model (fp8 weights)
+  stays on the card, so system RAM use stays low (about 17 GB). Tested on an A40.
+- **RTX 4090 / 3090 / A5000 (24 GB):** fp8 weights moved between RAM and the card
+  for each step; slower, and needs about 40 GB of RAM.
+- **RTX 50xx / RTX PRO 6000 / B200 (newest cards):** the start script installs a
+  newer PyTorch for them automatically (2–3 extra minutes at start).
+- **Avoid** cards under 24 GB (RTX 4070 Ti, A4000, 3070…): the video model won't fit.
 
 ## If something goes wrong
 
