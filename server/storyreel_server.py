@@ -71,6 +71,31 @@ def memory_gb():
     return os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / 2**30
 
 
+def memory_use():
+    """RAM/GPU numbers for /health, to see how close a card or machine is to its limit."""
+    m = {'ram_limit_gb': round(memory_gb(), 1)}
+    for f in ('/sys/fs/cgroup/memory.current', '/sys/fs/cgroup/memory/memory.usage_in_bytes'):
+        try:
+            m['ram_used_gb'] = round(int(open(f).read()) / 2**30, 1)
+            break
+        except (OSError, ValueError):
+            pass
+    try:
+        for line in open('/proc/self/status'):
+            if line.startswith(('VmRSS', 'VmHWM')):
+                m['process_' + line.split(':')[0].lower() + '_gb'] = round(int(line.split()[1]) / 2**20, 1)
+    except OSError:
+        pass
+    try:
+        import torch
+        if torch.cuda.is_available():
+            m['gpu_used_gb'] = round(torch.cuda.memory_allocated() / 2**30, 1)
+            m['gpu_peak_gb'] = round(torch.cuda.max_memory_allocated() / 2**30, 1)
+    except Exception:
+        pass
+    return m
+
+
 def load_models(want_video=True):
     import torch
     from diffusers import AutoPipelineForText2Image, DiffusionPipeline
@@ -234,7 +259,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {'ok': True, 'ready': not state['loading'], 'loading': state['loading'], 'error': state['error'],
                                     'image': bool(state['image']) or mock, 'video': bool(state['video']) or (mock and not state.get('novideo')),
                                     'jobs': True, 'device': state['device'], 'gpu': state['gpu'], 'mock': mock, 'name': 'storyreel-server',
-                                    'stats': {**stats, 'busy_seconds': round(stats['busy_seconds'], 1)}, 'price_per_hour': PRICE})
+                                    'stats': {**stats, 'busy_seconds': round(stats['busy_seconds'], 1)}, 'memory': memory_use(), 'price_per_hour': PRICE})
         if url.path == '/video/result':
             jid = (parse_qs(url.query).get('id') or [''])[0]
             job = jobs.get(jid)
