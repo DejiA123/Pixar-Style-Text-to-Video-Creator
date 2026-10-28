@@ -25,6 +25,9 @@ const store = {
   set(k, v) { try { localStorage.setItem('storyreel:' + k, JSON.stringify(v)); } catch {} },
 };
 
+// the AI server used until you paste another one in Settings (the current RunPod pod)
+const DEFAULT_AI_SERVER = 'https://lc576esqj3lg0x-7860.proxy.runpod.net';
+
 const state = {
   fr: null, film: null, compositor: null, player: null, soundtrack: null, timeline: null, plan: null,
   busy: false, kokoro: null, aspect: '16:9', exportAbort: null,
@@ -66,7 +69,7 @@ function init() {
   $('fal-key').value = store.get('fal-key', '');
   $('fal-key').addEventListener('change', () => store.set('fal-key', $('fal-key').value.trim()));
   if (store.get('render-mode', null) == null) $('render-mode').value = 'free';
-  $('ai-server').value = store.get('ai-server', '');
+  $('ai-server').value = store.get('ai-server', '') || DEFAULT_AI_SERVER;
   $('ai-server').addEventListener('change', () => store.set('ai-server', $('ai-server').value.trim()));
   $('runpod-key').value = store.get('runpod-key', '');
   $('runpod-key').addEventListener('change', () => store.set('runpod-key', $('runpod-key').value.trim()));
