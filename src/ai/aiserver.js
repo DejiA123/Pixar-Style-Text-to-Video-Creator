@@ -4,6 +4,7 @@
 //   health()           -> {ready, loading, image, video, tts, lipsync, gpu, serverless, ...} or null
 //   image|video|tts|lipsync(body, signal) -> Blob (throws on failure; tts throws code 'unknown-ref'
 //                         when the server needs the reference voice clip itself again)
+//   script(body, signal) -> {scenes: [{index, lines: [{speaker, text}]}]}: the characters' dialogue
 //   usage()            -> GPU seconds used so far (for the cost after a film)
 
 const sleep = (ms, signal) => new Promise((r, j) => {
@@ -64,6 +65,7 @@ function linkedServer(url) {
     video: (body, signal) => job('video', body, signal),
     tts: (body, signal) => blob('/tts', body, signal),
     lipsync: (body, signal) => job('lipsync', body, signal),
+    script: async (body, signal) => JSON.parse(await (await job('script', body, signal)).text()),
     async usage() { const h = await client.health(); return h?.stats ? h.stats.busy_seconds : null; },
     price: async () => (await client.health())?.price_per_hour || null,
   };
@@ -119,7 +121,7 @@ function runpodEndpoint(base, id, key) {
         const j = await res.json();
         const w = j.workers || {};
         // workers start on demand, so the endpoint is "ready" even with none running
-        return { ok: true, ready: true, serverless: true, image: true, video: true, tts: true, lipsync: true, jobs: true,
+        return { ok: true, ready: true, serverless: true, image: true, video: true, tts: true, lipsync: true, writer: true, jobs: true,
           gpu: 'RunPod Serverless', warm: (w.idle || 0) + (w.running || 0) + (w.ready || 0), starting: w.initializing || 0, queued: j.jobs?.inQueue || 0 };
       } catch { return null; }
     },
@@ -127,6 +129,7 @@ function runpodEndpoint(base, id, key) {
     video: (body, signal) => run('video', body, signal),
     tts: (body, signal) => run('tts', body, signal),
     lipsync: (body, signal) => run('lipsync', body, signal),
+    script: async (body, signal) => JSON.parse(await (await run('script', body, signal)).text()),
     usage: async () => spent,
     price: async () => null,
   };

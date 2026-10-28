@@ -10,6 +10,8 @@ accounts, no quotas, no watermarks.
   lips:  LatentSync 1.6                (ByteDance/LatentSync-1.6)               ~18 GB VRAM
          re-renders the mouth so it matches the words; runs in its own Python
          environment as server/lipsync_worker.py (set up by server/runpod/start.sh)
+  words: Qwen3-4B-Instruct-2507        (Qwen/Qwen3-4B-Instruct-2507)            ~8 GB, borrows the GPU while writing
+         writes what the characters say in each scene (server/writer.py)
   video: LTX-Video 0.9.8 13B distilled (Lightricks/LTX-Video-0.9.8-13B-distilled)
          24 GB cards (RTX 4090/3090) run it with fp8 weights; 48 GB cards (A40, L40S) in bf16
          with CPU offload; 80 GB cards keep everything on the card
@@ -31,10 +33,14 @@ API (CORS open; JSON in, media out):
   POST /tts    {"text", "ref": data-URL wav, or "ref_key": sha1 of one sent before, "emotion": 0..1, "seed"} -> audio/wav
   POST /lipsync/start {"video": data-URL mp4, "audio": data-URL wav} -> {"id"}
   GET  /lipsync/result?id=…       -> 202 while working, then video/mp4 (500 if no face was found)
+  POST /script/start {"title", "story", "cast", "scenes"} -> {"id"}   the characters' dialogue (see server/writer.py)
+  GET  /script/result?id=…        -> 202 while working, then {"scenes": [{"index", "lines": [{"speaker", "text"}]}]}
 """
 import argparse, base64, io, json, os, re, shutil, subprocess, sys, tempfile, threading, time, uuid, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
+
+import writer
 
 IMAGE_MODEL = os.environ.get('STORYREEL_IMAGE_MODEL', 'stabilityai/sdxl-turbo')
 VIDEO_MODEL = os.environ.get('STORYREEL_VIDEO_MODEL', 'Lightricks/LTX-Video-0.9.8-13B-distilled')
@@ -182,6 +188,8 @@ def load_models(want_video=True):
     load_tts(dev)
     state['loading'] = None
     print('[storyreel] ready', flush=True)
+    if os.environ.get('STORYREEL_WRITER', '1') != '0':
+        writer.load()  # the dialogue writer last: films can start while it loads
 
 
 def load_tts(dev):
@@ -373,9 +381,16 @@ def lipsync_from_request(req):
     return body
 
 
-def start_job(fn, req):
+def script_from_request(req):
+    t0 = time.time()
+    body = json.dumps(writer.write(req, gpu_lock, mock=state['mock'])).encode()
+    stats['busy_seconds'] += time.time() - t0
+    return body
+
+
+def start_job(fn, req, ctype='video/mp4'):
     jid = uuid.uuid4().hex
-    jobs[jid] = {'status': 'running', 'body': None, 'error': None, 't': time.time()}
+    jobs[jid] = {'status': 'running', 'body': None, 'error': None, 't': time.time(), 'ctype': ctype}
     threading.Thread(target=run_job, args=(jid, fn, req), daemon=True).start()
     return jid
 
@@ -419,9 +434,10 @@ class Handler(BaseHTTPRequestHandler):
                                     'image': bool(state['image']) or mock, 'video': bool(state['video']) or (mock and not state.get('novideo')),
                                     'tts': bool(state['tts']) or mock, 'lipsync': not state['loading'] and lipsync_ready(),
                                     'lipsync_state': 'ready' if (not state['loading'] and lipsync_ready()) else ('setting up' if os.environ.get('STORYREEL_LIPSYNC_ON') == '1' else 'off'),
+                                    'writer': writer.state['status'] == 'ready' or mock, 'writer_state': 'ready' if mock else writer.state['status'],
                                     'jobs': True, 'device': state['device'], 'gpu': state['gpu'], 'mock': mock, 'name': 'storyreel-server',
                                     'stats': {**stats, 'busy_seconds': round(stats['busy_seconds'], 1)}, 'memory': memory_use(), 'price_per_hour': PRICE})
-        if url.path in ('/video/result', '/lipsync/result'):
+        if url.path in ('/video/result', '/lipsync/result', '/script/result'):
             jid = (parse_qs(url.query).get('id') or [''])[0]
             job = jobs.get(jid)
             if not job:
@@ -431,7 +447,7 @@ class Handler(BaseHTTPRequestHandler):
             if job['status'] == 'error':
                 return self._json(500, {'error': job['error']})
             jobs.pop(jid, None)
-            return self._send(200, job['body'], 'video/mp4')
+            return self._send(200, job['body'], job.get('ctype', 'video/mp4'))
         self._json(404, {'error': 'not found'})
 
     def do_POST(self):
@@ -468,6 +484,10 @@ class Handler(BaseHTTPRequestHandler):
                 took = time.time() - t0
                 stats['lines'] += 1; stats['busy_seconds'] += took
                 return self._send(200, body, 'audio/wav')
+            if path == '/script/start':
+                if not (writer.state['status'] == 'ready' or state['mock']):
+                    return self._json(503, {'error': f"dialogue writer is {writer.state['status']}"})
+                return self._json(200, {'id': start_job(script_from_request, req, 'application/json')})
             if path == '/lipsync/start':
                 if not lipsync_ready():
                     return self._json(503, {'error': 'lip sync not available'})

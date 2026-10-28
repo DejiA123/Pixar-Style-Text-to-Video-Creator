@@ -84,6 +84,7 @@ Each new pod gets a new link, so paste the new one into Settings.
 | `STORYREEL_VIDEO_MODEL` | `Lightricks/LTX-Video-0.9.8-13B-distilled` | The video model. |
 | `STORYREEL_BRANCH` | `claude/jolly-ramanujan-vzdz0b` | The branch of this repo to run. |
 | `STORYREEL_LIPSYNC` | `auto` | `auto` turns lip sync on for 40 GB+ cards, `1` forces it on, `0` turns it off. |
+| `STORYREEL_WRITER` | `1` | `0` turns the AI dialogue writer off. `STORYREEL_WRITER_MODEL` picks another model from Hugging Face. |
 
 ## Other GPUs
 
@@ -95,8 +96,15 @@ Each new pod gets a new link, so paste the new one into Settings.
   newer PyTorch for them automatically (2–3 extra minutes at start).
 - **Avoid** cards under 24 GB (RTX 4070 Ti, A4000, 3070…): the video model won't fit.
 
-## Voices and lip sync
+## Dialogue, voices and lip sync
 
+- **Dialogue:** there's no narrator. A small open AI writer (Qwen3-4B-Instruct, about
+  8 GB) reads your story and writes what the characters say out loud in each
+  scene, so the film is acted rather than read out. It loads a minute or two
+  after the other models (logs show `dialogue writer ready`) and borrows the GPU
+  for a few seconds per film. Until it's ready, or if it fails, characters tell
+  their part in the first person instead. **Characters tell the story** in
+  Settings turns this off and brings the narrator back.
 - **Voices:** with the server connected, Storyreel records each line in your
   browser first, then the server re-speaks it with Chatterbox in the same voice,
   acting the scene's emotion (excited, sad, scared…). If that fails, the

@@ -3,6 +3,7 @@
 // and the Cinematic AI renderer (fal.ai).
 import { parseStory, displayName } from '../story/parser.js';
 import { tellByCharacters } from '../story/firstperson.js';
+import { writeDialogue } from '../ai/dialogue.js';
 import { SAMPLES } from '../story/samples.js';
 import { SETTING_LABEL, INTERIOR_SETTINGS } from '../story/lexicon.js';
 import { FilmRenderer } from '../engine/renderer.js';
@@ -249,11 +250,11 @@ function resizePreview() {
 // bar keeps creeping toward the next one (never past it) so it never looks frozen, and
 // the time left comes from how fast this film is actually going.
 // voicesDl: the in-browser voice model downloading; voices: its lines; voices2: realistic voices on your server
-const SLICES = { plan: [0, 3], voicesDl: [3, 5], voices: [5, 10], voices2: [10, 18], build: [18, 95], paint: [90, 95], score: [95, 100] };
+const SLICES = { plan: [0, 5], voicesDl: [5, 7], voices: [7, 11], voices2: [11, 18], build: [18, 95], paint: [90, 95], score: [95, 100] };
 const meter = {
   start() {
     clearInterval(this.timer);
-    Object.assign(this, { pct: 0, shown: 0, end: 3, step: 0, stepMs: 8000, last: Date.now(), t0: Date.now(), samples: [], paused: 0, pausedAt: 0, note: '' });
+    Object.assign(this, { pct: 0, shown: 0, end: 5, step: 0, stepMs: 8000, last: Date.now(), t0: Date.now(), samples: [], paused: 0, pausedAt: 0, note: '' });
     $('p-strip').hidden = true; $('p-strip').innerHTML = '';
     this.timer = setInterval(() => this.tick(), 250);
     this.tick();
@@ -411,8 +412,12 @@ async function makeMovie() {
     plan = parseStory(text);
   }
   if (!plan.scenes.length) throw new Error('I couldn’t find any sentences in that story.');
-  // no narrator: each character tells their part in the first person
-  if ($('char-voices').checked) tellByCharacters(plan);
+  // no narrator: the AI writer on your server writes what the characters say;
+  // any scene it doesn't cover, its character tells in the first person
+  if ($('char-voices').checked) {
+    if (server) await writeDialogue(server, plan, text, { onStatus: (msg) => steps.label('plan', msg) });
+    tellByCharacters(plan);
+  }
   state.plan = plan;
   steps.set('plan', 'done');
 
