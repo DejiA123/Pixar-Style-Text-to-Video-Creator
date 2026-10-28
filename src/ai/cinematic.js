@@ -216,11 +216,18 @@ export class AiFilm {
     this.envelopes = new Map();
     this.talkOverride = null;
     this.playing = false;
+    for (const old of document.querySelectorAll('video.sr-clip')) { URL.revokeObjectURL(old.src); old.remove(); }  // the last film's clips
     this.videos = media.map((m) => {
       if (!m.clip) return null;
       const v = document.createElement('video');
       v.muted = true; v.playsInline = true; v.preload = 'auto';
+      v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
       v.src = URL.createObjectURL(m.clip.blob);
+      // phones (iPhone Safari especially) only play and decode videos that are in the page
+      v.className = 'sr-clip';
+      v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+      document.body.appendChild(v);
+      v.load();
       return v;
     });
     this.sinks = null;
