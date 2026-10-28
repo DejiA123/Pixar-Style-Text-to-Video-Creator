@@ -418,6 +418,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {'ok': True, 'ready': not state['loading'], 'loading': state['loading'], 'error': state['error'],
                                     'image': bool(state['image']) or mock, 'video': bool(state['video']) or (mock and not state.get('novideo')),
                                     'tts': bool(state['tts']) or mock, 'lipsync': not state['loading'] and lipsync_ready(),
+                                    'lipsync_state': 'ready' if (not state['loading'] and lipsync_ready()) else ('setting up' if os.environ.get('STORYREEL_LIPSYNC_ON') == '1' else 'off'),
                                     'jobs': True, 'device': state['device'], 'gpu': state['gpu'], 'mock': mock, 'name': 'storyreel-server',
                                     'stats': {**stats, 'busy_seconds': round(stats['busy_seconds'], 1)}, 'memory': memory_use(), 'price_per_hour': PRICE})
         if url.path in ('/video/result', '/lipsync/result'):

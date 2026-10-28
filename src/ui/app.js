@@ -51,12 +51,13 @@ function init() {
 
   const nar = $('narrator');
   for (const n of KOKORO_NARRATORS) { const o = document.createElement('option'); o.value = n.id; o.textContent = n.label; nar.appendChild(o); }
-  for (const id of ['render-mode', 'voice-engine', 'narrator', 'aspect', 'length', 'quality', 'export-res', 'ai-video']) {
+  // AI film with AI voices only: their old saved choices are no longer restored
+  for (const id of ['narrator', 'aspect', 'length', 'quality', 'export-res', 'ai-video']) {
     const el = $(id); const v = store.get(id, null);
     if (v != null && [...el.options].some((o) => o.value === v)) el.value = v;
     el.addEventListener('change', () => { store.set(id, el.value); onSettings(id); });
   }
-  for (const id of ['music', 'sfx', 'subs']) {
+  for (const id of ['sfx', 'subs']) {
     const el = $(id); const v = store.get(id, null);
     if (v != null) el.checked = v;
     el.addEventListener('change', () => { store.set(id, el.checked); onSettings(id); });
@@ -66,6 +67,7 @@ function init() {
   if (store.get('render-mode', null) == null) $('render-mode').value = 'free';
   $('ai-server').value = store.get('ai-server', '');
   $('ai-server').addEventListener('change', () => store.set('ai-server', $('ai-server').value.trim()));
+  setupServerStatus();
   $('hf-token').value = store.get('hf-token', '');
   $('hf-token').addEventListener('change', () => store.set('hf-token', $('hf-token').value.trim()));
   $('free-animate').checked = store.get('free-animate', true);
@@ -97,6 +99,43 @@ function init() {
   $('story').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); makeMovie().catch(fail); } });
   document.addEventListener('click', (e) => { const d = $('settings'); if (d.open && !d.contains(e.target)) d.open = false; });
   window.__storyreel = state; // handy for debugging and automated tests
+}
+
+// Live status of your AI server: a line under its link in Settings and a pill next
+// to Generate (green ready, amber starting, red not running). Health checks don't
+// count as use, so they never keep an idle pod (and its bill) alive.
+function setupServerStatus() {
+  const box = $('server-status'), chip = $('server-chip');
+  let timer = 0, seq = 0;
+  const show = (st, text, short) => {
+    box.dataset.server = chip.dataset.server = st;
+    box.querySelector('.text').textContent = text;
+    chip.querySelector('.label').textContent = short;
+    chip.title = text;
+  };
+  async function refresh() {
+    clearTimeout(timer);
+    const url = $('ai-server').value.trim().replace(/\/+$/, '');
+    box.hidden = chip.hidden = !url;
+    if (!url) return;
+    const mine = ++seq;
+    if (!box.dataset.server) show('checking', 'Checking your AI server…', 'Checking…');
+    const h = await checkServer(url);
+    if (mine !== seq) return;
+    let again = 15000;
+    if (!h) show('down', 'Not running. Start a pod in RunPod (or your own server), then paste its new link here.', 'Server off');
+    else if (!h.ready) show('starting', `Starting: ${h.loading}…`, 'Starting…');
+    else {
+      const lips = h.lipsync ? 'lip sync ✓' : h.lipsync_state === 'setting up' ? 'lip sync setting up…' : 'no lip sync';
+      show('ready', `Ready · ${[h.gpu, h.video ? 'AI video ✓' : 'no AI video', h.tts ? 'voices ✓' : 'no voices', lips].filter(Boolean).join(' · ')}`, 'Server ready');
+      if (h.lipsync_state !== 'setting up') again = 60000;
+    }
+    timer = setTimeout(refresh, again);
+  }
+  $('ai-server').addEventListener('input', () => { clearTimeout(timer); delete box.dataset.server; timer = setTimeout(refresh, 700); });
+  $('ai-server').addEventListener('change', refresh);
+  chip.addEventListener('click', (e) => { e.stopPropagation(); $('settings').open = true; });
+  refresh();
 }
 
 function onSettings(id) {
@@ -319,7 +358,7 @@ async function makeMovie() {
 
   // 4) soundtrack
   steps.set('score', 'active');
-  state.soundtrack = await renderSoundtrack(tl, clips, voices, { music: $('music').checked, sfx: $('sfx').checked, seed: plan.title.length });
+  state.soundtrack = await renderSoundtrack(tl, clips, voices, { music: false, sfx: $('sfx').checked, seed: plan.title.length });
   state.hasVoiceAudio = usedNeural;
   steps.set('score', 'done');
 

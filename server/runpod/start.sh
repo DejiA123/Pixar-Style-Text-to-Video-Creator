@@ -77,5 +77,6 @@ else
   echo "[storyreel] lip sync off (needs a 40 GB+ card, or set STORYREEL_LIPSYNC=1)"
 fi
 
+export STORYREEL_LIPSYNC_ON="$LIPSYNC"  # so the app can show "lip sync setting up…"
 echo "[storyreel] starting (shuts down after ${IDLE} idle minutes: $IDLE_ACTION)…"
 exec "$PY" -u "$APP/server/storyreel_server.py" --port "$PORT" --idle-stop "$IDLE" --idle-action "$IDLE_ACTION"

@@ -14,12 +14,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1793185590">
+<link rel="stylesheet" href="src/ui/styles.css?v=1793189461">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
 <header class="bar">
-  <div class="brand"><span class="logo" aria-hidden="true"></span><span class="name">Storyreel</span><span class="badge">3D Studio</span></div>
+  <div class="brand"><span class="logo" aria-hidden="true"></span><span class="name">Storyreel</span><span class="badge">AI Studio</span></div>
 </header>
 
 <main class="app">
@@ -30,7 +30,7 @@
         <div class="screen-empty" id="empty">
           <div class="orb" aria-hidden="true"></div>
           <h1>What story do you want to bring to life?</h1>
-          <p class="sub">Describe it below — characters, place, what they say. Storyreel builds a 3D animated film with voices, music and subtitles, right in your browser.</p>
+          <p class="sub">Describe it below — characters, place, what they say. Storyreel turns it into an AI film: every shot animated, with realistic voices and subtitles.</p>
         </div>
         <ol class="steps" id="steps" aria-live="polite"></ol>
         <div class="screen-busy" id="busy" hidden>
@@ -71,20 +71,19 @@
         <summary class="pill" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="17" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Settings</span></summary>
         <div class="popover">
           <div class="field-grid">
-            <label class="field"><span>Render style</span>
+            <label class="field" hidden><span>Render style</span>
               <select id="render-mode">
                 <option value="free">AI film — free, online (any phone)</option>
-                <option value="painted">AI painted — free, on this device</option>
               </select>
             </label>
-            <label class="field"><span>Voices</span>
+            <label class="field" hidden><span>Voices</span>
               <select id="voice-engine">
                 <option value="neural">AI voices (in-browser)</option>
                 <option value="browser">Device voices (instant)</option>
               </select>
             </label>
             <label class="field"><span>Narrator</span><select id="narrator"></select></label>
-            <label class="field"><span>Preview quality</span>
+            <label class="field" hidden><span>Preview quality</span>
               <select id="quality">
                 <option value="low">Draft (fast)</option>
                 <option value="medium" selected>Standard</option>
@@ -100,16 +99,16 @@
               </select>
             </label>
             <div class="checks">
-              <label class="check"><input type="checkbox" id="music" checked> Music</label>
               <label class="check"><input type="checkbox" id="sfx" checked> Sound FX</label>
               <label class="check"><input type="checkbox" id="subs" checked> Subtitles</label>
             </div>
           </div>
           <div class="ai-box" id="free-box">
-            <label class="check"><input type="checkbox" id="free-animate" checked> Animate shots with free AI video (daily free limit)</label>
-            <label class="field"><span>Your AI server (optional, unlimited AI video)</span><input id="ai-server" type="url" autocomplete="off" placeholder="https://….trycloudflare.com"></label>
-            <label class="field"><span>Free Hugging Face token (optional, more free video per day)</span><input id="hf-token" type="password" autocomplete="off" placeholder="hf_…"></label>
-            <p class="hint">Shots are painted by a free public AI service and animated by the free public LTX-Video server. No payment, ever. Without a token you get a small daily allowance of AI video; shots beyond it play as moving paintings. A free token from huggingface.co (Settings → Access Tokens) raises the allowance; it's stored only in this browser and sent only to Hugging Face. For <b>no limits at all</b>, run the free Storyreel AI server on any computer with a gaming graphics card (see server/README in the project) and paste its link above. If the free services are busy, Storyreel tries the next free AI and keeps retrying until every shot is AI-painted.</p>
+            <label class="check"><input type="checkbox" id="free-animate" checked> Animate every shot with AI video</label>
+            <label class="field"><span>Your AI server (unlimited AI video, voices and lip sync)</span><input id="ai-server" type="url" autocomplete="off" placeholder="https://xxxxxxxx-7860.proxy.runpod.net"></label>
+            <p class="server-status" id="server-status" role="status" hidden><span class="dot"></span><span class="text"></span></p>
+            <label class="field" hidden><span>Free Hugging Face token (optional, more free video per day)</span><input id="hf-token" type="password" autocomplete="off" placeholder="hf_…"></label>
+            <p class="hint">Paste the link of your AI server (your RunPod pod; see server/RUNPOD.md in the project). The light shows when it's ready.</p>
           </div>
           <div class="ai-box" id="ai-box" hidden>
             <label class="field"><span>fal.ai API key</span><input id="fal-key" type="password" autocomplete="off" placeholder="key_id:key_secret"></label>
@@ -142,6 +141,7 @@
           <option value="180">3 min</option>
         </select>
       </label>
+      <button id="server-chip" class="pill server-pill" type="button" hidden title="Your AI server"><span class="dot"></span><span class="label">AI server</span></button>
       <span class="spacer"></span>
       <button id="make" class="btn-make" type="button">Generate</button>
     </div>
@@ -156,6 +156,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793185590"></script>
+<script type="module" src="src/ui/app.js?v=1793189461"></script>
 </body>
 </html>
