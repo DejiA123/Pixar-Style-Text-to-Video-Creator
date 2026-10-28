@@ -96,6 +96,21 @@ def memory_use():
     return m
 
 
+def free_memory():
+    """Hand freed loading buffers back to the system so RAM use doesn't creep up."""
+    import gc, ctypes
+    gc.collect()
+    try:
+        import torch
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+    try:
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
+    except Exception:
+        pass
+
+
 def load_models(want_video=True):
     import torch
     from diffusers import AutoPipelineForText2Image, DiffusionPipeline
@@ -105,10 +120,13 @@ def load_models(want_video=True):
     if dev == 'cuda':
         state['gpu'] = f'{torch.cuda.get_device_name(0)} {vram:.0f} GB'
     ram = memory_gb()
-    # fp8 weights (13 GB instead of 26) on 24 GB cards, and wherever system RAM is tight
-    small = dev == 'cuda' and (vram < 40 or ram < 64)
     print(f'[storyreel] {vram:.0f} GB GPU memory, {ram:.0f} GB RAM', flush=True)
-    offload = dev == 'cuda' and vram < 70  # 48 GB cards: bf16, but only the working model on the card
+    # Under 70 GB of GPU memory the 13B video weights are stored in fp8 (13 GB instead of 26).
+    # 24 GB cards swap the models between RAM and the card for each step; 48 GB cards keep
+    # the whole video model on the card, so system RAM only holds the image model.
+    small = dev == 'cuda' and vram < 70
+    offload_video = dev == 'cuda' and vram < 40
+    offload = dev == 'cuda' and vram < 70  # the image model waits in RAM until it paints
     dtype = torch.float16 if dev != 'cpu' else torch.float32
     state['loading'] = 'downloading the image model'
     print(f'[storyreel] loading image model {IMAGE_MODEL} on {dev} {state["gpu"]}…', flush=True)
@@ -127,20 +145,28 @@ def load_models(want_video=True):
             vdtype = torch.bfloat16 if dev == 'cuda' else dtype
             if kind == 'LTXConditionPipeline':  # LTX-Video 0.9.5+ (0.9.8 distilled by default)
                 from diffusers import LTXConditionPipeline, LTXVideoTransformer3DModel
-                tr = LTXVideoTransformer3DModel.from_pretrained(src, subfolder='transformer', torch_dtype=vdtype)
+                tr = None
+                if dev == 'cuda' and not offload_video:  # straight onto the card, never through RAM
+                    try:
+                        tr = LTXVideoTransformer3DModel.from_pretrained(src, subfolder='transformer', torch_dtype=vdtype, device_map='cuda')
+                    except Exception as e:
+                        print(f'[storyreel] loading via RAM instead ({e})', flush=True)
+                if tr is None:
+                    tr = LTXVideoTransformer3DModel.from_pretrained(src, subfolder='transformer', torch_dtype=vdtype)
                 if small:  # 13B weights stored in fp8 (13 GB) and computed in bf16
                     tr.enable_layerwise_casting(storage_dtype=torch.float8_e4m3fn, compute_dtype=vdtype)
                 vid = LTXConditionPipeline.from_pretrained(src, transformer=tr, torch_dtype=vdtype)
             else:  # older LTX-Video (0.9.1)
                 from diffusers import LTXImageToVideoPipeline
                 vid = LTXImageToVideoPipeline.from_pretrained(src, torch_dtype=vdtype)
-            if offload:
+            if offload_video:
                 vid.enable_model_cpu_offload()
             else:
                 vid.to(dev)
             if dev == 'cuda':
                 vid.vae.enable_tiling()
             state['video'], state['video_kind'] = vid, kind
+            free_memory()
         except Exception as e:  # image-only servers still help a lot
             print(f'[storyreel] video model unavailable ({e}); serving images only', flush=True)
             state['error'] = f'video model failed to load: {e}'
@@ -215,6 +241,7 @@ def video_from_request(req):
         body = f.read()
     os.unlink(path)
     took = time.time() - t0
+    free_memory()
     stats['videos'] += 1; stats['video_seconds'] += seconds; stats['busy_seconds'] += took
     cost = f' (≈${took / 3600 * PRICE:.4f})' if PRICE else ''
     print(f'[storyreel] video {seconds:.0f}s clip in {took:.1f}s{cost}', flush=True)
