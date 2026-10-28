@@ -3,5 +3,6 @@ diffusers>=0.34
 transformers>=4.44
 accelerate>=0.33
 sentencepiece
+protobuf
 imageio[ffmpeg]
 pillow
