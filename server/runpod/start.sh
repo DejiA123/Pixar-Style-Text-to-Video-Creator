@@ -22,6 +22,12 @@ if [ -d "$APP/.git" ]; then
 else
   git clone -q --depth 1 --branch "$BRANCH" "$REPO" "$APP"
 fi
+# the template downloads this script from a cache that can lag a push by minutes:
+# carry on with the copy from the code just fetched, so both always match
+if [ -z "${STORYREEL_FRESH:-}" ] && ! cmp -s "$0" "$APP/server/runpod/start.sh"; then
+  echo "[storyreel] running the latest start script"
+  STORYREEL_FRESH=1 exec bash "$APP/server/runpod/start.sh" "$@"
+fi
 
 # the image's Python that already has CUDA PyTorch
 PY=""
