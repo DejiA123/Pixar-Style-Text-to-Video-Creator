@@ -42,10 +42,11 @@ def start_lipsync():
             if os.path.isdir(link):
                 os.rename(link, link + '.image')
             os.symlink(ckpt, link)
+        env = {**os.environ, 'HF_HUB_ENABLE_HF_TRANSFER': '0'}  # not installed in the lip-sync environment
         subprocess.run([LS_PYTHON, '-c', "from huggingface_hub import hf_hub_download as d; "
                         "[d('ByteDance/LatentSync-1.6', f, local_dir='checkpoints') for f in ('latentsync_unet.pt', 'whisper/tiny.pt')]"],
-                       cwd=LATENTSYNC, check=True)
-        lipsync['proc'] = subprocess.Popen([LS_PYTHON, '-u', os.path.join(os.path.dirname(HERE), 'lipsync_worker.py'), '--port', '7862'], cwd=LATENTSYNC)
+                       cwd=LATENTSYNC, check=True, env=env)
+        lipsync['proc'] = subprocess.Popen([LS_PYTHON, '-u', os.path.join(os.path.dirname(HERE), 'lipsync_worker.py'), '--port', '7862'], cwd=LATENTSYNC, env=env)
         print('[storyreel] lip sync starting', flush=True)
     except Exception as e:
         lipsync['state'] = 'failed'

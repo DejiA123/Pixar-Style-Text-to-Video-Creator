@@ -55,6 +55,8 @@ LIPSYNC="${STORYREEL_LIPSYNC:-auto}"
 if [ "$LIPSYNC" = auto ]; then [ "${VRAM:-0}" -ge 40000 ] && LIPSYNC=1 || LIPSYNC=0; fi
 lipsync() {
   set -e
+  # RunPod's image turns on hf_transfer downloads, which the lip-sync environment doesn't have
+  export HF_HUB_ENABLE_HF_TRANSFER=0
   local LS="$W/LatentSync" V="$W/lsvenv"
   if ! command -v ffmpeg >/dev/null || ! ldconfig -p | grep -q libGL.so.1; then
     apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg libgl1 >/dev/null
