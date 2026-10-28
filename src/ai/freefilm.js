@@ -4,7 +4,8 @@
 // LTX-Video Space. Shots that can't be animated play as the painted still with
 // slow camera drift. Playback/export reuse AiFilm from the cinematic renderer.
 import { LivingFilm } from './living.js';
-import { shotSpeech, lipsyncClip } from './servervoice.js';
+import { shotSpeech, lipsyncClip, blobToDataUrl } from './servervoice.js';
+import { waitForServer } from './aiserver.js';
 
 const IMG = 'https://image.pollinations.ai/prompt/';
 const GRADIO = 'https://cdn.jsdelivr.net/npm/@gradio/client@2.5.0/dist/browser.js';
@@ -128,55 +129,14 @@ async function animateFree(client, blob, prompt, shot, size, handle_file) {
   return (await fetch(url)).blob();
 }
 
-// ---- your own AI server (server/storyreel_server.py): unlimited, no quotas -------------
-export async function checkServer(url) {
-  if (!url) return null;
-  try {
-    const res = await fetch(`${url.replace(/\/+$/, '')}/health`, { signal: AbortSignal.timeout(8000) });
-    const j = await res.json();
-    return j && j.ok ? j : null;
-  } catch { return null; }
-}
-async function serverImage(url, prompt, { w, h, seed }, signal) {
-  const res = await fetch(`${url}/image`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, width: w, height: h, seed }), signal });
-  if (!res.ok) throw new Error(`AI server image failed (${res.status})`);
-  const blob = await res.blob();
+// ---- your AI server (a pod/PC link or a RunPod Serverless endpoint; see aiserver.js) ----
+async function serverImage(server, prompt, { w, h, seed }, signal) {
+  const blob = await server.image({ prompt, width: w, height: h, seed }, signal);
   return { img: await createImageBitmap(blob), blob };
 }
-async function serverVideo(url, blob, prompt, shot, size, signal, jobs = false) {
-  const dataUrl = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
-  const body = JSON.stringify({ prompt, image: dataUrl, width: Math.round(size.w * 0.75), height: Math.round(size.h * 0.75), seconds: Math.max(2, Math.min(10, shot.end - shot.start)), seed: 7 });
-  if (!jobs) {
-    const res = await fetch(`${url}/video`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body });
-    if (!res.ok) throw new Error(`AI server video failed (${res.status})`);
-    return res.blob();
-  }
-  // background job + polling: proxies (RunPod, Cloudflare) cut requests after ~100 s
-  const start = await fetch(`${url}/video/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body });
-  if (!start.ok) throw new Error(`AI server video failed (${start.status})`);
-  const { id } = await start.json();
-  for (let misses = 0; ;) {
-    await sleep(3000, signal);
-    let res;
-    try { res = await fetch(`${url}/video/result?id=${id}`, { signal }); } catch (e) {
-      if (e?.name === 'AbortError' || ++misses > 10) throw e;
-      continue;  // a dropped poll is fine, the job keeps running
-    }
-    if (res.status === 202) continue;
-    if (!res.ok) throw new Error(`AI server video failed (${res.status})`);
-    return res.blob();
-  }
-}
-
-// Waits while your AI server downloads and loads its models (first start).
-export async function waitForServer(url, health, onProgress, signal) {
-  const t0 = Date.now();
-  while (health && !health.ready && health.loading && Date.now() - t0 < 30 * 60000) {
-    onProgress(0, `Your AI server is starting: ${health.loading}…`);
-    await sleep(5000, signal);
-    health = (await checkServer(url)) || health;
-  }
-  return health;
+async function serverVideo(server, blob, prompt, shot, size, signal) {
+  return server.video({ prompt, image: await blobToDataUrl(blob), width: Math.round(size.w * 0.75), height: Math.round(size.h * 0.75),
+    seconds: Math.max(2, Math.min(10, shot.end - shot.start)), seed: 7 }, signal);
 }
 
 // Second free image source: the public FLUX.1-schnell Space (Hugging Face free GPU quota).
@@ -192,21 +152,24 @@ async function fluxImage(gr, prompt, { w, h, seed }) {
 // Never-stop chain for every shot:
 //   image: your AI server → free online AI → on-device AI painter / 3D frame (fallbackStill)
 //   video: your AI server (unlimited) → free online AI video (daily quota) → moving painting
-// voice: {clips, voices} of the film's dialogue, for lip sync on your server.
+// server: your AI server client (aiserver.js) or null; voice: {clips, voices} of the
+// film's dialogue, for lip sync on your server.
 // review({shots, blobs, notes, repaint}): called once every shot is painted and before
 // anything is animated; the film continues when it resolves (repaint(i, note) redraws a shot).
-export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, server = '', fallbackStill = null, voice = null, review = null, onProgress = () => {}, signal } = {}) {
+export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, server = null, fallbackStill = null, voice = null, review = null, onProgress = () => {}, signal } = {}) {
   const castById = new Map(tl.cast.map((c) => [c.id, c]));
   const size = sizeFor(aspect);
   const shots = tl.shots;
   const media = shots.map(() => ({ still: null, clip: null }));
   const total = shots.length * (animate ? 2 : 1);
   let done = 0;
-  const srv = server ? server.replace(/\/+$/, '') : '';
-  let health = srv ? await checkServer(srv) : null;
+  const srv = server;
+  let health = srv ? await srv.health() : null;
+  if (health?.ok === false) health = null;  // e.g. a serverless endpoint without its API key
   if (health) health = await waitForServer(srv, health, onProgress, signal);
   const useSrv = !!(health && health.image);
-  console.log('[storyreel] AI server', srv || '(none)', health ? 'connected' : 'not reachable');
+  const usedBefore = useSrv ? await srv.usage() : null;
+  console.log('[storyreel] AI server', srv?.label || '(none)', health ? 'connected' : 'not reachable');
   const srvVideo = !!(health && health.video);
   const seedOf = (s) => 1000 + ([...(s.scene.text || '')].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % 90000);
   const blobs = [];
@@ -289,7 +252,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
         const mp = [notes[i], `${motionPrompt(shots[i], castById)}. ${freeShotPrompt(shots[i], castById)}`].filter(Boolean).join('. ').slice(0, 1400);
         try {
           if (srvVideo) {
-            const blob = await serverVideo(srv, blobs[i], mp, shots[i], size, signal, !!health.jobs);
+            const blob = await serverVideo(srv, blobs[i], mp, shots[i], size, signal);
             media[i].clip = { blob };
             // lip sync: the on-screen speakers' words, on the clip's clock as the player will show it
             const len = shots[i].end - shots[i].start;
@@ -328,11 +291,12 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
   film.lipsynced = lipsynced;
   film.serverDown = !!srv && !health;  // a link is set but nothing answers (pod deleted or stopped)
   // what this film used of your server: GPU busy time and, if the server knows its price, the cost
-  if (useSrv && health.stats) {
-    const after = await checkServer(srv);
-    if (after?.stats) {
-      film.serverSeconds = after.stats.busy_seconds - health.stats.busy_seconds;
-      film.serverCost = after.price_per_hour ? film.serverSeconds / 3600 * after.price_per_hour : null;
+  if (useSrv && usedBefore != null) {
+    const after = await srv.usage();
+    if (after != null) {
+      film.serverSeconds = after - usedBefore;
+      const price = await srv.price();
+      film.serverCost = price ? film.serverSeconds / 3600 * price : null;
     }
   }
   return film;

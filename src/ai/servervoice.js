@@ -9,10 +9,6 @@ const LIPSYNC_SR = 16000;
 // how strongly each emotion is acted (0 calm .. 1 intense)
 const EMOTION_LEVEL = { excited: 0.85, angry: 0.85, surprised: 0.8, scared: 0.75, sad: 0.7, happy: 0.6, love: 0.55, hopeful: 0.5, curious: 0.45, neutral: 0.3, tired: 0.25 };
 
-const sleep = (ms, signal) => new Promise((r, j) => {
-  const t = setTimeout(r, ms);
-  signal?.addEventListener('abort', () => { clearTimeout(t); j(new DOMException('Aborted', 'AbortError')); }, { once: true });
-});
 export const blobToDataUrl = (blob) => new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
 
 // Linear-interpolated resample of mono samples, sped up by `speed` (1.1 = 10% faster and higher).
@@ -79,7 +75,7 @@ function referenceVoices(lines, clips, voices) {
   return refs;
 }
 
-// Re-speak every line on the server. Replaces entries in `clips` and returns true
+// Re-speak every line on the server (an aiserver.js client). Replaces entries in `clips` and returns true
 // only if every line succeeded (otherwise the in-browser voices stay as they were).
 export async function serverVoices(server, plan, clips, voices, { onProgress = () => {}, signal } = {}) {
   const lines = [{ speaker: 'narrator', text: plan.title, emo: 'neutral' }];
@@ -97,16 +93,15 @@ export async function serverVoices(server, plan, clips, voices, { onProgress = (
   for (const l of uniq) {
     const emotion = l.speaker === 'narrator' ? 0.35 : Math.min(1, (EMOTION_LEVEL[l.emo] ?? 0.4) + (/!/.test(l.text) ? 0.1 : 0));
     const ref = refs.get(l.speaker);
-    const say = (withClip) => fetch(`${server}/tts`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
-      body: JSON.stringify({ text: l.text, ...(withClip ? { ref: ref.data } : { ref_key: ref.key }), emotion, seed }),
-    });
-    let res = await say(!ref.sent);
-    if (res.status === 409) res = await say(true);  // the server forgot it (restarted)
-    if (!res.ok) throw new Error(`AI server voice failed (${res.status})`);
+    const say = (withClip) => server.tts({ text: l.text, ...(withClip ? { ref: ref.data } : { ref_key: ref.key }), emotion, seed }, signal);
+    let wav;
+    try { wav = await say(!ref.sent); } catch (e) {
+      if (e?.code !== 'unknown-ref') throw e;
+      wav = await say(true);  // this server (or serverless worker) hasn't heard that voice yet
+    }
     ref.sent = true;
     seed++;
-    out.set(lineKey(l.speaker, l.text), await wavClip(await res.blob()));
+    out.set(lineKey(l.speaker, l.text), await wavClip(wav));
     onProgress(out.size / uniq.length, `${out.size}/${uniq.length}`);
   }
   for (const [k, c] of out) clips.set(k, c);
@@ -139,21 +134,11 @@ export function shotSpeech(shot, clips, voices, clipDur, rate) {
 // Lip-sync one AI clip on the server; resolves to the new MP4 blob, or null if the
 // server couldn't (no clear face in the shot, for example).
 export async function lipsyncClip(server, video, audio, signal) {
-  const start = await fetch(`${server}/lipsync/start`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
-    body: JSON.stringify({ video: await blobToDataUrl(video), audio: await blobToDataUrl(audio) }),
-  });
-  if (!start.ok) return null;
-  const { id } = await start.json();
-  for (let misses = 0; ;) {
-    await sleep(3000, signal);
-    let res;
-    try { res = await fetch(`${server}/lipsync/result?id=${id}`, { signal }); } catch (e) {
-      if (e?.name === 'AbortError') throw e;
-      if (++misses > 10) return null;
-      continue;
-    }
-    if (res.status === 202) continue;
-    return res.ok ? res.blob() : null;
+  try {
+    return await server.lipsync({ video: await blobToDataUrl(video), audio: await blobToDataUrl(audio) }, signal);
+  } catch (e) {
+    if (e?.name === 'AbortError') throw e;
+    console.warn('lip sync skipped:', e?.message || e);
+    return null;
   }
 }

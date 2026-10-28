@@ -1,5 +1,7 @@
 # Rent a GPU on RunPod: real AI video for a few cents a film
 
+> Prefer not to start and stop pods yourself? [RunPod Serverless](SERVERLESS.md) starts a GPU only while you make films.
+
 You don't need a PC for this. Storyreel's AI server runs on a graphics card you
 rent by the second on [RunPod](https://www.runpod.io), and you can set it up
 entirely from your phone. Every shot is painted (SDXL-Turbo) and animated with

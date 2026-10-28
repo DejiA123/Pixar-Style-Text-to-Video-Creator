@@ -25,6 +25,7 @@ import storyreel_server as S  # noqa: E402
 
 LATENTSYNC = os.environ.get('STORYREEL_LATENTSYNC_DIR', '/opt/LatentSync')
 LS_PYTHON = os.environ.get('STORYREEL_LATENTSYNC_PYTHON', '/opt/lsvenv/bin/python')
+lipsync = {'state': 'off', 'proc': None}  # off | starting | failed (ready is asked of the worker itself)
 
 
 def start_lipsync():
@@ -32,6 +33,7 @@ def start_lipsync():
     if not (os.path.isdir(LATENTSYNC) and os.path.exists(LS_PYTHON)):
         print('[storyreel] lip sync not in this image', flush=True)
         return
+    lipsync['state'] = 'starting'
     try:
         ckpt = os.path.join(VOLUME, 'latentsync', 'checkpoints')
         os.makedirs(ckpt, exist_ok=True)
@@ -43,18 +45,23 @@ def start_lipsync():
         subprocess.run([LS_PYTHON, '-c', "from huggingface_hub import hf_hub_download as d; "
                         "[d('ByteDance/LatentSync-1.6', f, local_dir='checkpoints') for f in ('latentsync_unet.pt', 'whisper/tiny.pt')]"],
                        cwd=LATENTSYNC, check=True)
-        subprocess.Popen([LS_PYTHON, '-u', os.path.join(os.path.dirname(HERE), 'lipsync_worker.py'), '--port', '7862'], cwd=LATENTSYNC)
+        lipsync['proc'] = subprocess.Popen([LS_PYTHON, '-u', os.path.join(os.path.dirname(HERE), 'lipsync_worker.py'), '--port', '7862'], cwd=LATENTSYNC)
         print('[storyreel] lip sync starting', flush=True)
     except Exception as e:
+        lipsync['state'] = 'failed'
         print(f'[storyreel] lip sync unavailable ({e})', flush=True)
 
 
 def wait_for_lipsync(seconds):
+    """Wait only while lip sync is still starting on this worker; give up at once if it failed."""
     t = time.time()
     while time.time() - t < seconds:
         S._lipsync['t'] = 0  # don't use the cached answer
         if S.lipsync_ready():
             return True
+        p = lipsync['proc']
+        if lipsync['state'] != 'starting' or (p is not None and p.poll() is not None):
+            return False
         time.sleep(3)
     return False
 

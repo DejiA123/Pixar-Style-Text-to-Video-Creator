@@ -33,6 +33,7 @@ await setSel('quality', 'low');
 const setVal = (id, v) => page.evaluate(([id, v]) => { const el = document.getElementById(id); if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); }, [id, v]);
 if (process.env.RENDER) await setSel('render-mode', process.env.RENDER);
 if (process.env.LENGTH) await setSel('length', process.env.LENGTH);
+if (process.env.RUNPOD_KEY) await setVal('runpod-key', process.env.RUNPOD_KEY);
 if (process.env.AISERVER) await setVal('ai-server', process.env.AISERVER);
 if (process.env.NOANIM) await setVal('free-animate', '0');
 await setVal('review-first', process.env.REVIEW ? '1' : '0');

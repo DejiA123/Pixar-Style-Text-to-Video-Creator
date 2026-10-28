@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1793189880">
+<link rel="stylesheet" href="src/ui/styles.css?v=1793190334">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
@@ -106,10 +106,11 @@
           <div class="ai-box" id="free-box">
             <label class="check"><input type="checkbox" id="free-animate" checked> Animate every shot with AI video</label>
             <label class="check"><input type="checkbox" id="review-first" checked> Let me check the shots before animating</label>
-            <label class="field"><span>Your AI server (unlimited AI video, voices and lip sync)</span><input id="ai-server" type="url" autocomplete="off" placeholder="https://xxxxxxxx-7860.proxy.runpod.net"></label>
+            <label class="field"><span>Your AI server: RunPod endpoint ID, or a pod link</span><input id="ai-server" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abc123xyz456 or https://xxxx-7860.proxy.runpod.net"></label>
+            <label class="field" id="runpod-key-field" hidden><span>RunPod API key (stays in this browser, sent only to RunPod)</span><input id="runpod-key" type="password" autocomplete="off" placeholder="rpa_…"></label>
             <p class="server-status" id="server-status" role="status" hidden><span class="dot"></span><span class="text"></span></p>
             <label class="field" hidden><span>Free Hugging Face token (optional, more free video per day)</span><input id="hf-token" type="password" autocomplete="off" placeholder="hf_…"></label>
-            <p class="hint">Paste the link of your AI server (your RunPod pod; see server/RUNPOD.md in the project). The light shows when it's ready.</p>
+            <p class="hint">Serverless starts a GPU only while you make films (see server/SERVERLESS.md); a pod link works too (server/RUNPOD.md). The light shows when it's ready.</p>
           </div>
           <div class="ai-box" id="ai-box" hidden>
             <label class="field"><span>fal.ai API key</span><input id="fal-key" type="password" autocomplete="off" placeholder="key_id:key_secret"></label>
@@ -169,6 +170,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793189880"></script>
+<script type="module" src="src/ui/app.js?v=1793190334"></script>
 </body>
 </html>

@@ -12,7 +12,8 @@ import { Player } from '../film/player.js';
 import { exportVideo } from '../film/exporter.js';
 import { castVoices, KOKORO_NARRATORS } from '../audio/voices.js';
 import { Painter, PaintedFilm, painterSize } from '../ai/painter.js';
-import { renderFreeFilm, checkServer, waitForServer } from '../ai/freefilm.js';
+import { renderFreeFilm } from '../ai/freefilm.js';
+import { aiServer, serverlessId, waitForServer } from '../ai/aiserver.js';
 import { serverVoices } from '../ai/servervoice.js';
 import { KokoroEngine, WebSpeechEngine } from '../audio/tts.js';
 import { renderSoundtrack, lipEnvelope, clipDuration } from '../audio/mixer.js';
@@ -67,6 +68,8 @@ function init() {
   if (store.get('render-mode', null) == null) $('render-mode').value = 'free';
   $('ai-server').value = store.get('ai-server', '');
   $('ai-server').addEventListener('change', () => store.set('ai-server', $('ai-server').value.trim()));
+  $('runpod-key').value = store.get('runpod-key', '');
+  $('runpod-key').addEventListener('change', () => store.set('runpod-key', $('runpod-key').value.trim()));
   setupServerStatus();
   $('hf-token').value = store.get('hf-token', '');
   $('hf-token').addEventListener('change', () => store.set('hf-token', $('hf-token').value.trim()));
@@ -151,6 +154,9 @@ function reviewShots({ shots, blobs, repaint }) {
   });
 }
 
+// Your AI server from Settings: a RunPod Serverless endpoint (ID + API key) or a link.
+const currentServer = () => aiServer($('ai-server').value, $('runpod-key').value);
+
 // Live status of your AI server: a line under its link in Settings and a pill next
 // to Generate (green ready, amber starting, red not running). Health checks don't
 // count as use, so they never keep an idle pod (and its bill) alive.
@@ -165,15 +171,25 @@ function setupServerStatus() {
   };
   async function refresh() {
     clearTimeout(timer);
-    const url = $('ai-server').value.trim().replace(/\/+$/, '');
-    box.hidden = chip.hidden = !url;
-    if (!url) return;
+    const value = $('ai-server').value.trim();
+    $('runpod-key-field').hidden = !serverlessId(value);
+    const server = currentServer();
+    box.hidden = chip.hidden = !server;
+    if (!server) return;
     const mine = ++seq;
     if (!box.dataset.server) show('checking', 'Checking your AI server…', 'Checking…');
-    const h = await checkServer(url);
+    const h = await server.health();
     if (mine !== seq) return;
     let again = 15000;
-    if (!h) show('down', 'Not running. Start a pod in RunPod (or your own server), then paste its new link here.', 'Server off');
+    if (server.kind === 'serverless') {
+      if (h?.needsKey) show('starting', 'Add your RunPod API key below.', 'Needs key');
+      else if (h?.badKey) show('down', 'RunPod didn’t accept that API key.', 'Key refused');
+      else if (!h) show('down', 'Can’t reach that RunPod endpoint: check the endpoint ID.', 'Server off');
+      else {
+        show('ready', `Ready · RunPod Serverless · ${h.warm ? `${h.warm} GPU${h.warm > 1 ? 's' : ''} warm` : h.starting ? 'a GPU is starting…' : 'a GPU starts when you generate (the first film waits a few minutes)'}`, 'Server ready');
+        again = 30000;
+      }
+    } else if (!h) show('down', 'Not running. Start a pod in RunPod (or your own server), then paste its new link here.', 'Server off');
     else if (!h.ready) show('starting', `Starting: ${h.loading}…`, 'Starting…');
     else {
       const lips = h.lipsync ? 'lip sync ✓' : h.lipsync_state === 'setting up' ? 'lip sync setting up…' : 'no lip sync';
@@ -184,6 +200,7 @@ function setupServerStatus() {
   }
   $('ai-server').addEventListener('input', () => { clearTimeout(timer); delete box.dataset.server; timer = setTimeout(refresh, 700); });
   $('ai-server').addEventListener('change', refresh);
+  $('runpod-key').addEventListener('change', refresh);
   chip.addEventListener('click', (e) => { e.stopPropagation(); $('settings').open = true; });
   refresh();
 }
@@ -328,11 +345,13 @@ async function makeMovie() {
       }
       usedNeural = true;
       // realistic voices: your AI server re-speaks every line in the same voices, with emotion
-      const srv = freeAI ? $('ai-server').value.trim().replace(/\/+$/, '') : '';
-      let health = srv ? await checkServer(srv) : null;
+      const srv = freeAI ? currentServer() : null;
+      let health = srv ? await srv.health() : null;
+      if (health?.ok === false) health = null;
       if (health) health = await waitForServer(srv, health, (p, msg) => steps.label('voices', msg));
+      if (health?.serverless) steps.label('voices', 'Recording realistic voices (a RunPod GPU may take a few minutes to start)');
       if (health?.tts) {
-        steps.label('voices', 'Recording realistic voices on your AI server');
+        if (!health.serverless) steps.label('voices', 'Recording realistic voices on your AI server');
         try {
           if (await serverVoices(srv, plan, clips, voices, { onProgress: (p, n) => steps.set('voices', 'active', n) })) {
             for (const [sp, v] of voices) voices.set(sp, { ...v, rate: 1 });  // speed and pitch are in the new recordings
@@ -362,7 +381,7 @@ async function makeMovie() {
     state.ai = true;
   } else if (freeAI) {
     film = await renderFreeFilm(tl, {
-      aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server: $('ai-server').value.trim(),
+      aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server: currentServer(),
       fallbackStill: makeLocalPainter(), voice: usedNeural ? { clips, voices } : null,
       review: $('free-animate').checked && $('review-first').checked ? (r) => { steps.label('build', 'Waiting for you to check the shots'); return reviewShots(r); } : null,
       onProgress: (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); },
