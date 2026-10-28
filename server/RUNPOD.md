@@ -20,7 +20,7 @@ time it used and its cost, so you see the real price per film.
    |---|---|
    | Name | `Storyreel AI server` |
    | Type | Pod · NVIDIA GPU |
-   | Container image | `runpod/pytorch:1.4.0-cu1281-torch280-ubuntu2204` |
+   | Container image | `runpod/pytorch:0.7.0-cu1241-torch260-ubuntu2204` |
    | Start command (tap **+ Start command**) | see below |
    | Container disk | `80` GB |
    | Volume disk | `0` GB (none: it's the cheapest) |
@@ -37,7 +37,7 @@ time it used and its cost, so you see the real price per film.
 
    | Setting | Value | Why |
    |---|---|---|
-   | Allowed CUDA versions | 12.8 and newer | the image is built for CUDA 12.8 |
+   | Allowed CUDA versions | 12.4 and newer | the image is built for CUDA 12.4, which also runs on newer machines |
    | Minimum vRAM | `24` GB | the video model needs a 24 GB card |
    | Minimum RAM | `48` GB | room to load the models |
 
