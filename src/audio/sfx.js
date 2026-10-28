@@ -22,9 +22,10 @@ export function scheduleSfx(ctx, out, timeline, opts = {}) {
     const sc = s.scene;
     if (s.transition === 'fade') whoosh(ctx, out, s.start - 0.35, 0.12);
     const len = s.end - s.start;
+    const instrument = (s.props || []).some((p) => ['drum', 'guitar', 'piano'].includes(p.type));
     for (const id of s.ids || []) {
       const a = s.blocking[id]?.action;
-      if (a === 'jump' || a === 'cheer' || a === 'play') {
+      if (a === 'jump' || a === 'cheer' || (a === 'play' && !instrument)) {
         const per = a === 'cheer' ? 0.9 : a === 'play' ? 1.0 : 1.3;
         for (let k = 0; k * per < len; k++) boing(ctx, out, s.start + k * per + per * 0.22, 0.09);
       }
@@ -56,6 +57,12 @@ export function scheduleSfx(ctx, out, timeline, opts = {}) {
         if (t >= s.start && t < s.end) thunder(ctx, out, t + 0.25, 0.4);
       }
     }
+    // instruments being played: a drum beat, guitar strums, piano chords
+    for (const p of s.props || []) {
+      if (p.type === 'drum') drumBeat(ctx, out, s.start + 0.15, s.end - 0.1);
+      if (p.type === 'guitar') for (let t = s.start + 0.2, k = 0; t < s.end - 0.2; t += 0.55, k++) for (let n = 0; n < 4; n++) pluck(ctx, out, t + n * 0.018, [52, 57, 61, 64][n] + (k % 4 === 2 ? 2 : 0), 0.05);
+      if (p.type === 'piano') for (let t = s.start + 0.2, k = 0; t < s.end - 0.2; t += 0.9, k++) for (const n of [[60, 64, 67], [57, 60, 64], [65, 69, 72], [67, 71, 74]][k % 4]) pluck(ctx, out, t, n, 0.045);
+    }
     for (const p of s.props || []) if (p.type === 'campfire') noiseBed(ctx, out, s.start, s.end, { type: 'bandpass', freq: 2500, q: 0.8, vel: 0.03, lfoRate: 9, lfoDepth: 0.9 });
   }
 }
@@ -86,6 +93,17 @@ function ambience(ctx, out, b, end, rng) {
   }
   if (night && (outdoorsGreen || sc.setting === 'beach')) {
     for (let t = t0 + 0.2; t < t1; t += 0.42) for (let k = 0; k < 3; k++) chirp(ctx, out, t + k * 0.045, 4300, 4200, 0.035, 0.008, 'square');
+  }
+}
+
+// a rock beat at 112 bpm: kick on 1 and 3, snare on 2 and 4, hi-hat on every eighth
+function drumBeat(ctx, out, t0, t1) {
+  const beat = 60 / 112;
+  for (let k = 0, t = t0; t < t1; k++, t = t0 + k * beat / 2) {
+    noiseHit(ctx, out, t, { type: 'highpass', freq: 7000, vel: 0.035, dur: 0.035 });
+    if (k % 4 === 0) kick(ctx, out, t, 0.55);
+    if (k % 4 === 2) noiseHit(ctx, out, t, { type: 'bandpass', freq: 1800, q: 0.7, vel: 0.16, dur: 0.14 });
+    if (k % 8 === 7) kick(ctx, out, t, 0.35);
   }
 }
 
