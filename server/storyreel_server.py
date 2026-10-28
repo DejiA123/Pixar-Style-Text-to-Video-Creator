@@ -6,7 +6,8 @@ accounts, no quotas, no watermarks.
 
   image: SDXL-Turbo                    (stabilityai/sdxl-turbo)                 ~7 GB VRAM
   video: LTX-Video 0.9.8 13B distilled (Lightricks/LTX-Video-0.9.8-13B-distilled)
-         24 GB cards (RTX 4090/3090) run it with fp8 weights; 40 GB+ cards run it in bf16
+         24 GB cards (RTX 4090/3090) run it with fp8 weights; 48 GB cards (A40, L40S) in bf16
+         with CPU offload; 80 GB cards keep everything on the card
 
 Usage:
   pip install -r server/requirements.txt
@@ -67,11 +68,12 @@ def load_models(want_video=True):
     if dev == 'cuda':
         state['gpu'] = f'{torch.cuda.get_device_name(0)} {vram:.0f} GB'
     small = dev == 'cuda' and vram < 40  # 24 GB cards: fp8 weights + CPU offload
+    offload = dev == 'cuda' and vram < 70  # 48 GB cards: bf16, but only the working model on the card
     dtype = torch.float16 if dev != 'cpu' else torch.float32
     state['loading'] = 'downloading the image model'
     print(f'[storyreel] loading image model {IMAGE_MODEL} on {dev} {state["gpu"]}…', flush=True)
     img = AutoPipelineForText2Image.from_pretrained(IMAGE_MODEL, torch_dtype=dtype, variant='fp16' if dtype == torch.float16 else None)
-    if small and want_video:
+    if offload and want_video:
         img.enable_model_cpu_offload()  # leave the card to the video model between pictures
     else:
         img.to(dev)
@@ -92,7 +94,7 @@ def load_models(want_video=True):
             else:  # older LTX-Video (0.9.1)
                 from diffusers import LTXImageToVideoPipeline
                 vid = LTXImageToVideoPipeline.from_pretrained(src, torch_dtype=vdtype)
-            if small:
+            if offload:
                 vid.enable_model_cpu_offload()
             else:
                 vid.to(dev)
