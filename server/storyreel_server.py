@@ -4,7 +4,8 @@
 Runs open models and serves them to the Storyreel app (phone or browser). No
 accounts, no quotas, no watermarks.
 
-  image: SDXL-Turbo                    (stabilityai/sdxl-turbo)                 ~7 GB VRAM
+  image: FLUX.2 klein 4B               (black-forest-labs/FLUX.2-klein-4B)      ~13 GB VRAM, Apache 2.0
+         sharp, anatomically sound pictures in 4 steps; SDXL-Turbo (stabilityai/sdxl-turbo) if it can't load
   voice: Chatterbox                    (ResembleAI/chatterbox)                  ~4 GB VRAM
          realistic, emotional speech in the voice of a short reference clip
   lips:  LatentSync 1.6                (ByteDance/LatentSync-1.6)               ~18 GB VRAM
@@ -42,7 +43,8 @@ from urllib.parse import urlparse, parse_qs
 
 import writer
 
-IMAGE_MODEL = os.environ.get('STORYREEL_IMAGE_MODEL', 'stabilityai/sdxl-turbo')
+IMAGE_MODEL = os.environ.get('STORYREEL_IMAGE_MODEL', 'black-forest-labs/FLUX.2-klein-4B')
+FALLBACK_IMAGE_MODEL = 'stabilityai/sdxl-turbo'
 VIDEO_MODEL = os.environ.get('STORYREEL_VIDEO_MODEL', 'Lightricks/LTX-Video-0.9.8-13B-distilled')
 NEGATIVE = 'worst quality, static, still image, frozen, no motion, inconsistent motion, blurry, jittery, distorted, deformed, text, watermark'
 # the distilled LTX models are tuned for these exact timesteps (diffusers docs)
@@ -144,8 +146,20 @@ def load_models(want_video=True):
     offload = dev == 'cuda' and vram < 70  # the image model waits in RAM until it paints
     dtype = torch.float16 if dev != 'cpu' else torch.float32
     state['loading'] = 'downloading the image model'
-    print(f'[storyreel] loading image model {IMAGE_MODEL} on {dev} {state["gpu"]}…', flush=True)
-    img = AutoPipelineForText2Image.from_pretrained(IMAGE_MODEL, torch_dtype=dtype, variant='fp16' if dtype == torch.float16 else None)
+    img = None
+    if 'flux' in IMAGE_MODEL.lower():
+        print(f'[storyreel] loading image model {IMAGE_MODEL} on {dev} {state["gpu"]}…', flush=True)
+        try:
+            from diffusers import Flux2KleinPipeline
+            img = Flux2KleinPipeline.from_pretrained(fetch_model(IMAGE_MODEL), torch_dtype=torch.bfloat16 if dev != 'cpu' else torch.float32)
+            state['image_kind'] = 'flux2'
+        except Exception as e:  # an older diffusers, or the download failed: the older model still works
+            print(f'[storyreel] {IMAGE_MODEL} unavailable ({e}); using {FALLBACK_IMAGE_MODEL}', flush=True)
+    if img is None:
+        name = IMAGE_MODEL if 'flux' not in IMAGE_MODEL.lower() else FALLBACK_IMAGE_MODEL
+        print(f'[storyreel] loading image model {name} on {dev} {state["gpu"]}…', flush=True)
+        img = AutoPipelineForText2Image.from_pretrained(name, torch_dtype=dtype, variant='fp16' if dtype == torch.float16 else None)
+        state['image_kind'] = 'sdxl'
     if offload and want_video:
         img.enable_model_cpu_offload()  # leave the card to the video model between pictures
     else:
@@ -310,6 +324,14 @@ def make_image(prompt, width, height, seed):
     import torch
     g = torch.Generator(device='cpu').manual_seed(int(seed))
     with gpu_lock:
+        if state.get('image_kind') == 'flux2':
+            try:
+                return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=1.0, generator=g).images[0]
+            except torch.cuda.OutOfMemoryError:  # the card is full (video and lip-sync models): move layers in one by one
+                print('[storyreel] image: GPU memory full, painting with sequential offload', flush=True)
+                free_memory()
+                state['image'].enable_sequential_cpu_offload()
+                return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=1.0, generator=g).images[0]
         return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=0.0, generator=g).images[0]
 
 

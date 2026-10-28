@@ -11,7 +11,12 @@ const IMG = 'https://image.pollinations.ai/prompt/';
 const GRADIO = 'https://cdn.jsdelivr.net/npm/@gradio/client@2.5.0/dist/browser.js';
 const LTX_SPACE = 'Lightricks/ltx-video-distilled';
 const FLUX_SPACE = 'black-forest-labs/FLUX.1-schnell';
-const STYLE = 'hyper realistic 3d pixar disney animation style, appealing cartoon characters with big expressive eyes, soft skin, detailed hair, rich fabric, cinematic lighting, shallow depth of field, 4k render';
+// the film's look: Pixar-style 3D animation, or live action that looks filmed
+const STYLE = {
+  pixar: 'hyper realistic 3d pixar disney animation style, appealing cartoon characters with big expressive eyes, soft skin, detailed hair, rich fabric, cinematic lighting, shallow depth of field, 4k render',
+  real: 'photorealistic cinematic film still, live action, shot on 35mm film with an anamorphic lens, real people with natural skin texture and realistic proportions, natural light, soft film grain, shallow depth of field, color graded, 4k',
+};
+const LOOK_TAG = { pixar: 'pixar 3d animation', real: 'photorealistic live-action movie scene' };
 
 const FRAMING = {
   establishing: 'wide establishing shot', wide: 'wide shot, full body', medium: 'medium shot, waist up',
@@ -22,8 +27,8 @@ const PLACE = { home: 'cozy bedroom', church: 'church interior with wooden pews 
 const LIGHT = { dawn: 'soft morning light', day: 'bright daylight', sunset: 'golden hour sunset', night: 'night, glowing warm lights' };
 const ACT = { pray: 'praying with eyes closed', groom: 'brushing her hair in a mirror', dance: 'dancing', walk: 'walking', run: 'running', cry: 'crying', laugh: 'laughing', sing: 'singing', cook: 'cooking', eat: 'eating', read: 'reading', play: 'playing', wave: 'waving', hug: 'hugging', sit: 'sitting', talk: 'talking', cheer: 'cheering', jump: 'jumping', fly: 'flying', sleep: 'sleeping' };
 
-function person(c) {
-  if (c.kind !== 'human') return `a cute cartoon ${c.noun || c.kind}`;
+function person(c, look = 'pixar') {
+  if (c.kind !== 'human') return `${look === 'real' ? 'a real' : 'a cute cartoon'} ${c.noun || c.kind}`;
   const who = { child: c.gender === 'f' ? 'little girl' : 'little boy', teen: c.gender === 'f' ? 'teenage girl' : 'teenage boy', old: c.gender === 'f' ? 'grandmother' : 'grandfather' }[c.age] || (c.gender === 'f' ? 'young woman' : 'young man');
   const tone = { dark: 'black', brown: 'brown-skinned', tan: 'latino', 'light-warm': 'asian', light: 'fair-skinned' }[c.skinTone] || '';
   const hair = c.hair?.style ? `${c.hair.style} hair` : '';
@@ -43,15 +48,21 @@ function propWords(sc) {
   return [...new Set([...extra, ...(sc.props || []).map((p) => PROP_LOOK[p.type] || `with a ${p.type}`)])].slice(0, 2).join(', ');
 }
 
-export function freeShotPrompt(shot, castById) {
+// "in ancient Rome" when the story names the place; the engine's own setting only when the story chose it
+function where(sc) {
+  if (sc.place) return `in ${sc.place}`;
+  return sc.settingKnown === false ? '' : `in a ${PLACE[sc.setting] || sc.setting}`;
+}
+
+export function freeShotPrompt(shot, castById, look = 'pixar') {
   const sc = shot.scene;
   const ids = shot.kind === 'title' ? [] : (shot.ids || sc.characters || []).slice(0, 3);
-  const who = ids.map((id) => castById.get(id)).filter(Boolean).map((c) => `${person(c)}${sc.actions?.[c.id] && ACT[sc.actions[c.id]] ? ' ' + ACT[sc.actions[c.id]] : ''}`).join(' and ');
+  const who = ids.map((id) => castById.get(id)).filter(Boolean).map((c) => `${person(c, look)}${sc.actions?.[c.id] && ACT[sc.actions[c.id]] ? ' ' + ACT[sc.actions[c.id]] : ''}`).join(' and ');
   const frame = FRAMING[shot.kind === 'title' ? 'title' : shot.type] || FRAMING.medium;
   const story = shot.kind === 'title' ? '' : storyWords(sc);
   const props = shot.kind === 'title' ? '' : propWords(sc);
   // the picture model reads about 75 words: what happens comes before the style details
-  return [frame, who, props, story, 'pixar 3d animation', `in a ${PLACE[sc.setting] || sc.setting}`, LIGHT[sc.time] || '', STYLE, 'no text'].filter(Boolean).join(', ').slice(0, 900);
+  return [frame, who, props, story, LOOK_TAG[look] || LOOK_TAG.pixar, where(sc), LIGHT[sc.time] || '', STYLE[look] || STYLE.pixar, 'no text'].filter(Boolean).join(', ').slice(0, 900);
 }
 
 // What moves in an AI video shot: each character's whole-body action, the
@@ -80,7 +91,7 @@ const CAMERA = {
   medium: 'the camera moves slightly', closeup: 'the camera slowly pushes in', 'over-shoulder': 'the camera drifts over the shoulder',
   tracking: 'the camera tracks alongside', lowangle: 'the camera slowly tilts up', 'two-shot': 'the camera slowly arcs around them',
 };
-export function motionPrompt(shot, castById) {
+export function motionPrompt(shot, castById, look = 'pixar') {
   const sc = shot.scene;
   const ids = shot.kind === 'title' ? [] : (shot.ids || sc.characters || []).slice(0, 3);
   const speaking = new Set((shot.lines || []).map((l) => l.speaker));
@@ -89,12 +100,12 @@ export function motionPrompt(shot, castById) {
     if (!c) return '';
     const a = sc.actions?.[id];
     const act = MOTION[a] || (speaking.has(id) ? MOTION.talk : 'moves naturally, turning the head and gesturing with the hands');
-    return `the ${c.kind === 'human' ? person(c) : c.noun || c.kind} ${act}`;
+    return `the ${c.kind === 'human' ? person(c, look) : c.noun || c.kind} ${act}`;
   }).filter(Boolean);
   const bg = SCENE_MOTION[sc.setting] || 'the background is alive with movement';
   const cam = CAMERA[shot.kind === 'title' ? 'title' : shot.type] || CAMERA.medium;
   const story = shot.kind === 'title' ? '' : storyWords(sc);
-  return [story, people.join(', while '), bg, cam, 'smooth realistic motion, everything moves, not a still image'].filter(Boolean).join('; ');
+  return [story, people.join(', while '), bg, cam, look === 'real' ? 'live-action cinematic footage, natural human motion, everything moves, not a still image' : 'smooth realistic motion, everything moves, not a still image'].filter(Boolean).join('; ');
 }
 
 // A note is read by the picture model, which follows descriptions, not questions:
@@ -181,7 +192,7 @@ async function fluxImage(gr, prompt, { w, h, seed }) {
 // film's dialogue, for lip sync on your server.
 // review({shots, blobs, notes, repaint}): called once every shot is painted and before
 // anything is animated; the film continues when it resolves (repaint(i, note) redraws a shot).
-export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, server = null, fallbackStill = null, voice = null, review = null, onShot = () => {}, onProgress = () => {}, signal } = {}) {
+export async function renderFreeFilm(tl, { look = 'pixar', aspect = '16:9', hfToken = '', animate = true, server = null, fallbackStill = null, voice = null, review = null, onShot = () => {}, onProgress = () => {}, signal } = {}) {
   const castById = new Map(tl.cast.map((c) => [c.id, c]));
   const size = sizeFor(aspect);
   const shots = tl.shots;
@@ -212,7 +223,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
   // AI only, never a 3D frame: try every free AI source in turn
   const notes = shots.map(() => '');  // your changes from the review, first in the prompt so they win
   const paintShot = async (i, waitMs, seed = seedOf(shots[i])) => {
-    const prompt = [notes[i], freeShotPrompt(shots[i], castById)].filter(Boolean).join(', ').slice(0, 900);
+    const prompt = [notes[i], freeShotPrompt(shots[i], castById, look)].filter(Boolean).join(', ').slice(0, 900);
     const opts = { ...size, seed };
     if (useSrv) { try { const r = await serverImage(srv, prompt, opts, signal); sources.server++; return r; } catch (e) { console.warn(e); } }
     try {
@@ -274,7 +285,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
     for (let i = 0; i < shots.length; i++) {
       // with your own server every shot is animated, the opening title too
       if (blobs[i] && (srvVideo || shots[i].kind !== 'title')) {
-        const mp = [notes[i], `${motionPrompt(shots[i], castById)}. ${freeShotPrompt(shots[i], castById)}`].filter(Boolean).join('. ').slice(0, 1400);
+        const mp = [notes[i], `${motionPrompt(shots[i], castById, look)}. ${freeShotPrompt(shots[i], castById, look)}`].filter(Boolean).join('. ').slice(0, 1400);
         try {
           if (srvVideo) {
             const blob = await serverVideo(srv, blobs[i], mp, shots[i], size, signal);

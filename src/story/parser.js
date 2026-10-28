@@ -104,6 +104,9 @@ function settingMatchers() {
 }
 const SETTING_MATCHERS = settingMatchers();
 
+const PLACE_WORDS = new Set(['in', 'to', 'at', 'from', 'of', 'visit', 'visited', 'visits', 'visiting', 'near', 'through', 'into', 'across', 'around',
+  'toward', 'towards', 'inside', 'outside', 'reached', 'reach', 'entered', 'enter', 'explored', 'explore', 'left', 'arrived', 'above', 'over', 'beyond']);
+
 function splitSentences(text) {
   // Split on paragraph breaks first, then on sentence terminators outside quotes.
   const paragraphs = text.split(/\n\s*\n|\n/).map((p) => p.trim()).filter(Boolean);
@@ -274,7 +277,7 @@ function detectCast(sentences) {
       if (a in SIZE_WORDS) m.size = SIZE_WORDS[a];
       if (TRAIT_WORDS.includes(a) && !m.traits.includes(a)) m.traits.push(a);
       if (a === 'old' && m.kind === 'human' && m.age === 'adult') m.age = 'old';
-      if (a === 'young' && m.kind === 'human' && m.age === 'adult') m.age = 'teen';
+      if (a === 'young' && m.kind === 'human' && m.age === 'adult' && !/^(?:woman|man|lady|guy|gentleman|mother|father|mom|mum|dad|wife|husband|couple|adult|bride|groom)$/.test(m.noun || '')) m.age = 'teen';
       if (/^(teen|teenage|teenaged|adolescent)$/.test(a) && m.kind === 'human') m.age = 'teen';
       if (/^(little|small|tiny)$/.test(a) && m.kind === 'human' && m.age !== 'old') m.age = 'child';
       if (/^(grown|adult)$/.test(a) && m.kind === 'human') m.age = 'adult';
@@ -382,6 +385,7 @@ function detectCast(sentences) {
 
   // 3) Bare capitalized names (Mia smiled.) — must look like a name.
   const capCounts = new Map();
+  const placeNames = new Set();  // once "in Paris", always a place ("He loved Paris")
   sentences.forEach((s, si) => {
     const stripped = s.replace(/"[^"]*"/g, (q) => q); // keep quotes: names can appear in dialogue
     const tokens = stripped.match(/[A-Za-z'-]+/g) || [];
@@ -390,7 +394,9 @@ function detectCast(sentences) {
       if (STOPWORDS_CAPS.has(tok)) return;
       if (CHARACTER_NOUNS[tok.toLowerCase()]) return;
       const prev = (tokens[ti - 1] || '').toLowerCase();
-      if (['in', 'to', 'at', 'from', 'of', 'visit', 'visited', 'near'].includes(prev)) return; // places
+      const prev2 = (tokens[ti - 2] || '').toLowerCase();
+      // places: "in Paris", "through ancient Rome", "the Colosseum"
+      if (PLACE_WORDS.has(prev) || prev === 'the' || (PLACE_WORDS.has(prev2) && /^[a-z]/.test(tokens[ti - 1] || ''))) { placeNames.add(tok); return; }
       const e = capCounts.get(tok) || { n: 0, nonInitial: 0, first: si };
       e.n++;
       if (ti > 0 && !/^"/.test(tok)) e.nonInitial++;
@@ -401,6 +407,7 @@ function detectCast(sentences) {
     if (byName.has(name)) continue;
     const lname = name.toLowerCase();
     const knownName = NAMES_F.has(lname) || NAMES_M.has(lname);
+    if (placeNames.has(name) && !knownName) continue;
     if (e.n >= 2 || e.nonInitial >= 1 || knownName) {
       addMember({ name, noun: null, kind: 'human', gender: NAMES_F.has(lname) ? 'f' : NAMES_M.has(lname) ? 'm' : 'n', age: 'teen', firstSentence: e.first });
     }
@@ -652,6 +659,8 @@ export function parseStory(rawText, opts = {}) {
     const best = Object.entries(sc).sort((a, b) => b[1] - a[1])[0];
     if (best && best[1] >= 2) { setting = best[0]; break; }
   }
+  let settingKnown = !!setting;  // false while the setting is only a default guess
+  let place = null;  // a named place the story is in ("ancient Rome"), carried until the story moves on
   if (!setting) {
     const kinds = new Set(cast.map((c) => c.kind));
     setting = kinds.has('robot') || kinds.has('alien') ? 'city' : kinds.has('fish') || kinds.has('octopus') ? 'underwater' : 'meadow';
@@ -668,8 +677,11 @@ export function parseStory(rawText, opts = {}) {
     // --- setting / time / weather
     const sc = scoreSettings(lowerNQ);
     const best = Object.entries(sc).sort((a, b) => b[1] - a[1])[0];
-    if (best && best[1] >= 2) setting = best[0];
-    else if (best && si === 0) setting = best[0];
+    if (best && best[1] >= 2) { setting = best[0]; settingKnown = true; }
+    else if (best && si === 0) { setting = best[0]; settingKnown = true; }
+    const named = noQuotes.match(/\b(?:in|at|through|to|into|across|around|near|inside|outside|from|visited|visiting|explored)\s+((?:the\s+)?(?:[a-z]+\s+){0,2}[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
+    if (named && !cast.some((c) => c.name && named[1].includes(c.name))) place = named[1];
+    else if (best && best[1] >= 2) place = null;
     // the moon only means space when you're on it
     if (setting === 'space' && !/space|galaxy|planet|spaceship|rocket|on the moon|to the moon|mars|orbit|universe|station/.test(lowerNQ) && sc.space == null) { /* keep */ }
 
@@ -899,7 +911,7 @@ export function parseStory(rawText, opts = {}) {
     scenes.push({
       index: si,
       text: sentence,
-      setting, time, weather,
+      setting, time, weather, settingKnown, place,
       characters,
       focus,
       actions,

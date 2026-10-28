@@ -111,6 +111,12 @@
             </div>
           </div>
           <div class="ai-box" id="free-box">
+            <label class="field"><span>Look</span>
+              <select id="look">
+                <option value="pixar">Pixar-style 3D animation</option>
+                <option value="real">Cinematic, real life</option>
+              </select>
+            </label>
             <label class="check"><input type="checkbox" id="free-animate" checked> Animate every shot with AI video</label>
             <label class="check"><input type="checkbox" id="review-first" checked> Let me check the shots before animating</label>
             <label class="field"><span>Your AI server: RunPod endpoint ID, or a pod link</span><input id="ai-server" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abc123xyz456 or https://xxxx-7860.proxy.runpod.net"></label>
@@ -177,6 +183,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793198645"></script>
+<script type="module" src="src/ui/app.js?v=1793201451"></script>
 </body>
 </html>
