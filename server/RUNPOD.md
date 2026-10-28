@@ -21,10 +21,10 @@ time it used and its cost, so you see the real price per film.
    | Name | `Storyreel AI server` |
    | Type | Pod · NVIDIA GPU |
    | Container image | `runpod/pytorch:1.4.0-cu1281-torch280-ubuntu2204` |
-   | Container start command | see below |
+   | Start command (tap **+ Start command**) | see below |
    | Container disk | `80` GB |
    | Volume disk | `0` GB (none: it's the cheapest) |
-   | Expose HTTP ports | `7860` |
+   | HTTP ports | label `storyreel`, port `7860` |
    | Environment variable | `STORYREEL_GPU_PRICE` = the GPU's hourly price, e.g. `0.34` (optional: it turns GPU time into a cost) |
 
    Container start command (copy it exactly):
@@ -33,7 +33,15 @@ time it used and its cost, so you see the real price per film.
    bash -c "curl -fsSL https://raw.githubusercontent.com/DejiA123/Pixar-Style-Text-to-Video-Creator/claude/jolly-ramanujan-vzdz0b/server/runpod/start.sh -o /start-storyreel.sh && bash /start-storyreel.sh"
    ```
 
-3. Save the template.
+   On the **GPU Compatibility** tab, open **Advanced compatibility settings**:
+
+   | Setting | Value | Why |
+   |---|---|---|
+   | Allowed CUDA versions | 12.8 and newer | the image is built for CUDA 12.8 |
+   | Minimum vRAM | `24` GB | the video model needs a 24 GB card |
+   | Minimum RAM | `48` GB | room to load the models |
+
+3. Tap **Create**.
 
 ## Every time you make films
 
