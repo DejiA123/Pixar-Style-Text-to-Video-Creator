@@ -192,7 +192,7 @@ function setupServerStatus() {
         show('ready', `Ready · RunPod Serverless · ${h.warm ? `${h.warm} GPU${h.warm > 1 ? 's' : ''} warm` : h.starting ? 'a GPU is starting…' : 'a GPU starts when you generate (the first film waits a few minutes)'}`, 'Server ready');
         again = 30000;
       }
-    } else if (!h) show('down', 'Not running. Start a pod in RunPod (or your own server), then paste its new link here.', 'Server off');
+    } else if (!h) show('down', 'Not running. Your pod stops itself when idle: open Pods in RunPod and tap Start on it (it’s ready about 15 minutes later). A new pod has a new link: paste it here.', 'Server off');
     else if (!h.ready) show('starting', `Starting: ${h.loading}…`, 'Starting…');
     else {
       const lips = h.lipsync ? 'lip sync ✓' : h.lipsync_state === 'setting up' ? 'lip sync setting up…' : 'no lip sync';

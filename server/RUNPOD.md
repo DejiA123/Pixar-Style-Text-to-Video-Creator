@@ -12,9 +12,10 @@ voice (Chatterbox), and on 40 GB+ cards the talking shots get real lip sync
 
 **Cost, measured:** on an A40 (48 GB, $0.59 an hour) a 5-second AI clip takes
 about 26 seconds. A 14-shot film (about a minute of AI video) used 5 minutes of
-GPU time, roughly **$0.05**. You only pay while the pod exists, and the pod
-**deletes itself after 20 idle minutes**, so a forgotten pod can't run up a
-bill. After each film, the app shows the GPU time it used and its cost.
+GPU time, roughly **$0.05**. The pod **stops itself after 20 idle minutes**, so a
+forgotten pod can't run up a bill, and it keeps its link: next time, tap **Start**
+on it in RunPod and the same link works again (the models download again, about
+15 minutes). After each film, the app shows the GPU time it used and its cost.
 
 ## One-time setup (about 5 minutes)
 
@@ -78,7 +79,7 @@ Each new pod gets a new link, so paste the new one into Settings.
 | Variable | Default | What it does |
 |---|---|---|
 | `STORYREEL_IDLE_MINUTES` | `20` | Idle minutes before the pod shuts itself down. |
-| `STORYREEL_IDLE_ACTION` | `remove` | `remove` deletes the pod and costs nothing afterwards. `stop` keeps it and its link, but RunPod charges for its disk while stopped and may have no free GPU when you restart it. |
+| `STORYREEL_IDLE_ACTION` | `stop` | `stop` keeps the pod and its link (with no volume disk, a stopped pod costs next to nothing), but RunPod may have no free GPU on that machine when you start it again. `remove` deletes the pod. |
 | `STORYREEL_GPU_PRICE` | none | The GPU's $/hour, so the app and logs can show the cost. |
 | `STORYREEL_VIDEO_MODEL` | `Lightricks/LTX-Video-0.9.8-13B-distilled` | The video model. |
 | `STORYREEL_BRANCH` | `claude/jolly-ramanujan-vzdz0b` | The branch of this repo to run. |
@@ -107,8 +108,9 @@ Each new pod gets a new link, so paste the new one into Settings.
 
 ## If something goes wrong
 
-- **The app says the server isn't running.** The pod was deleted or stopped.
-  Deploy a new one and paste its new link.
+- **The app says the server isn't running.** The pod stopped after 20 idle
+  minutes: open **Pods** and tap **Start** on it. If RunPod says there's no free
+  GPU for it, deploy a new pod and paste its new link.
 - **Logs show "Killed" while loading.** The pod ran out of memory. Pick a pod
   with at least 48 GB of RAM (RunPod shows RAM next to each GPU).
 - **"video model unavailable" in the logs.** Pictures still work, and the app
