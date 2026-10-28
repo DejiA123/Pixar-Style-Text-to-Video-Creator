@@ -233,7 +233,7 @@ export const ACTIONS = {
   ride: ['ride', 'drive', 'pilot', 'steer', 'sail'],
   stand: ['stand', 'wait', 'stay', 'meet'],
   groom: ['brush', 'comb', 'style her hair', 'style his hair', 'do her hair', 'makeup', 'make-up', 'get ready', 'getting ready', 'pamper', 'primp'],
-  pray: ['saved', 'born again', 'pray', 'kneel', 'worship', 'bless', 'repent', 'confess', 'praise', 'baptize', 'baptise', 'preach'],
+  pray: ['saved', 'born again', 'pray', 'kneel', 'worship', 'bless', 'repent', 'confess', 'praise', 'baptize', 'baptise'],
 };
 
 // Irregular past forms → base verb.

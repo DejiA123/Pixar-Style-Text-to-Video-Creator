@@ -151,7 +151,7 @@ function firstPerson(text, c, { how, sameGender }) {
     // someone else is the subject here, so "him" / "her" is the one telling it
     s = s.replace(g === 'm' ? /\bhim\b/gi : /\bher\b(?=\s*(?:[.,!?;]|$))/gi, 'me');
   }
-  return agree(s);
+  return agree(s.replace(/\bI,\s+(?=[a-z]+(?:s|ed)\b)/g, 'I '));  // "A young guy, goes" → "I go"
 }
 
 // I is / I has / we was … → I am / I have / we were; "I loves" → "I love"

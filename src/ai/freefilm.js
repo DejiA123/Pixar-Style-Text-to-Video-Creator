@@ -31,12 +31,27 @@ function person(c) {
   return [tone, c.role && c.role !== 'student' ? c.role : who, hair && `with ${hair}`, acc && `wearing ${acc}`, c.style === 'glam' ? 'glamorous fashion doll look' : ''].filter(Boolean).join(' ');
 }
 
+// what the story says happens here, in its own words ("a young guy begins to play the drums")
+function storyWords(sc) {
+  const t = (sc.text || '').replace(/"[^"]*"/g, ' ').replace(/[.!?]+\s*$/, '').replace(/\s+/g, ' ').trim();
+  const words = t.split(' ');
+  return words.length >= 3 ? words.slice(0, 22).join(' ') : '';
+}
+const PROP_LOOK = { drum: 'playing a drum kit', guitar: 'playing a guitar', piano: 'playing a piano', microphone: 'holding a microphone', bible: 'holding a bible' };
+function propWords(sc) {
+  const extra = /\bpreach/i.test(sc.text || '') ? ['preaching passionately at a church pulpit'] : [];
+  return [...new Set([...extra, ...(sc.props || []).map((p) => PROP_LOOK[p.type] || `with a ${p.type}`)])].slice(0, 2).join(', ');
+}
+
 export function freeShotPrompt(shot, castById) {
   const sc = shot.scene;
   const ids = shot.kind === 'title' ? [] : (shot.ids || sc.characters || []).slice(0, 3);
   const who = ids.map((id) => castById.get(id)).filter(Boolean).map((c) => `${person(c)}${sc.actions?.[c.id] && ACT[sc.actions[c.id]] ? ' ' + ACT[sc.actions[c.id]] : ''}`).join(' and ');
   const frame = FRAMING[shot.kind === 'title' ? 'title' : shot.type] || FRAMING.medium;
-  return [frame, who, `in a ${PLACE[sc.setting] || sc.setting}`, LIGHT[sc.time] || '', STYLE, 'no text'].filter(Boolean).join(', ').slice(0, 900);
+  const story = shot.kind === 'title' ? '' : storyWords(sc);
+  const props = shot.kind === 'title' ? '' : propWords(sc);
+  // the picture model reads about 75 words: what happens comes before the style details
+  return [frame, who, props, story, 'pixar 3d animation', `in a ${PLACE[sc.setting] || sc.setting}`, LIGHT[sc.time] || '', STYLE, 'no text'].filter(Boolean).join(', ').slice(0, 900);
 }
 
 // What moves in an AI video shot: each character's whole-body action, the
@@ -78,7 +93,17 @@ export function motionPrompt(shot, castById) {
   }).filter(Boolean);
   const bg = SCENE_MOTION[sc.setting] || 'the background is alive with movement';
   const cam = CAMERA[shot.kind === 'title' ? 'title' : shot.type] || CAMERA.medium;
-  return [people.join(', while '), bg, cam, 'smooth realistic motion, everything moves, not a still image'].filter(Boolean).join('; ');
+  const story = shot.kind === 'title' ? '' : storyWords(sc);
+  return [story, people.join(', while '), bg, cam, 'smooth realistic motion, everything moves, not a still image'].filter(Boolean).join('; ');
+}
+
+// A note is read by the picture model, which follows descriptions, not questions:
+// "where is the drum kit?" → "the drum kit clearly visible"; "add a dog" → "a dog".
+export function noteToPrompt(note) {
+  let n = (note || '').trim().replace(/\s+/g, ' ');
+  const where = n.match(/^(?:where(?:'s| is| are)|i (?:can't|cannot|don't) see|show(?: me)?|add|include|put in)\s+(.+?)[?.!]*$/i);
+  if (where) return `${where[1].replace(/^(?:the|a|an)\s+/i, (d) => d.toLowerCase())} clearly visible`;
+  return n.replace(/[?]+$/, '');
 }
 
 function sizeFor(aspect) {
@@ -228,7 +253,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
   }
   if (review) {
     const repaint = async (i, note = '') => {
-      notes[i] = note.trim();
+      notes[i] = noteToPrompt(note);
       const r = await paintShot(i, 75000, 1 + Math.floor(Math.random() * 999999));
       if (r) await place(i, r);
       return r ? blobs[i] : null;

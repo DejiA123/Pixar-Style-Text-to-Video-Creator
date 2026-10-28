@@ -146,6 +146,80 @@ function splitSentences(text) {
   return out.filter((s) => /[A-Za-z0-9]/.test(s));
 }
 
+// One sentence that strings several moments together becomes one sentence per
+// moment, so each gets its own shot:
+//   "A young guy goes to church and gets born again and begins to play the drums"
+//   → "A young guy goes to church." "A young guy gets born again." "A young guy begins to play the drums."
+const COMMON_VERBS = ['get', 'go', 'begin', 'start', 'become', 'make', 'take', 'find', 'decide', 'learn', 'try', 'fall', 'see', 'meet',
+  'play', 'preach', 'pray', 'sing', 'give', 'feel', 'turn', 'open', 'close', 'bring', 'buy', 'build', 'call', 'catch', 'climb', 'cry',
+  'fight', 'grow', 'help', 'hold', 'keep', 'laugh', 'leave', 'live', 'look', 'love', 'lose', 'move', 'pick', 'put', 'read', 'ride',
+  'say', 'sell', 'send', 'show', 'smile', 'stand', 'stay', 'stop', 'talk', 'teach', 'tell', 'think', 'throw', 'wake', 'watch', 'wear',
+  'win', 'work', 'write', 'hug', 'kiss', 'join', 'discover', 'notice', 'hear', 'reach', 'cook', 'clean', 'wash', 'paint', 'draw', 'drive',
+  'drink', 'grab', 'enter', 'leave', 'graduate', 'marry', 'move', 'travel', 'visit', 'return', 'finish', 'practice', 'practise', 'perform'];
+const BASE_OF = new Map();
+for (const base of new Set([...COMMON_VERBS, ...Object.values(ACTIONS).flat().filter((v) => !v.includes(' '))])) {
+  for (const f of inflections(base)) if (!f.endsWith('ing') && !BASE_OF.has(f)) BASE_OF.set(f, base);
+}
+for (const [f, b] of Object.entries({ is: 'be', was: 'be', are: 'be', were: 'be', has: 'have', had: 'have', does: 'do', did: 'do', got: 'get', began: 'begin', became: 'become', made: 'make', took: 'take', gave: 'give', felt: 'feel', met: 'meet', told: 'tell', said: 'say', left: 'leave', kept: 'keep', taught: 'teach', thought: 'think', brought: 'bring', bought: 'buy', won: 'win', lost: 'lose', wrote: 'write', woke: 'wake', grew: 'grow', stood: 'stand' })) BASE_OF.set(f, b);
+const SUBJECT_PRONOUN = /^(?:i|you|we|they|he|she|it)$/i;
+const ES = /(s|sh|ch|x|z|o)$/;
+
+function splitBeats(sentence) {
+  if (sentence.includes('"') || sentence.split(/\s+/).length < 10) return [sentence];
+  const words = sentence.replace(/[.!?]+$/, '').split(/\s+/);
+  const clean = (w) => w.toLowerCase().replace(/[^a-z']/g, '');
+  // the subject is everything before the first verb ("A young guy," / "Every day she")
+  let first = -1;
+  for (let i = 1; i < words.length && i < 9; i++) {
+    const w = clean(words[i]);
+    if (!BASE_OF.has(w)) continue;
+    if (w === BASE_OF.get(w) && !SUBJECT_PRONOUN.test(clean(words[i - 1]))) continue;  // "the dance teacher": not a verb yet
+    first = i; break;
+  }
+  if (first < 1) return [sentence];
+  const firstWord = clean(words[first]);
+  const tense = /(?:ed|d)$/.test(firstWord) || ['was', 'were', 'had', 'did'].includes(firstWord) || !inflections(BASE_OF.get(firstWord)).slice(0, 2).includes(firstWord) && firstWord !== BASE_OF.get(firstWord) ? 'past'
+    : firstWord !== BASE_OF.get(firstWord) ? 'present' : 'base';
+  // cut at "and (then) <verb>" / ", then <verb>"
+  const cuts = [];
+  for (let i = first + 2; i < words.length - 1; i++) {
+    const w = clean(words[i]);
+    const prev = clean(words[i - 1]);
+    const joined = (w === 'and' || w === 'then' || (w === 'and' && clean(words[i + 1]) === 'then'));
+    if (!joined) continue;
+    let v = i + 1;
+    if (w === 'and' && clean(words[v]) === 'then') v++;
+    if (!BASE_OF.has(clean(words[v] || ''))) continue;
+    if (prev === 'and') continue;
+    cuts.push({ at: i, verb: v });
+  }
+  // only a real chain of moments: three or more, or two in a long sentence
+  if (!cuts.length || (cuts.length < 2 && words.length < 18)) return [sentence];
+  const subject = words.slice(0, first).join(' ').replace(/,$/, '');
+  const later = subject.replace(/^[^,]+,\s*/, '') || subject;  // "Every night, she" → "she" after the first
+  const beats = [];
+  let from = first;
+  const parts = [];
+  for (const c of cuts) { parts.push(words.slice(from, c.at)); from = c.verb; }
+  parts.push(words.slice(from));
+  // each moment needs a verb and something more ("ran and jumped" stays one sentence)
+  if (parts.some((p) => p.length < 2) || parts.length > 5) return [sentence];
+  for (let k = 0; k < parts.length; k++) {
+    const p = parts[k].slice();
+    p[0] = p[0].replace(/,$/, '');
+    if (k > 0) {
+      const w = clean(p[0]);
+      const base = BASE_OF.get(w);
+      // "…begins to play the drums and preach after that" → "…preaches after that"
+      if (base && w === base && !SUBJECT_PRONOUN.test(subject) && tense === 'present') p[0] = ES.test(base) ? base + 'es' : /[^aeiou]y$/.test(base) ? base.slice(0, -1) + 'ies' : base + 's';
+      else if (base && w === base && tense === 'past') p[0] = inflections(base).find((f) => f !== base && !/(?:s|ing)$/.test(f)) || p[0];
+    }
+    const who = k ? later.charAt(0).toUpperCase() + later.slice(1) : subject;
+    beats.push(`${who} ${p.join(' ').replace(/[,;]+$/, '')}.`);
+  }
+  return beats;
+}
+
 function extractTitle(text) {
   const lines = text.split('\n');
   const first = lines[0].trim();
@@ -558,7 +632,7 @@ function promptToStory(t) {
 export function parseStory(rawText, opts = {}) {
   const normalized = normalizeText(promptToStory(rawText || ''));
   const { title: explicitTitle, body } = extractTitle(normalized);
-  const sentences = splitSentences(body);
+  const sentences = splitSentences(body).flatMap(splitBeats);
   const cast = detectCast(sentences);
 
   const scenes = [];
