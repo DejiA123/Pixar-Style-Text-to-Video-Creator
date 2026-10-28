@@ -193,7 +193,8 @@ function setupServerStatus() {
     else if (!h.ready) show('starting', `Starting: ${h.loading}…`, 'Starting…');
     else {
       const lips = h.lipsync ? 'lip sync ✓' : h.lipsync_state === 'setting up' ? 'lip sync setting up…' : 'no lip sync';
-      show('ready', `Ready · ${[h.gpu, h.video ? 'AI video ✓' : 'no AI video', h.tts ? 'voices ✓' : 'no voices', lips].filter(Boolean).join(' · ')}`, 'Server ready');
+      const video = h.video ? 'AI video ✓' : h.error ? 'AI video failed to load (start a fresh pod)' : 'no AI video';
+      show('ready', `Ready · ${[h.gpu, video, h.tts ? 'voices ✓' : 'no voices', lips].filter(Boolean).join(' · ')}`, 'Server ready');
       if (h.lipsync_state !== 'setting up') again = 60000;
     }
     timer = setTimeout(refresh, again);

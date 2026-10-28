@@ -64,7 +64,8 @@ lipsync() {
   pipi uv
   [ -x "$V/bin/python" ] || "$PY" -m uv venv -q --python 3.10 "$V"
   grep -v -i '^gradio' "$LS/requirements.txt" > "$W/lipsync-requirements.txt"
-  VIRTUAL_ENV="$V" "$PY" -m uv pip install -q --index-strategy unsafe-best-match -r "$W/lipsync-requirements.txt"
+  # --python, not VIRTUAL_ENV: "python -m uv" installs into the Python that runs it otherwise
+  "$PY" -m uv pip install -q --python "$V/bin/python" --index-strategy unsafe-best-match -r "$W/lipsync-requirements.txt"
   cd "$LS"
   "$V/bin/python" -c "from huggingface_hub import hf_hub_download as d; [d('ByteDance/LatentSync-1.6', f, local_dir='checkpoints') for f in ('latentsync_unet.pt', 'whisper/tiny.pt')]"
   echo "lip sync installed, loading…"
