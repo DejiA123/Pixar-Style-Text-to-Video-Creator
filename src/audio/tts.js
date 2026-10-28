@@ -22,13 +22,29 @@ export class KokoroEngine {
     if (this.ready) return this.ready;
     const useGpu = device === 'webgpu' || (device !== 'wasm' && typeof navigator !== 'undefined' && !!navigator.gpu && /Chrome|Edg/.test(navigator.userAgent));
     this.device = useGpu ? 'webgpu' : 'wasm';
-    this.ready = new Promise((resolve, reject) => {
+    let ready = this.start(this.device);
+    // Some browsers offer WebGPU but can't get a graphics adapter: fall back to the CPU (WASM) build
+    if (useGpu && device !== 'webgpu') {
+      ready = ready.catch((e) => {
+        if (!/adapter|backend|webgpu|gpu/i.test(String(e?.message))) throw e;
+        console.warn('Voice model: WebGPU unavailable, using WASM', e);
+        this.device = 'wasm';
+        return this.start('wasm');
+      });
+    }
+    this.ready = ready;
+    this.ready.catch(() => { if (this.ready === ready) this.ready = null; });
+    return this.ready;
+  }
+
+  start(device) {
+    return new Promise((resolve, reject) => {
       this.worker = new Worker(new URL('./kokoro-worker.js', import.meta.url), { type: 'module' });
       const files = new Map();
       // Safari (iOS) can kill the worker silently when memory runs short, so
       // every phase has a deadline instead of waiting forever.
       let settled = false;
-      const fail = (msg) => { if (settled) return; settled = true; clearTimeout(timer); this.dispose(); reject(new Error(msg)); };
+      const fail = (msg) => { if (settled) return; settled = true; clearTimeout(timer); this.stopWorker(); reject(new Error(msg)); };
       let timer = setTimeout(() => fail('Voice model took too long to load'), 240000);
       const arm = (ms, msg) => { clearTimeout(timer); timer = setTimeout(() => fail(msg), ms); };
       const ok = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(this); };
@@ -53,10 +69,15 @@ export class KokoroEngine {
       };
       this.worker.onerror = (e) => fail(e.message || 'Voice worker failed to start');
       this.worker.onmessageerror = () => fail('Voice worker message error');
-      this.worker.postMessage({ type: 'load', lib: KOKORO_LIB, model: KOKORO_MODEL, dtype: this.device === 'webgpu' ? 'fp32' : 'q8', device: this.device });
+      this.worker.postMessage({ type: 'load', lib: KOKORO_LIB, model: KOKORO_MODEL, dtype: device === 'webgpu' ? 'fp32' : 'q8', device });
     });
-    this.ready.catch(() => { this.ready = null; });
-    return this.ready;
+  }
+
+  stopWorker() {
+    try { this.worker && this.worker.terminate(); } catch {}
+    this.worker = null;
+    for (const r of this.pending.values()) r.reject(new Error('Voice engine stopped'));
+    this.pending.clear();
   }
 
   dispose() {

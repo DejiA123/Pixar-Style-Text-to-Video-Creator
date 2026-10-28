@@ -6,3 +6,10 @@ sentencepiece
 protobuf
 imageio[ffmpeg]
 pillow
+# voices (Chatterbox itself is installed with --no-deps: its own pins are older than the video model's)
+librosa>=0.10
+s3tokenizer
+resemble-perth
+conformer==0.3.2
+omegaconf
+pyloudnorm

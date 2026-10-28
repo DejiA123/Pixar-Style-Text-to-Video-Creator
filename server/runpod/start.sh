@@ -38,6 +38,44 @@ if ! "$PY" -c 'import torch, sys; c = torch.cuda.get_device_capability(); sys.ex
 fi
 echo "[storyreel] installing Python packages ($("$PY" -c 'import sys, torch; print(sys.version.split()[0], "torch", torch.__version__)'))…"
 pipi -r "$APP/server/requirements.txt"
+# voices: torchaudio must match the installed PyTorch exactly
+if ! "$PY" -c 'import torch, torchaudio, sys; sys.exit(0 if torchaudio.__version__.split("+")[0] == torch.__version__.split("+")[0] else 1)' 2>/dev/null; then
+  TV=$("$PY" -c 'import torch; print(torch.__version__.split("+")[0])')
+  CU=$("$PY" -c 'import torch; print("cu" + (torch.version.cuda or "").replace(".", ""))')
+  pipi "torchaudio==$TV" --index-url "https://download.pytorch.org/whl/$CU" || echo "[storyreel] no matching torchaudio: voices off"
+fi
+pipi --no-deps chatterbox-tts==0.1.7 || echo "[storyreel] voice model install failed: voices off"
+
+# lip sync: LatentSync in its own environment (it pins older libraries), set up in the
+# background so films can start meanwhile. Needs about 18 GB of GPU memory next to the
+# video model, so it's on by default for 40 GB+ cards (STORYREEL_LIPSYNC=1 forces, 0 disables).
+LS_COMMIT=a229c3948406bc2cf6eaf4873e662e70c6a04746
+VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)
+LIPSYNC="${STORYREEL_LIPSYNC:-auto}"
+if [ "$LIPSYNC" = auto ]; then [ "${VRAM:-0}" -ge 40000 ] && LIPSYNC=1 || LIPSYNC=0; fi
+lipsync() {
+  set -e
+  local LS="$W/LatentSync" V="$W/lsvenv"
+  if ! command -v ffmpeg >/dev/null || ! ldconfig -p | grep -q libGL.so.1; then
+    apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg libgl1 >/dev/null
+  fi
+  [ -d "$LS/.git" ] || git clone -q https://github.com/bytedance/LatentSync "$LS"
+  git -C "$LS" fetch -q --depth 1 origin "$LS_COMMIT" && git -C "$LS" checkout -q "$LS_COMMIT"
+  pipi uv
+  [ -x "$V/bin/python" ] || "$PY" -m uv venv -q --python 3.10 "$V"
+  grep -v -i '^gradio' "$LS/requirements.txt" > "$W/lipsync-requirements.txt"
+  VIRTUAL_ENV="$V" "$PY" -m uv pip install -q --index-strategy unsafe-best-match -r "$W/lipsync-requirements.txt"
+  cd "$LS"
+  "$V/bin/python" -c "from huggingface_hub import hf_hub_download as d; [d('ByteDance/LatentSync-1.6', f, local_dir='checkpoints') for f in ('latentsync_unet.pt', 'whisper/tiny.pt')]"
+  echo "lip sync installed, loading…"
+  exec "$V/bin/python" -u "$APP/server/lipsync_worker.py" --port 7862
+}
+if [ "$LIPSYNC" = 1 ]; then
+  echo "[storyreel] setting up lip sync in the background…"
+  ( lipsync 2>&1 | sed -u 's/^/[lipsync] /' ) &
+else
+  echo "[storyreel] lip sync off (needs a 40 GB+ card, or set STORYREEL_LIPSYNC=1)"
+fi
 
 echo "[storyreel] starting (shuts down after ${IDLE} idle minutes: $IDLE_ACTION)…"
 exec "$PY" -u "$APP/server/storyreel_server.py" --port "$PORT" --idle-stop "$IDLE" --idle-action "$IDLE_ACTION"

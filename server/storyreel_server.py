@@ -28,7 +28,7 @@ API (CORS open; JSON in, media out):
   POST /video/start  (same body)  -> {"id"}         start a clip in the background
   GET  /video/result?id=…         -> 202 {"status"} while working, then video/mp4
        (use the job API behind proxies that cut requests after ~100 s, like RunPod's and Cloudflare's)
-  POST /tts    {"text", "ref": data-URL wav (optional), "emotion": 0..1, "seed"} -> audio/wav
+  POST /tts    {"text", "ref": data-URL wav, or "ref_key": sha1 of one sent before, "emotion": 0..1, "seed"} -> audio/wav
   POST /lipsync/start {"video": data-URL mp4, "audio": data-URL wav} -> {"id"}
   GET  /lipsync/result?id=…       -> 202 while working, then video/mp4 (500 if no face was found)
 """
@@ -205,8 +205,9 @@ def wav_bytes(samples, sr):
     return buf.getvalue()
 
 
-def make_speech(text, ref, emotion, seed):
-    """Speech for one line. ref: WAV bytes of the character's voice (cloned), emotion: 0 calm .. 1 intense."""
+def make_speech(text, ref, ref_key, emotion, seed):
+    """Speech for one line in the voice of a reference clip (WAV bytes, or the sha1 ref_key of one sent
+    before), emotion: 0 calm .. 1 intense. Raises KeyError for an unknown ref_key without the clip."""
     import hashlib
     text = re.sub(r'\s+', ' ', text).strip()[:1200]
     if state['mock']:  # a soft tone as long as the line would take to say
@@ -228,8 +229,10 @@ def make_speech(text, ref, emotion, seed):
         parts.append(cur)
     out = []
     with gpu_lock:
-        if ref:
-            key = hashlib.sha1(ref).hexdigest()
+        key = hashlib.sha1(ref).hexdigest() if ref else ref_key
+        if key and key not in state['tts_refs'] and not ref:
+            raise KeyError(key)
+        if key:
             if key not in state['tts_refs']:
                 path = tempfile.NamedTemporaryFile(suffix='.wav', delete=False).name
                 open(path, 'wb').write(ref)
@@ -457,7 +460,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(503, {'error': 'voice model not loaded'})
                 t0 = time.time()
                 ref = base64.b64decode(re.sub(r'^data:[^,]+,', '', req['ref'])) if req.get('ref') else None
-                body = make_speech(str(req.get('text', '')), ref, float(req.get('emotion', 0.3)), int(req.get('seed', 1)) % (2 ** 31))
+                try:
+                    body = make_speech(str(req.get('text', '')), ref, req.get('ref_key'), float(req.get('emotion', 0.3)), int(req.get('seed', 1)) % (2 ** 31))
+                except KeyError:  # the server restarted and forgot this voice: send the clip again
+                    return self._json(409, {'error': 'unknown ref_key'})
                 took = time.time() - t0
                 stats['lines'] += 1; stats['busy_seconds'] += took
                 return self._send(200, body, 'audio/wav')

@@ -4,6 +4,7 @@
 // LTX-Video Space. Shots that can't be animated play as the painted still with
 // slow camera drift. Playback/export reuse AiFilm from the cinematic renderer.
 import { LivingFilm } from './living.js';
+import { shotSpeech, lipsyncClip } from './servervoice.js';
 
 const IMG = 'https://image.pollinations.ai/prompt/';
 const GRADIO = 'https://cdn.jsdelivr.net/npm/@gradio/client@2.5.0/dist/browser.js';
@@ -168,7 +169,7 @@ async function serverVideo(url, blob, prompt, shot, size, signal, jobs = false) 
 }
 
 // Waits while your AI server downloads and loads its models (first start).
-async function waitForServer(url, health, onProgress, signal) {
+export async function waitForServer(url, health, onProgress, signal) {
   const t0 = Date.now();
   while (health && !health.ready && health.loading && Date.now() - t0 < 30 * 60000) {
     onProgress(0, `Your AI server is starting: ${health.loading}…`);
@@ -191,7 +192,8 @@ async function fluxImage(gr, prompt, { w, h, seed }) {
 // Never-stop chain for every shot:
 //   image: your AI server → free online AI → on-device AI painter / 3D frame (fallbackStill)
 //   video: your AI server (unlimited) → free online AI video (daily quota) → moving painting
-export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, server = '', fallbackStill = null, onProgress = () => {}, signal } = {}) {
+// voice: {clips, voices} of the film's dialogue, for lip sync on your server.
+export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animate = true, server = '', fallbackStill = null, voice = null, onProgress = () => {}, signal } = {}) {
   const castById = new Map(tl.cast.map((c) => [c.id, c]));
   const size = sizeFor(aspect);
   const shots = tl.shots;
@@ -259,6 +261,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
     }
   }
   let reason = '';
+  let lipsynced = 0;
   if (animate) {
     let client = null, handle_file = null, quotaLeft = !srvVideo;
     if (!srvVideo) {
@@ -273,7 +276,21 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
       if (blobs[i] && (srvVideo || shots[i].kind !== 'title')) {
         const mp = `${motionPrompt(shots[i], castById)}. ${freeShotPrompt(shots[i], castById)}`.slice(0, 1400);
         try {
-          if (srvVideo) media[i].clip = { blob: await serverVideo(srv, blobs[i], mp, shots[i], size, signal, !!health.jobs) };
+          if (srvVideo) {
+            const blob = await serverVideo(srv, blobs[i], mp, shots[i], size, signal, !!health.jobs);
+            media[i].clip = { blob };
+            // lip sync: the on-screen speakers' words, on the clip's clock as the player will show it
+            const len = shots[i].end - shots[i].start;
+            if (health.lipsync && voice && len <= 11) {
+              const clipDur = (Math.floor(Math.max(2, Math.min(10, len)) * 24 / 8) * 8 + 1) / 24;  // as the server makes it
+              const wav = shotSpeech(shots[i], voice.clips, voice.voices, clipDur, Math.min(1.5, Math.max(0.65, clipDur / len)));
+              if (wav) {
+                onProgress(done / total, `Syncing lips in shot ${i + 1} of ${shots.length}`);
+                const synced = await lipsyncClip(srv, blob, wav, signal).catch((e) => { if (e?.name === 'AbortError') throw e; return null; });
+                if (synced) { media[i].clip = { blob: synced }; lipsynced++; }
+              }
+            }
+          }
           else if (quotaLeft) { const vb = await animateFree(client, blobs[i], mp, shots[i], size, handle_file); if (vb) media[i].clip = { blob: vb }; }
         } catch (e) {
           const msg = String(e?.message || e);
@@ -296,6 +313,7 @@ export async function renderFreeFilm(tl, { aspect = '16:9', hfToken = '', animat
   film.reason = reason;
   film.sources = sources;
   film.usedServer = useSrv;
+  film.lipsynced = lipsynced;
   film.serverDown = !!srv && !health;  // a link is set but nothing answers (pod deleted or stopped)
   // what this film used of your server: GPU busy time and, if the server knows its price, the cost
   if (useSrv && health.stats) {

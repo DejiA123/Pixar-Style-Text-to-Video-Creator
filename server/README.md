@@ -7,6 +7,8 @@ electricity.
 
 - **Images:** SDXL-Turbo, about 1 second per picture
 - **Video:** LTX-Video 0.9.8 13B distilled (Lightricks), image-to-video, a fast 8-step model
+- **Voices:** Chatterbox (Resemble AI), realistic speech with emotion, in each character's voice
+- **Lip sync:** LatentSync 1.6 (ByteDance) on 40 GB+ cards, so talking mouths match the words (set up by `server/runpod/start.sh`)
 
 ## What you need
 
@@ -24,6 +26,7 @@ python -m venv .venv
 # Windows:  .venv\Scripts\activate      Linux/Mac:  source .venv/bin/activate
 pip install torch --index-url https://download.pytorch.org/whl/cu124
 pip install -r server/requirements.txt
+pip install --no-deps chatterbox-tts==0.1.7   # the voice model (its own pins are older than the video model's)
 ```
 
 To use it from your phone, also install the free

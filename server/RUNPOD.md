@@ -4,7 +4,9 @@ You don't need a PC for this. Storyreel's AI server runs on a graphics card you
 rent by the second on [RunPod](https://www.runpod.io), and you can set it up
 entirely from your phone. Every shot is painted (SDXL-Turbo) and animated with
 real AI video (LTX-Video 0.9.8 13B distilled), so people walk, turn, gesture and
-talk, and the background moves.
+talk, and the background moves. Every line is spoken by a realistic, emotional AI
+voice (Chatterbox), and on 40 GB+ cards the talking shots get real lip sync
+(LatentSync 1.6), so mouths match the words.
 
 **Cost, measured:** on an A40 (48 GB, $0.59 an hour) a 5-second AI clip takes
 about 26 seconds. A 14-shot film (about a minute of AI video) used 5 minutes of
@@ -23,7 +25,7 @@ bill. After each film, the app shows the GPU time it used and its cost.
    | Type | Pod · NVIDIA GPU |
    | Container image | `runpod/pytorch:0.7.0-cu1241-torch260-ubuntu2204` |
    | Start command (tap **+ Start command**) | see below |
-   | Container disk | `80` GB |
+   | Container disk | `120` GB (video, voice and lip-sync models) |
    | Volume disk | `0` GB (none: it's the cheapest) |
    | HTTP ports | label `storyreel`, port `7860` |
    | Environment variable | `STORYREEL_GPU_PRICE` = the GPU's hourly price, e.g. `0.34` (optional: it turns GPU time into a cost) |
@@ -78,6 +80,7 @@ Each new pod gets a new link, so paste the new one into Settings.
 | `STORYREEL_GPU_PRICE` | none | The GPU's $/hour, so the app and logs can show the cost. |
 | `STORYREEL_VIDEO_MODEL` | `Lightricks/LTX-Video-0.9.8-13B-distilled` | The video model. |
 | `STORYREEL_BRANCH` | `claude/jolly-ramanujan-vzdz0b` | The branch of this repo to run. |
+| `STORYREEL_LIPSYNC` | `auto` | `auto` turns lip sync on for 40 GB+ cards, `1` forces it on, `0` turns it off. |
 
 ## Other GPUs
 
@@ -88,6 +91,17 @@ Each new pod gets a new link, so paste the new one into Settings.
 - **RTX 50xx / RTX PRO 6000 / B200 (newest cards):** the start script installs a
   newer PyTorch for them automatically (2–3 extra minutes at start).
 - **Avoid** cards under 24 GB (RTX 4070 Ti, A4000, 3070…): the video model won't fit.
+
+## Voices and lip sync
+
+- **Voices:** with the server connected, Storyreel records each line in your
+  browser first, then the server re-speaks it with Chatterbox in the same voice,
+  acting the scene's emotion (excited, sad, scared…). If that fails, the
+  in-browser voices stay. Needs **Voices: AI voices** in Settings.
+- **Lip sync:** for each AI clip where an on-screen character speaks, LatentSync
+  re-renders the mouth to match their words. It's set up in the background a few
+  minutes after the server starts (logs show `[lipsync] ready`); films made
+  before that skip it. Shots with no clear face keep their original clip.
 
 ## If something goes wrong
 

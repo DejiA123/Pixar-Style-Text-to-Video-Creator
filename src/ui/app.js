@@ -12,7 +12,8 @@ import { Player } from '../film/player.js';
 import { exportVideo } from '../film/exporter.js';
 import { castVoices, KOKORO_NARRATORS } from '../audio/voices.js';
 import { Painter, PaintedFilm, painterSize } from '../ai/painter.js';
-import { renderFreeFilm } from '../ai/freefilm.js';
+import { renderFreeFilm, checkServer, waitForServer } from '../ai/freefilm.js';
+import { serverVoices } from '../ai/servervoice.js';
 import { KokoroEngine, WebSpeechEngine } from '../audio/tts.js';
 import { renderSoundtrack, lipEnvelope, clipDuration } from '../audio/mixer.js';
 import { timecode, formatTime } from '../util.js';
@@ -237,6 +238,19 @@ async function makeMovie() {
         steps.set('voices', 'active', `${++i}/${uniq.length}`);
       }
       usedNeural = true;
+      // realistic voices: your AI server re-speaks every line in the same voices, with emotion
+      const srv = freeAI ? $('ai-server').value.trim().replace(/\/+$/, '') : '';
+      let health = srv ? await checkServer(srv) : null;
+      if (health) health = await waitForServer(srv, health, (p, msg) => steps.label('voices', msg));
+      if (health?.tts) {
+        steps.label('voices', 'Recording realistic voices on your AI server');
+        try {
+          if (await serverVoices(srv, plan, clips, voices, { onProgress: (p, n) => steps.set('voices', 'active', n) })) {
+            for (const [sp, v] of voices) voices.set(sp, { ...v, rate: 1 });  // speed and pitch are in the new recordings
+            for (const [key, clip] of clips) durations.set(key, clipDuration(clip, 1));
+          }
+        } catch (e) { console.warn('AI server voices unavailable, keeping in-browser voices', e); }
+      }
     } catch (e) {
       console.warn('Neural voices unavailable, falling back to browser voices', e);
       state.kokoro?.dispose?.();
@@ -260,12 +274,12 @@ async function makeMovie() {
   } else if (freeAI) {
     film = await renderFreeFilm(tl, {
       aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server: $('ai-server').value.trim(),
-      fallbackStill: makeLocalPainter(),
+      fallbackStill: makeLocalPainter(), voice: usedNeural ? { clips, voices } : null,
       onProgress: (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); },
     });
     state.ai = true;
     if (film.serverDown) toast('Your AI server isn’t running, so free online AI was used instead. Start it again in RunPod (or on your PC) and paste its new link in Settings.', false, 12000);
-    else if ($('free-animate').checked) toast(film.usedServer && film.animatedCount ? `All ${film.animatedCount} shots animated on your AI server${film.serverSeconds != null ? ` (GPU time ${Math.round(film.serverSeconds)} s${film.serverCost != null ? `, about $${film.serverCost.toFixed(3)}` : ''})` : ''}.` : film.animatedCount ? `${film.animatedCount} of ${tl.shots.length} shots animated with free AI video${film.reason ? ` (${film.reason}; the rest move as paintings)` : ''}.` : `Shots play as moving AI paintings${film.reason ? ` — ${film.reason}` : ''}. Add a free Hugging Face token in Settings for more AI video.`, false, 9000);
+    else if ($('free-animate').checked) toast(film.usedServer && film.animatedCount ? `All ${film.animatedCount} shots animated on your AI server${film.lipsynced ? `, ${film.lipsynced} with lip sync` : ''}${film.serverSeconds != null ? ` (GPU time ${Math.round(film.serverSeconds)} s${film.serverCost != null ? `, about $${film.serverCost.toFixed(3)}` : ''})` : ''}.` : film.animatedCount ? `${film.animatedCount} of ${tl.shots.length} shots animated with free AI video${film.reason ? ` (${film.reason}; the rest move as paintings)` : ''}.` : `Shots play as moving AI paintings${film.reason ? ` — ${film.reason}` : ''}. Add a free Hugging Face token in Settings for more AI video.`, false, 9000);
   } else {
     if (!state.fr) state.fr = new FilmRenderer(state.glCanvas, { quality: $('quality').value });
     state.fr.setQuality($('quality').value);
