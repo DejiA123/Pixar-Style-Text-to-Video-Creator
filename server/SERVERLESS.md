@@ -17,7 +17,9 @@ starts and loads the models; films right after it start straight away.
    under **Connections**, tap **Connect**, and allow the
    `Pixar-Style-Text-to-Video-Creator` repository.
 2. **Make a storage volume for the models.** Open **Storage**, tap **New Network
-   Volume**, pick a **datacenter that lists A40 or RTX A6000 GPUs**, name it
+   Volume**, pick a **datacenter where 48 GB cards (A40, RTX A6000, L40, L40S,
+   RTX 6000 Ada) show some availability** (tap a datacenter to see its own
+   table; US-KS-2 had L40s and A100s), name it
    `storyreel-models`, set **80 GB**, and create it. Workers run in that
    datacenter, so pick one with 48 GB cards available.
 3. **Create the endpoint.** Open **Serverless**, tap **New Endpoint**, then under
@@ -29,7 +31,7 @@ starts and loads the models; films right after it start straight away.
    | Dockerfile Path | `server/serverless/Dockerfile` |
    | Endpoint Name | `storyreel` |
    | Endpoint Type | **Queue** |
-   | GPU | **48 GB** (A40 / RTX A6000 / L40). Add 80 GB as a second choice if you like |
+   | GPU | **48 GB** and/or **48 GB PRO** (A40, RTX A6000, L40, L40S, RTX 6000 Ada), with **80 GB** (A100, H100) as a second choice. Not RTX 5090 / RTX PRO 6000 / B200: the worker's software doesn't support that newest generation yet |
    | Active workers | `0` (nothing runs, and nothing is billed, while you're not making films) |
    | Max workers | `1` (raise it later if several people make films at once) |
    | Idle timeout | `120` seconds (a film is many small jobs; this keeps the GPU between them) |
