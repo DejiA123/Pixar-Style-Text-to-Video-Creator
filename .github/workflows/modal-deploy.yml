@@ -1,0 +1,25 @@
+# Deploys the Storyreel AI server to Modal (server/MODAL.md) whenever the server changes.
+# Needs two repository secrets from modal.com → Settings → API Tokens: MODAL_TOKEN_ID, MODAL_TOKEN_SECRET.
+name: Deploy AI server to Modal
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/jolly-ramanujan-vzdz0b]
+    paths: ['server/**', 'Dockerfile', '.github/workflows/modal-deploy.yml']
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+    steps:
+      - if: env.MODAL_TOKEN_ID == ''
+        run: echo "No MODAL_TOKEN_ID secret yet, so nothing to deploy (see server/MODAL.md)."
+      - if: env.MODAL_TOKEN_ID != ''
+        uses: actions/checkout@v4
+      - if: env.MODAL_TOKEN_ID != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - if: env.MODAL_TOKEN_ID != ''
+        run: pip install modal && modal deploy server/modal_app.py
