@@ -119,15 +119,16 @@
             </label>
             <label class="field"><span>GPU cost</span>
               <select id="speed">
+                <option value="fast" selected>Fast &amp; cheap: about half the GPU time, no lip sync</option>
                 <option value="best">Best quality (with lip sync)</option>
-                <option value="fast">Fast &amp; cheap: about half the GPU time, no lip sync</option>
               </select>
             </label>
             <label class="check"><input type="checkbox" id="free-animate" checked> Animate every shot with AI video</label>
             <label class="check"><input type="checkbox" id="review-first" checked> Let me check the shots before animating</label>
-            <label class="field"><span>Your AI server: RunPod endpoint ID, or a pod link</span><input id="ai-server" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abc123xyz456 or https://xxxx-7860.proxy.runpod.net"></label>
+            <label class="field"><span>Your AI server: a Modal link, a RunPod pod link, or a RunPod endpoint ID</span><input id="ai-server" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abc123xyz456 or https://xxxx-7860.proxy.runpod.net"></label>
             <label class="field" id="runpod-key-field" hidden><span>RunPod API key (stays in this browser, sent only to RunPod)</span><input id="runpod-key" type="password" autocomplete="off" placeholder="rpa_…"></label>
             <p class="server-status" id="server-status" role="status" hidden><span class="dot"></span><span class="text"></span></p>
+            <label class="field"><span>Backup AI server (used when the first can't work, e.g. Modal's free credit ran out)</span><input id="ai-server-2" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://xxxx-7860.proxy.runpod.net"></label>
             <label class="field" hidden><span>Free Hugging Face token (optional, more free video per day)</span><input id="hf-token" type="password" autocomplete="off" placeholder="hf_…"></label>
             <p class="hint">Serverless starts a GPU only while you make films (see server/SERVERLESS.md); a pod link works too (server/RUNPOD.md). The light shows when it's ready.</p>
           </div>
@@ -189,6 +190,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793322389"></script>
+<script type="module" src="src/ui/app.js?v=1793323220"></script>
 </body>
 </html>

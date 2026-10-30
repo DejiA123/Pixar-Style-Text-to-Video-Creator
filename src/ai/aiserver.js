@@ -54,9 +54,9 @@ function linkedServer(url) {
   };
   const client = {
     kind: 'link', label: url,
-    async health() {
+    async health(waitMs = 8000) {
       try {
-        const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(8000) });
+        const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(waitMs) });
         const j = await res.json();
         return j && j.ok ? j : null;
       } catch { return null; }

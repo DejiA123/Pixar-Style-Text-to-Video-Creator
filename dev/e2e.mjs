@@ -35,6 +35,7 @@ if (process.env.RENDER) await setSel('render-mode', process.env.RENDER);
 if (process.env.LENGTH) await setSel('length', process.env.LENGTH);
 if (process.env.RUNPOD_KEY) await setVal('runpod-key', process.env.RUNPOD_KEY);
 if (process.env.AISERVER) await setVal('ai-server', process.env.AISERVER);
+if (process.env.AISERVER2) await setVal('ai-server-2', process.env.AISERVER2);
 if (process.env.NOANIM) await setVal('free-animate', '0');
 await setVal('review-first', process.env.REVIEW ? '1' : '0');
 if (process.env.SPEED) await setSel('speed', process.env.SPEED);

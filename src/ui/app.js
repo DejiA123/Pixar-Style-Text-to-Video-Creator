@@ -73,6 +73,8 @@ function init() {
   if (store.get('render-mode', null) == null) $('render-mode').value = 'free';
   $('ai-server').value = store.get('ai-server', '') || DEFAULT_AI_SERVER;
   $('ai-server').addEventListener('change', () => store.set('ai-server', $('ai-server').value.trim()));
+  $('ai-server-2').value = store.get('ai-server-2', '');
+  $('ai-server-2').addEventListener('change', () => store.set('ai-server-2', $('ai-server-2').value.trim()));
   $('runpod-key').value = store.get('runpod-key', '');
   $('runpod-key').addEventListener('change', () => store.set('runpod-key', $('runpod-key').value.trim()));
   setupServerStatus();
@@ -161,6 +163,22 @@ function reviewShots({ shots, blobs, repaint }) {
 
 // Your AI server from Settings: a RunPod Serverless endpoint (ID + API key) or a link.
 const currentServer = () => aiServer($('ai-server').value, $('runpod-key').value);
+const backupServer = () => aiServer($('ai-server-2').value, $('runpod-key').value);
+const sleepy = (v) => /\.modal\.run/.test(v || '');  // a Modal server sleeps when idle and wakes on the first request
+
+// The server for this film: your AI server, or the backup when it can't answer
+// (a sleeping Modal server gets up to 2 minutes to wake up first).
+async function pickServer(onMsg = () => {}) {
+  const main = currentServer(), backup = backupServer();
+  if (!main) return backup;
+  if (sleepy($('ai-server').value)) onMsg('Waking up your AI server… (1–3 minutes after a quiet spell)');
+  const h = await main.health(sleepy($('ai-server').value) ? 120000 : 15000);
+  if (!backup) return main;
+  if (h && h.ok !== false) return main;
+  const hb = await backup.health(15000);
+  if (hb && hb.ok !== false) { toast('Your first AI server isn’t answering, so this film uses your backup server.', false, 7000); return backup; }
+  return main;
+}
 
 // Live status of your AI server: a line under its link in Settings and a pill next
 // to Generate (green ready, amber starting, red not running). Health checks don't
@@ -194,7 +212,8 @@ function setupServerStatus() {
         show('ready', `Ready · RunPod Serverless · ${h.warm ? `${h.warm} GPU${h.warm > 1 ? 's' : ''} warm` : h.starting ? 'a GPU is starting…' : 'a GPU starts when you generate (the first film waits a few minutes)'}`, 'Server ready');
         again = 30000;
       }
-    } else if (!h) show('down', 'Not running. Your pod stops itself when idle: open Pods in RunPod and tap Start on it (it’s ready about 15 minutes later). A new pod has a new link: paste it here.', 'Server off');
+    } else if (!h && sleepy(value)) show('starting', 'Asleep: it wakes up when you press Generate (the first film waits 1–3 minutes).', 'Asleep');
+    else if (!h) show('down', 'Not running. Your pod stops itself when idle: open Pods in RunPod and tap Start on it (it’s ready about 15 minutes later). A new pod has a new link: paste it here.', 'Server off');
     else if (!h.ready) show('starting', `Starting: ${h.loading}…`, 'Starting…');
     else {
       const lips = h.lipsync ? 'lip sync ✓' : h.lipsync_state === 'setting up' ? 'lip sync setting up…' : 'no lip sync';
@@ -382,7 +401,7 @@ async function makeMovie() {
   }
   const neural = $('voice-engine').value === 'neural';
   // one AI server client for the whole film; a serverless GPU waking up shows in the progress card
-  const server = freeAI ? currentServer() : null;
+  const server = freeAI ? await pickServer((msg) => meter.now(msg)) : null;
   if (server) {
     server.onWait = (op, sec) => {
       if (sec < 0) { const li = steps.list.find((l) => l.classList.contains('active')); if (li) meter.now(li.firstChild.textContent); return; }
