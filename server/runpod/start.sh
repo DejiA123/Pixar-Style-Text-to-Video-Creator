@@ -9,7 +9,7 @@ set -euo pipefail
 REPO="${STORYREEL_REPO:-https://github.com/DejiA123/Pixar-Style-Text-to-Video-Creator}"
 BRANCH="${STORYREEL_BRANCH:-claude/jolly-ramanujan-vzdz0b}"
 PORT="${STORYREEL_PORT:-7860}"
-IDLE="${STORYREEL_IDLE_MINUTES:-20}"
+IDLE="${STORYREEL_IDLE_MINUTES:-5}"  # idle minutes before the pod stops itself (each one is paid)
 IDLE_ACTION="${STORYREEL_IDLE_ACTION:-stop}"  # stop keeps the pod and its link for next time
 W=/workspace
 APP="$W/storyreel"

@@ -89,7 +89,7 @@ def main():
     ap.add_argument('--port', type=int, default=7862)
     ap.add_argument('--config', default='configs/unet/stage2_512.yaml')
     ap.add_argument('--ckpt', default='checkpoints/latentsync_unet.pt')
-    ap.add_argument('--steps', type=int, default=20)
+    ap.add_argument('--steps', type=int, default=int(os.environ.get('STORYREEL_LIPSYNC_STEPS', '10')))  # 20 is LatentSync's default: twice the GPU time
     ap.add_argument('--guidance', type=float, default=1.5)
     ap.add_argument('--no-deepcache', action='store_true')
     a = ap.parse_args()

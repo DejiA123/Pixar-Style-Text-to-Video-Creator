@@ -10,9 +10,11 @@ talk, and the background moves. Every line is spoken by a realistic, emotional A
 voice (Chatterbox), and on 40 GB+ cards the talking shots get real lip sync
 (LatentSync 1.6), so mouths match the words.
 
+**Cheapest setup (under 5 cents a film):** deploy on **Community Cloud** (A40 or RTX A6000, about $0.33–0.35 an hour, half the Secure Cloud price) and make several films per start.
+
 **Cost, measured:** on an A40 (48 GB, $0.59 an hour) a 5-second AI clip takes
 about 26 seconds. A 14-shot film (about a minute of AI video) used 5 minutes of
-GPU time, roughly **$0.05**. The pod **stops itself after 20 idle minutes**, so a
+GPU time, roughly **$0.05**. The pod **stops itself after 5 idle minutes**, so a
 forgotten pod can't run up a bill, and it keeps its link: next time, tap **Start**
 on it in RunPod and the same link works again (the models download again, about
 15 minutes). After each film, the app shows the GPU time it used and its cost.
@@ -70,7 +72,7 @@ on it in RunPod and the same link works again (the models download again, about
    the link into **Your AI server**. Make your film. If the server is still
    loading, the app shows *"Your AI server is starting…"* and waits for it.
 4. When you're done, tap **Terminate** on the pod. Or just leave it: it deletes
-   itself after 20 minutes with no films.
+   itself after 5 minutes with no films.
 
 Each new pod gets a new link, so paste the new one into Settings.
 
@@ -78,12 +80,13 @@ Each new pod gets a new link, so paste the new one into Settings.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `STORYREEL_IDLE_MINUTES` | `20` | Idle minutes before the pod shuts itself down. |
+| `STORYREEL_IDLE_MINUTES` | `5` | Idle minutes before the pod shuts itself down. |
 | `STORYREEL_IDLE_ACTION` | `stop` | `stop` keeps the pod and its link (with no volume disk, a stopped pod costs next to nothing), but RunPod may have no free GPU on that machine when you start it again. `remove` deletes the pod. |
 | `STORYREEL_GPU_PRICE` | none | The GPU's $/hour, so the app and logs can show the cost. |
 | `STORYREEL_VIDEO_MODEL` | `Lightricks/LTX-Video-0.9.8-13B-distilled` | The video model. |
 | `STORYREEL_BRANCH` | `claude/jolly-ramanujan-vzdz0b` | The branch of this repo to run. |
 | `STORYREEL_LIPSYNC` | `auto` | `auto` turns lip sync on for 40 GB+ cards, `1` forces it on, `0` turns it off. |
+| `STORYREEL_LIPSYNC_STEPS` | `10` | Lip-sync quality steps. `20` is a little sharper and takes twice the GPU time. |
 | `STORYREEL_WRITER` | `1` | `0` turns the AI dialogue writer off. `STORYREEL_WRITER_MODEL` picks another model from Hugging Face. |
 
 ## Other GPUs
@@ -116,7 +119,7 @@ Each new pod gets a new link, so paste the new one into Settings.
 
 ## If something goes wrong
 
-- **The app says the server isn't running.** The pod stopped after 20 idle
+- **The app says the server isn't running.** The pod stopped after 5 idle
   minutes: open **Pods** and tap **Start** on it. If RunPod says there's no free
   GPU for it, deploy a new pod and paste its new link.
 - **Logs show "Killed" while loading.** The pod ran out of memory. Pick a pod

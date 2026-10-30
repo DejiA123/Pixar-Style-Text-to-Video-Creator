@@ -296,7 +296,9 @@ export async function renderFreeFilm(tl, { look = 'pixar', aspect = '16:9', hfTo
             onShot(i, null, 'animated');
             // lip sync: the on-screen speakers' words, on the clip's clock as the player will show it
             const len = shots[i].end - shots[i].start;
-            if (voice && len <= 11 && await lipsNow()) {
+            // only where the face is big enough to see the mouth: wide shots aren't worth the GPU time
+            const faceShot = ['closeup', 'medium', 'over-shoulder', 'two-shot', 'lowangle'].includes(shots[i].type);
+            if (voice && len <= 11 && faceShot && await lipsNow()) {
               const clipDur = (Math.floor(Math.max(2, Math.min(10, len)) * 24 / 8) * 8 + 1) / 24;  // as the server makes it
               const wav = shotSpeech(shots[i], voice.clips, voice.voices, clipDur, Math.min(1.5, Math.max(0.65, clipDur / len)));
               if (wav) {
