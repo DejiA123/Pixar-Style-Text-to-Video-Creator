@@ -58,7 +58,7 @@ function init() {
   const nar = $('narrator');
   for (const n of KOKORO_NARRATORS) { const o = document.createElement('option'); o.value = n.id; o.textContent = n.label; nar.appendChild(o); }
   // AI film with AI voices only: their old saved choices are no longer restored
-  for (const id of ['narrator', 'aspect', 'length', 'quality', 'export-res', 'ai-video', 'look']) {
+  for (const id of ['narrator', 'aspect', 'length', 'quality', 'export-res', 'ai-video', 'look', 'speed']) {
     const el = $(id); const v = store.get(id, null);
     if (v != null && [...el.options].some((o) => o.value === v)) el.value = v;
     el.addEventListener('change', () => { store.set(id, el.value); onSettings(id); });
@@ -485,7 +485,7 @@ async function makeMovie() {
   } else if (freeAI) {
     meter.shots(tl.shots.length, state.aspect);
     film = await renderFreeFilm(tl, {
-      look: $('look').value, aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server,
+      speed: $('speed').value, look: $('look').value, aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server,
       fallbackStill: makeLocalPainter(), voice: usedNeural ? { clips, voices } : null,
       review: $('free-animate').checked && $('review-first').checked ? async (r) => {
         steps.label('build', 'Waiting for you to check the shots'); meter.pause('waiting for you');

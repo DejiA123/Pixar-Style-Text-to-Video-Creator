@@ -117,6 +117,12 @@
                 <option value="real">Cinematic, real life</option>
               </select>
             </label>
+            <label class="field"><span>GPU cost</span>
+              <select id="speed">
+                <option value="best">Best quality (with lip sync)</option>
+                <option value="fast">Fast &amp; cheap: about half the GPU time, no lip sync</option>
+              </select>
+            </label>
             <label class="check"><input type="checkbox" id="free-animate" checked> Animate every shot with AI video</label>
             <label class="check"><input type="checkbox" id="review-first" checked> Let me check the shots before animating</label>
             <label class="field"><span>Your AI server: RunPod endpoint ID, or a pod link</span><input id="ai-server" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abc123xyz456 or https://xxxx-7860.proxy.runpod.net"></label>
@@ -183,6 +189,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793321839"></script>
+<script type="module" src="src/ui/app.js?v=1793322389"></script>
 </body>
 </html>

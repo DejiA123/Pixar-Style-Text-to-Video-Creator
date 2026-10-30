@@ -170,9 +170,13 @@ async function serverImage(server, prompt, { w, h, seed }, signal) {
   const blob = await server.image({ prompt, width: w, height: h, seed }, signal);
   return { img: await createImageBitmap(blob), blob };
 }
-async function serverVideo(server, blob, prompt, shot, size, signal) {
-  return server.video({ prompt, image: await blobToDataUrl(blob), width: Math.round(size.w * 0.75), height: Math.round(size.h * 0.75),
-    seconds: Math.max(2, Math.min(10, shot.end - shot.start)), seed: 7 }, signal);
+// Best: clips at 3/4 of the picture size, as long as the shot (up to 10 s).
+// Fast & cheap: 0.6 of the size and at most 6 s (the player stretches longer shots): about half the GPU time.
+const VIDEO = { best: { scale: 0.75, max: 10 }, fast: { scale: 0.6, max: 6 } };
+async function serverVideo(server, blob, prompt, shot, size, signal, speed = 'best') {
+  const v = VIDEO[speed] || VIDEO.best;
+  return server.video({ prompt, image: await blobToDataUrl(blob), width: Math.round(size.w * v.scale), height: Math.round(size.h * v.scale),
+    seconds: Math.max(2, Math.min(v.max, shot.end - shot.start)), seed: 7 }, signal);
 }
 
 // Second free image source: the public FLUX.1-schnell Space (Hugging Face free GPU quota).
@@ -192,7 +196,7 @@ async function fluxImage(gr, prompt, { w, h, seed }) {
 // film's dialogue, for lip sync on your server.
 // review({shots, blobs, notes, repaint}): called once every shot is painted and before
 // anything is animated; the film continues when it resolves (repaint(i, note) redraws a shot).
-export async function renderFreeFilm(tl, { look = 'pixar', aspect = '16:9', hfToken = '', animate = true, server = null, fallbackStill = null, voice = null, review = null, onShot = () => {}, onProgress = () => {}, signal } = {}) {
+export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspect = '16:9', hfToken = '', animate = true, server = null, fallbackStill = null, voice = null, review = null, onShot = () => {}, onProgress = () => {}, signal } = {}) {
   const castById = new Map(tl.cast.map((c) => [c.id, c]));
   const size = sizeFor(aspect);
   const shots = tl.shots;
@@ -291,14 +295,14 @@ export async function renderFreeFilm(tl, { look = 'pixar', aspect = '16:9', hfTo
         const mp = [notes[i], `${motionPrompt(shots[i], castById, look)}. ${freeShotPrompt(shots[i], castById, look)}`].filter(Boolean).join('. ').slice(0, 1400);
         try {
           if (srvVideo) {
-            const blob = await serverVideo(srv, blobs[i], mp, shots[i], size, signal);
+            const blob = await serverVideo(srv, blobs[i], mp, shots[i], size, signal, speed);
             media[i].clip = { blob };
             onShot(i, null, 'animated');
             // lip sync: the on-screen speakers' words, on the clip's clock as the player will show it
             const len = shots[i].end - shots[i].start;
             // only where the face is big enough to see the mouth: wide shots aren't worth the GPU time
             const faceShot = ['closeup', 'medium', 'over-shoulder', 'two-shot', 'lowangle'].includes(shots[i].type);
-            if (voice && len <= 11 && faceShot && await lipsNow()) {
+            if (speed !== 'fast' && voice && len <= 11 && faceShot && await lipsNow()) {
               const clipDur = (Math.floor(Math.max(2, Math.min(10, len)) * 24 / 8) * 8 + 1) / 24;  // as the server makes it
               const wav = shotSpeech(shots[i], voice.clips, voice.voices, clipDur, Math.min(1.5, Math.max(0.65, clipDur / len)));
               if (wav) {

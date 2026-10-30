@@ -37,6 +37,7 @@ if (process.env.RUNPOD_KEY) await setVal('runpod-key', process.env.RUNPOD_KEY);
 if (process.env.AISERVER) await setVal('ai-server', process.env.AISERVER);
 if (process.env.NOANIM) await setVal('free-animate', '0');
 await setVal('review-first', process.env.REVIEW ? '1' : '0');
+if (process.env.SPEED) await setSel('speed', process.env.SPEED);
 const t0 = Date.now();
 await page.click('#make');
 let ok = false;
