@@ -203,6 +203,13 @@ function setupServerStatus() {
     const server = currentServer();
     box.hidden = chip.hidden = !server;
     if (!server) return;
+    // A Modal server is billed for every minute it's awake, and any request (even this status
+    // check) wakes it and keeps it from sleeping. So the light never asks it: it wakes only when
+    // you press Generate, and the film's progress card shows it starting.
+    if (sleepy(value)) {
+      show('ready', 'Modal: asleep and free until you press Generate (the first film after a break waits 1–3 minutes while it wakes up).', 'Modal ready');
+      return;
+    }
     const mine = ++seq;
     if (!box.dataset.server) show('checking', 'Checking your AI server…', 'Checking…');
     const h = await server.health();
