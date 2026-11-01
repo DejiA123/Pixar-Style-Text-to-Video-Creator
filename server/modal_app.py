@@ -17,7 +17,9 @@ import modal
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # the same image as the RunPod Serverless worker: models' libraries plus LatentSync in its own Python
-image = modal.Image.from_dockerfile(os.path.join(ROOT, 'Dockerfile'), context_dir=ROOT)
+# Modal runs its own side on Python 3.11 (add_python); the server itself runs on the image's
+# Python, which has PyTorch, under the fixed name storyreel-python
+image = modal.Image.from_dockerfile(os.path.join(ROOT, 'Dockerfile'), context_dir=ROOT, add_python='3.11')
 models = modal.Volume.from_name('storyreel-models', create_if_missing=True)  # downloaded once, kept between runs
 app = modal.App('storyreel')
 
@@ -28,7 +30,7 @@ app = modal.App('storyreel')
 @modal.web_server(7860, startup_timeout=600)
 def serve():
     env = {**os.environ, 'STORYREEL_DATA': '/data', 'HF_HOME': '/data/hf', 'STORYREEL_GPU_PRICE': '1.95'}
-    subprocess.Popen(['python3', '-u', '/app/server/modal_start.py'], env=env, cwd='/app')
+    subprocess.Popen(['/usr/local/bin/storyreel-python', '-u', '/app/server/modal_start.py'], env=env, cwd='/app')
 
     def keep():  # save new downloads to the volume as they arrive (it also saves when the container stops)
         while True:

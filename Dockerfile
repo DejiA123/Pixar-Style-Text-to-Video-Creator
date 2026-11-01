@@ -8,8 +8,8 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends ffmpeg libgl1 git \
  && rm -rf /var/lib/apt/lists/* && python3 -c "import torch; print('torch', torch.__version__)"
 
-# Modal starts containers with `python`: make sure it names the image's Python 3
-RUN command -v python >/dev/null || ln -s "$(command -v python3)" /usr/local/bin/python
+# a fixed name for the Python that has PyTorch (Modal adds its own newer Python next to it)
+RUN ln -sf "$(readlink -f "$(command -v python3)")" /usr/local/bin/storyreel-python
 
 WORKDIR /app
 COPY server/requirements.txt server/requirements.txt
