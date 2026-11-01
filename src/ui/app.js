@@ -15,7 +15,7 @@ import { exportVideo } from '../film/exporter.js';
 import { castVoices, KOKORO_NARRATORS } from '../audio/voices.js';
 import { Painter, PaintedFilm, painterSize } from '../ai/painter.js';
 import { renderFreeFilm } from '../ai/freefilm.js';
-import { aiServer, serverlessId, waitForServer } from '../ai/aiserver.js';
+import { aiServer, serverlessId, waitForServer, startupProgress } from '../ai/aiserver.js';
 import { serverVoices } from '../ai/servervoice.js';
 import { KokoroEngine, WebSpeechEngine } from '../audio/tts.js';
 import { renderSoundtrack, lipEnvelope, clipDuration } from '../audio/mixer.js';
@@ -186,9 +186,13 @@ async function pickServer(onMsg = () => {}) {
 function setupServerStatus() {
   const box = $('server-status'), chip = $('server-chip');
   let timer = 0, seq = 0;
-  const show = (st, text, short) => {
+  const show = (st, text, short, progress = null) => {
     box.dataset.server = chip.dataset.server = st;
     box.querySelector('.text').textContent = text;
+    // a live bar and a changing line while the server starts, so nobody wonders whether anything is happening
+    box.classList.toggle('loading', !!progress);
+    box.style.setProperty('--pct', `${progress ? progress.pct : 0}%`);
+    box.querySelector('.tip').textContent = progress ? `${progress.tip}…` : '';
     chip.querySelector('.label').textContent = short;
     chip.title = text;
   };
@@ -214,7 +218,11 @@ function setupServerStatus() {
       }
     } else if (!h && sleepy(value)) show('starting', 'Asleep: it wakes up when you press Generate (the first film waits 1–3 minutes).', 'Asleep');
     else if (!h) show('down', 'Not running. Your pod stops itself when idle: open Pods in RunPod and tap Start on it (it’s ready about 15 minutes later). A new pod has a new link: paste it here.', 'Server off');
-    else if (!h.ready) show('starting', `Starting: ${h.loading}…`, 'Starting…');
+    else if (!h.ready) {
+      const p = startupProgress(h.loading);
+      show('starting', `${p.label} · ${p.pct}% · ${p.elapsed}`, `Starting ${p.pct}%`, p);
+      again = 3000;  // keeps the bar moving (and a sleeping server awake while it loads)
+    }
     else {
       const lips = h.lipsync ? 'lip sync ✓' : h.lipsync_state === 'setting up' ? 'lip sync setting up…' : 'no lip sync';
       const video = h.video ? 'AI video ✓' : h.error ? 'AI video failed to load (start a fresh pod)' : 'no AI video';

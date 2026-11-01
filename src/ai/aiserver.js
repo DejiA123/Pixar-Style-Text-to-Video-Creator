@@ -136,12 +136,42 @@ function runpodEndpoint(base, id, key) {
   return client;
 }
 
+// How far a starting server has got, as a percentage: each loading step has its share of the
+// bar and creeps through it at about its usual pace (the first start downloads ~60 GB of models,
+// later starts only load them), never quite reaching the next step on its own.
+const STEPS = [
+  [/^starting/, 0, 6, 20, 'Waking up the GPU'], [/image model/, 6, 22, 90, 'Getting the picture AI ready'],
+  [/video model/, 22, 84, 420, 'Getting the video AI ready'], [/voice model/, 84, 97, 60, 'Getting the voices ready'],
+];
+const stepSeen = new Map();
+let startSeen = 0;
+export function startupProgress(loading) {
+  const now = Date.now();
+  if (!startSeen || now - startSeen > 60 * 60000) { startSeen = now; stepSeen.clear(); }
+  if (!stepSeen.has(loading)) stepSeen.set(loading, now);
+  const [, a, b, pace, label] = STEPS.find(([re]) => re.test(loading || '')) || [null, 0, 95, 300, 'Getting ready'];
+  const pct = a + (b - a) * (1 - Math.exp(-(now - stepSeen.get(loading)) / 1000 / pace));
+  const secs = Math.round((now - startSeen) / 1000);
+  const tip = TIPS[Math.floor(secs / 8) % TIPS.length];
+  return { label, pct: Math.max(2, Math.min(99, Math.round(pct))), elapsed: `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`, tip };
+}
+const TIPS = [
+  'Unpacking about 60 GB of movie magic (only the very first time)',
+  'Teaching the camera how to move',
+  'Warming up the voice actors',
+  'Setting up the lights on set',
+  'Loading the AI that paints every shot',
+  'Next time this takes a minute or two, not this long',
+  'Your films will be made on a top-end NVIDIA GPU',
+];
+
 // Waits while a linked server downloads and loads its models (first start).
 export async function waitForServer(server, health, onProgress, signal) {
   const t0 = Date.now();
   while (health && !health.ready && health.loading && Date.now() - t0 < 30 * 60000) {
-    onProgress(0, `Your AI server is starting: ${health.loading}…`);
-    await sleep(5000, signal);
+    const p = startupProgress(health.loading);
+    onProgress(p.pct / 100, `${p.label}: ${p.pct}% · ${p.elapsed} · ${p.tip}…`);
+    await sleep(4000, signal);
     health = (await server.health()) || health;
   }
   return health;
