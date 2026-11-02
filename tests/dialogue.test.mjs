@@ -36,3 +36,12 @@ test('an empty place stays empty, and a crowd is named by its plural', () => {
   applyDialogue(e, { cast: [], scenes: [{ index: j, shot: 'The heavy stone is rolled away from the empty rock tomb, morning light pouring in', lines: [] }] });
   assert.deepEqual(e.scenes[j].characters, []);
 });
+
+test('people the director places somewhere else are not in the shot', () => {
+  const p = plan('christmas');
+  const i = p.scenes.findIndex((s) => s.text.includes('watching their sheep'));
+  applyDialogue(p, { cast: [], scenes: [{ index: i, shot: 'On a quiet hillside, the shepherds watch sheep under a starry sky. Mary and Joseph are in the stable. A distant light glows.', lines: [] }] });
+  const names = p.scenes[i].characters.map((id) => p.cast.find((c) => c.id === id).noun || p.cast.find((c) => c.id === id).name);
+  assert.ok(!names.includes('Mary') && !names.includes('Joseph'), names.join(','));
+  assert.ok(names.includes('shepherd'));
+});

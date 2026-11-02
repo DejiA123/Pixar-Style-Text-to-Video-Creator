@@ -22,8 +22,11 @@ function about(c) {
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // Who the director put in a shot, in the order it names them ("The father and Samuel sit on a bench"):
 // people by name; unnamed ones ("the old man", "the shepherds") by what they are.
+// a later sentence that only says where someone else is ("Mary and Joseph are in the stable.") doesn't put them in the shot
+const ELSEWHERE = /\b(?:is|are|stays?|remains?|waits?)\s+(?:still\s+|back\s+|far\s+away\s+)?(?:in|at|inside)\s+(?:the|a|an|his|her|their)\s+(?:stable|house|home|hospital|town|city|village|church|inn|tomb|garden|kitchen|field|farm|room|bed|bedroom|office|school|ward|distance)\b|\b(?:is|are)\s+(?:away|elsewhere|not here|gone)\b/i;
 function namedIn(text, cast) {
-  const t = text.toLowerCase();
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const t = sentences.filter((x, k) => k === 0 || !ELSEWHERE.test(x)).join(' ').toLowerCase();
   const at = (c) => {
     const keys = c.name ? [c.name] : c.noun ? [c.noun, `${c.noun}s`, `${c.noun}es`] : [];
     const hits = keys.map((k) => t.search(new RegExp(`\\b${esc(k.toLowerCase())}\\b`))).filter((i) => i >= 0);

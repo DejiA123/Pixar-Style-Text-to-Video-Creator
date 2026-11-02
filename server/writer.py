@@ -27,7 +27,7 @@ Looks (the CAST section):
 - Give age, gender, skin tone, face shape, eye colour, hair (colour, length, style), facial hair if any, and clothes with colours. At most 35 words.
 - Follow everything the story says about them; invent the rest so it is specific.
 - Clothes and hair fit the story's time and place. Bible stories (Mary and Joseph, baby Jesus, shepherds, disciples, the empty tomb) happen in ancient Israel: simple robes, tunics, head scarves, cloaks and sandals in earthy colours, never modern clothes.
-- An angel is a kind, beautiful person in shining white robes with large soft feathered wings and warm, normal eyes.
+- An angel is a kind, beautiful person with long flowing hair, shining white robes, large soft feathered wings and warm, normal eyes.
 - A group (The shepherds): describe them as a group: how many, their ages and clothes.
 - If a listed character is not really a person or creature in the story (a place, a word read by mistake), write: Name: none
 
@@ -35,15 +35,15 @@ Shots (a SHOT line in every scene):
 - What the camera sees, as a picture description: who is in it (by name), where exactly, what each person is doing, their facial expression, the important objects, the light. At most 40 words.
 - Follow the story exactly: the right people, the right place, the right action and objects (if someone plays the drums, show them at a drum kit).
 - Only the people who are really there at that moment. "In the story here" lists who the story mentions around the scene, and some of them are elsewhere: someone only talked about, prayed for, remembered, or far away (in hospital, back home, left behind) is not in the shot. Someone who left a place is no longer there.
-- Name every person in the shot (never just he or she). Each person appears once.
-- Places and objects fit the story's time: in Bible times, stone houses, oil lamps, a wooden stable with a manger, a tomb cut into a rocky hillside with a large round stone; nothing modern.
+- Name every person in the shot (never just he or she). Each person appears once. Mention only the people in the shot: never say where anyone else is.
+- Places and objects fit the story's time: in Bible times, stone houses, oil lamps, a wooden stable with a manger, a tomb cut into a rocky hillside with a large round stone, and everyone in the shot (friends, crowds, passers-by too) in ancient clothes; nothing modern, no gravestones.
 - Do not describe the characters' looks again: those come from CAST.
 
 Dialogue rules:
 - For every scene, write 1 or 2 lines that the characters in that scene's SHOT say out loud in that moment.
 - Only people in the SHOT speak. A baby or an animal never talks (unless the story makes it talk).
 - If a scene already has dialogue, keep those lines word for word, and add at most one more line. If the story shows that someone else says a line than the one given, give it to the person who really says it.
-- Never turn the storyteller's sentences into dialogue: nobody says "Nearby, shepherds were watching their sheep".
+- Never turn the storyteller's sentences into dialogue, not even in the first person: nobody says "Nearby, shepherds were watching their sheep" or "I hurried to the stable". Say what someone would really say in that moment ("Look, there he is!").
 - Natural, warm, spoken English in the present moment, like a Pixar film. Short: at most 14 words per line.
 - Someone who only hears the words must understand the scene: name the concrete things that happen, the place, the objects and the people
   (say "Look at these drums!" or "This church is so big..." rather than "I feel the rhythm"). Show how the characters feel.
