@@ -168,6 +168,20 @@ const TIPS = [
   'Your films will be made on a top-end NVIDIA GPU',
 ];
 
+// Wakes a sleeping server (Modal): while its GPU starts, it can answer with an error or not at all,
+// so keep asking until it really answers, for up to a few minutes.
+export async function wakeServer(server, { maxMs = 4 * 60000, onWait = () => {}, signal } = {}) {
+  const t0 = Date.now();
+  for (;;) {
+    const h = await server.health(25000);
+    if (h && h.ok !== false) return h;
+    const secs = Math.round((Date.now() - t0) / 1000);
+    if (Date.now() - t0 > maxMs) return null;
+    onWait(secs);
+    await sleep(4000, signal);
+  }
+}
+
 // Waits while a linked server downloads and loads its models (first start).
 export async function waitForServer(server, health, onProgress, signal) {
   const t0 = Date.now();

@@ -15,7 +15,7 @@ import { exportVideo } from '../film/exporter.js';
 import { castVoices, KOKORO_NARRATORS } from '../audio/voices.js';
 import { Painter, PaintedFilm, painterSize } from '../ai/painter.js';
 import { renderFreeFilm } from '../ai/freefilm.js';
-import { aiServer, serverlessId, waitForServer, startupProgress } from '../ai/aiserver.js';
+import { aiServer, serverlessId, waitForServer, startupProgress, wakeServer } from '../ai/aiserver.js';
 import { serverVoices } from '../ai/servervoice.js';
 import { KokoroEngine, WebSpeechEngine } from '../audio/tts.js';
 import { renderSoundtrack, lipEnvelope, clipDuration } from '../audio/mixer.js';
@@ -194,8 +194,8 @@ async function enhanceStory() {
   b.setAttribute('aria-busy', 'true'); b.disabled = true;
   const server = await pickServer(() => say('Waking up…'));
   if (!server) { enhanceDone(); toast('Enhance needs the AI studio, which isn’t set up here.', true); return; }
-  let h = await server.health(sleepy($('ai-server').value) ? 120000 : 15000);
-  if (!h || h.ok === false) { enhanceDone(); toast('Your AI studio isn’t answering right now. Please try again in a minute.', true); return; }
+  let h = await wakeServer(server, { maxMs: sleepy($('ai-server').value) ? 4 * 60000 : 15000, onWait: () => say('Waking up…') });
+  if (!h) { enhanceDone(); toast('Your AI studio isn’t answering right now. Please try again in a minute.', true); return; }
   h = await waitForServer(server, h, (p) => say(`Warming up ${Math.round(p * 100)}%`));
   for (const t0 = Date.now(); h && !h.writer && h.writer_state === 'loading' && Date.now() - t0 < 5 * 60000;) {
     say('Warming up…');
@@ -218,8 +218,9 @@ async function enhanceStory() {
 async function pickServer(onMsg = () => {}) {
   const main = currentServer(), backup = backupServer();
   if (!main) return backup;
-  if (sleepy($('ai-server').value)) onMsg('Waking up your AI server… (1–3 minutes after a quiet spell)');
-  const h = await main.health(sleepy($('ai-server').value) ? 120000 : 15000);
+  const h = sleepy($('ai-server').value)
+    ? await wakeServer(main, { onWait: (s) => onMsg(`Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (1–3 minutes after a quiet spell)`) })
+    : await main.health(15000);
   if (!backup) return main;
   if (h && h.ok !== false) return main;
   const hb = await backup.health(15000);
@@ -462,16 +463,6 @@ async function makeMovie() {
     if (!sup.ok) { painted = false; freeAI = true; toast('This device can’t run the on-device AI painter, so your film is being painted by the free online AI instead.', false, 8000); }
   }
   const neural = $('voice-engine').value === 'neural';
-  // one AI server client for the whole film; a serverless GPU waking up shows in the progress card
-  const server = freeAI ? await pickServer((msg) => meter.now(msg)) : null;
-  if (server) {
-    server.onWait = (op, sec) => {
-      if (sec < 0) { const li = steps.list.find((l) => l.classList.contains('active')); if (li) meter.now(li.firstChild.textContent); return; }
-      if (sec < 8) return;
-      const t = `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
-      meter.now(`Waking up a GPU on RunPod… ${t} (usually 2–3 min; the very first start also downloads the AI models, about 20 min)`);
-    };
-  }
   setAspect($('aspect').value);
   steps.reset([
     ['plan', ai ? 'AI director is reading your story' : 'Reading your story'],
@@ -483,6 +474,16 @@ async function makeMovie() {
 
   // 1) plan
   steps.set('plan', 'active');
+  // one AI server client for the whole film; waking it (and a serverless GPU starting) shows in the progress card
+  const server = freeAI ? await pickServer((msg) => meter.now(msg)) : null;
+  if (server) {
+    server.onWait = (op, sec) => {
+      if (sec < 0) { const li = steps.list.find((l) => l.classList.contains('active')); if (li) meter.now(li.firstChild.textContent); return; }
+      if (sec < 8) return;
+      const t = `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+      meter.now(`Waking up a GPU on RunPod… ${t} (usually 2–3 min; the very first start also downloads the AI models, about 20 min)`);
+    };
+  }
   let plan;
   let aiDirector = null;
   if (ai) {
