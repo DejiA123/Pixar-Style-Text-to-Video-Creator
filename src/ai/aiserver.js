@@ -4,7 +4,8 @@
 //   health()           -> {ready, loading, image, video, tts, lipsync, gpu, serverless, ...} or null
 //   image|video|tts|lipsync(body, signal) -> Blob (throws on failure; tts throws code 'unknown-ref'
 //                         when the server needs the reference voice clip itself again)
-//   script(body, signal) -> {scenes: [{index, lines: [{speaker, text}]}]}: the characters' dialogue
+//   script(body, signal) -> {cast: [{id, look}], scenes: [{index, shot, lines: [{speaker, text}]}]}: the director's plan
+//   enhance(body, signal) -> {story}: a short idea turned into a fuller story
 //   usage()            -> GPU seconds used so far (for the cost after a film)
 
 const sleep = (ms, signal) => new Promise((r, j) => {
@@ -66,6 +67,7 @@ function linkedServer(url) {
     tts: (body, signal) => blob('/tts', body, signal),
     lipsync: (body, signal) => job('lipsync', body, signal),
     script: async (body, signal) => JSON.parse(await (await job('script', body, signal)).text()),
+    enhance: async (body, signal) => JSON.parse(await (await job('enhance', body, signal)).text()),
     async usage() { const h = await client.health(); return h?.stats ? h.stats.busy_seconds : null; },
     price: async () => (await client.health())?.price_per_hour || null,
   };
@@ -130,6 +132,7 @@ function runpodEndpoint(base, id, key) {
     tts: (body, signal) => run('tts', body, signal),
     lipsync: (body, signal) => run('lipsync', body, signal),
     script: async (body, signal) => JSON.parse(await (await run('script', body, signal)).text()),
+    enhance: async (body, signal) => JSON.parse(await (await run('enhance', body, signal)).text()),
     usage: async () => spent,
     price: async () => null,
   };

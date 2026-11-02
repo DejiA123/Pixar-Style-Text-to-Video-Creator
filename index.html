@@ -27,7 +27,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1793579718">
+<link rel="stylesheet" href="src/ui/styles.css?v=1793581288">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
@@ -179,6 +179,7 @@
         </select>
       </label>
       <button id="server-chip" class="pill server-pill" type="button" hidden title="Your AI film studio"><span class="dot"></span><span class="label">Ready to create</span></button>
+      <button id="enhance" class="pill enhance-pill" type="button" title="AI turns your idea into a fuller story it understands perfectly (you can undo)"><i aria-hidden="true">✨</i><span class="label">Enhance</span></button>
       <span class="spacer"></span>
       <button id="make" class="btn-make" type="button">Generate</button>
     </div>
@@ -205,6 +206,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793579516"></script>
+<script type="module" src="src/ui/app.js?v=1793581288"></script>
 </body>
 </html>

@@ -259,6 +259,8 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .btn-make:disabled { cursor: default; background: var(--surface-2); color: var(--text-2); }
 .btn-make:disabled::before { animation: spin 1.2s linear infinite; }
 
+.enhance-pill i { font-style: normal; }
+.enhance-pill[aria-busy='true'] { opacity: 0.75; cursor: progress; }
 .btn-primary { height: 34px; padding: 0 14px; border-radius: 999px; border: none; background: #fff; color: #0b0c0f; font-weight: 600; cursor: pointer; }
 .btn-ghost { height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); background: transparent; color: var(--text); cursor: pointer; }
 

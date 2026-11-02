@@ -101,6 +101,9 @@ function init() {
   setAspect($('aspect').value);
 
   $('make').addEventListener('click', () => makeMovie().catch(fail));
+  // once you edit the enhanced story yourself, it's yours: the Undo goes away
+  $('story').addEventListener('input', (e) => { if (e.isTrusted && enhanceUndo != null) { enhanceUndo = null; clearTimeout(enhanceTimer); enhanceDone(); } });
+  $('enhance').addEventListener('click', () => enhanceStory().catch((e) => { console.warn(e); toast('Couldn’t enhance your story right now. Please try again in a moment.', true); enhanceDone(); }));
   $('play').addEventListener('click', () => state.player && state.player.toggle());
   $('scrub').addEventListener('input', (e) => state.player && state.player.seek((+e.target.value / 1000) * state.player.duration));
   $('fs').addEventListener('click', () => { const s = $('screen'); (s.requestFullscreen ? s.requestFullscreen() : Promise.reject()).catch(() => {}); });
@@ -169,6 +172,46 @@ function reviewShots({ shots, blobs, repaint }) {
 const currentServer = () => aiServer($('ai-server').value, $('runpod-key').value);
 const backupServer = () => aiServer($('ai-server-2').value, $('runpod-key').value);
 const sleepy = (v) => /\.modal\.run/.test(v || '');  // a Modal server sleeps when idle and wakes on the first request
+
+// ✨ Enhance: the AI writer on your server turns a short idea into a fuller story (names, looks,
+// places, a few spoken lines) that the director then understands fully. One tap to undo.
+let enhanceUndo = null, enhanceTimer = 0;
+function enhanceDone(label = 'Enhance') {
+  const b = $('enhance');
+  b.removeAttribute('aria-busy'); b.disabled = false;
+  b.querySelector('.label').textContent = label;
+  b.querySelector('i').textContent = label === 'Undo' ? '↩' : '✨';
+}
+async function enhanceStory() {
+  const b = $('enhance'), box = $('story');
+  if (enhanceUndo != null) {  // second tap: back to what you wrote
+    box.value = enhanceUndo; box.dispatchEvent(new Event('input', { bubbles: true }));
+    enhanceUndo = null; clearTimeout(enhanceTimer); enhanceDone(); return;
+  }
+  const idea = box.value.trim();
+  if (!idea) { toast('Type your idea first, then tap Enhance.'); return; }
+  const say = (t) => { b.querySelector('.label').textContent = t; };
+  b.setAttribute('aria-busy', 'true'); b.disabled = true;
+  const server = await pickServer(() => say('Waking up…'));
+  if (!server) { enhanceDone(); toast('Enhance needs the AI studio, which isn’t set up here.', true); return; }
+  let h = await server.health(sleepy($('ai-server').value) ? 120000 : 15000);
+  if (!h || h.ok === false) { enhanceDone(); toast('Your AI studio isn’t answering right now. Please try again in a minute.', true); return; }
+  h = await waitForServer(server, h, (p) => say(`Warming up ${Math.round(p * 100)}%`));
+  for (const t0 = Date.now(); h && !h.writer && h.writer_state === 'loading' && Date.now() - t0 < 5 * 60000;) {
+    say('Warming up…');
+    await new Promise((r) => setTimeout(r, 4000));
+    h = (await server.health()) || h;
+  }
+  if (!h?.writer) { enhanceDone(); toast('The AI writer isn’t available right now. Please try again in a minute.', true); return; }
+  say('Enhancing…');
+  const { story } = await server.enhance({ story: idea });
+  if (!story || story.trim() === idea) { enhanceDone(); return; }
+  enhanceUndo = idea;
+  box.value = story.trim(); box.dispatchEvent(new Event('input', { bubbles: true }));
+  enhanceDone('Undo');
+  toast('✨ Your story is ready. Edit anything you like, or tap Undo to go back.', false, 7000);
+  enhanceTimer = setTimeout(() => { enhanceUndo = null; enhanceDone(); }, 90000);
+}
 
 // The server for this film: your AI server, or the backup when it can't answer
 // (a sleeping Modal server gets up to 2 minutes to wake up first).

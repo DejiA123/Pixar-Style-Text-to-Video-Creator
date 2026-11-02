@@ -28,6 +28,8 @@ const LIGHT = { dawn: 'soft morning light', day: 'bright daylight', sunset: 'gol
 const ACT = { pray: 'praying with eyes closed', groom: 'brushing her hair in a mirror', dance: 'dancing', walk: 'walking', run: 'running', cry: 'crying', laugh: 'laughing', sing: 'singing', cook: 'cooking', eat: 'eating', read: 'reading', play: 'playing', wave: 'waving', hug: 'hugging', sit: 'sitting', talk: 'talking', cheer: 'cheering', jump: 'jumping', fly: 'flying', sleep: 'sleeping' };
 
 function person(c, look = 'pixar') {
+  // the AI director's description, fixed once for the whole film, wins: the same person in every shot
+  if (c.lookText) return `${c.name || `the ${c.noun || c.kind}`}, ${c.lookText}`;
   if (c.kind !== 'human') return `${look === 'real' ? 'a real' : 'a cute cartoon'} ${c.noun || c.kind}`;
   const who = { child: c.gender === 'f' ? 'little girl' : 'little boy', teen: c.gender === 'f' ? 'teenage girl' : 'teenage boy', old: c.gender === 'f' ? 'grandmother' : 'grandfather' }[c.age] || (c.gender === 'f' ? 'young woman' : 'young man');
   const tone = { dark: 'black', brown: 'brown-skinned', tan: 'latino', 'light-warm': 'asian', light: 'fair-skinned' }[c.skinTone] || '';
@@ -36,8 +38,10 @@ function person(c, look = 'pixar') {
   return [tone, c.role && c.role !== 'student' ? c.role : who, hair && `with ${hair}`, acc && `wearing ${acc}`, c.style === 'glam' ? 'glamorous fashion doll look' : ''].filter(Boolean).join(' ');
 }
 
-// what the story says happens here, in its own words ("a young guy begins to play the drums")
+// what happens here: the AI director's shot description, else the story's own words
+// ("a young guy begins to play the drums")
 function storyWords(sc) {
+  if (sc.shotText) return sc.shotText.split(/\s+/).slice(0, 45).join(' ');
   const t = (sc.text || '').replace(/"[^"]*"/g, ' ').replace(/[.!?]+\s*$/, '').replace(/\s+/g, ' ').trim();
   const words = t.split(' ');
   return words.length >= 3 ? words.slice(0, 22).join(' ') : '';
@@ -166,8 +170,8 @@ async function animateFree(client, blob, prompt, shot, size, handle_file) {
 }
 
 // ---- your AI server (a pod/PC link or a RunPod Serverless endpoint; see aiserver.js) ----
-async function serverImage(server, prompt, { w, h, seed }, signal) {
-  const blob = await server.image({ prompt, width: w, height: h, seed }, signal);
+async function serverImage(server, prompt, { w, h, seed }, signal, refs = []) {
+  const blob = await server.image({ prompt, width: w, height: h, seed, ...(refs.length ? { refs } : {}) }, signal);
   return { img: await createImageBitmap(blob), blob };
 }
 // Best: clips at 3/4 of the picture size, as long as the shot (up to 10 s).
@@ -226,10 +230,33 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
   };
   // AI only, never a 3D frame: try every free AI source in turn
   const notes = shots.map(() => '');  // your changes from the review, first in the prompt so they win
+  // Same faces in every shot: your server first paints a portrait of each main character (up to 3),
+  // then paints every shot from the portraits of the people in it.
+  const portraits = new Map();
+  const nameOf = (c) => c.name || `the ${c.noun || c.kind}`;
+  if (useSrv) {
+    const seen = new Map();
+    for (const s of shots) if (s.kind !== 'title') for (const id of s.ids || s.scene.characters || []) if (castById.has(id)) seen.set(id, (seen.get(id) || 0) + 1);
+    const main = [...seen].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => castById.get(id));
+    for (const c of main) {
+      onProgress(done / total, `Creating ${nameOf(c)}'s look`);
+      try {
+        const p = `portrait of ${person(c, look)}, head and shoulders, facing the camera, natural expression, plain soft background, ${LOOK_TAG[look] || LOOK_TAG.pixar}, ${STYLE[look] || STYLE.pixar}`;
+        const blob = await srv.image({ prompt: p.slice(0, 900), width: 768, height: 768, seed: 4242 }, signal);
+        portraits.set(c.id, await blobToDataUrl(blob));
+      } catch (e) { if (e?.name === 'AbortError') throw e; console.warn('portrait skipped', e); }
+    }
+  }
+  const castRefs = (shot) => (shot.kind === 'title' ? [] : (shot.ids || shot.scene.characters || [])).filter((id) => portraits.has(id)).slice(0, 3);
   const paintShot = async (i, waitMs, seed = seedOf(shots[i])) => {
     const prompt = [notes[i], freeShotPrompt(shots[i], castById, look)].filter(Boolean).join(', ').slice(0, 900);
     const opts = { ...size, seed };
-    if (useSrv) { try { const r = await serverImage(srv, prompt, opts, signal); sources.server++; return r; } catch (e) { console.warn(e); } }
+    if (useSrv) {
+      const ids = castRefs(shots[i]);
+      // e.g. "Daniel is the person in image 1. Keep exactly the same face, hair and clothes. New picture: …"
+      const lead = ids.length ? `${ids.map((id, k) => `${nameOf(castById.get(id))} is the person in image ${k + 1}`).join(', ')}. Keep exactly the same face, hair and clothes. New picture: ` : '';
+      try { const r = await serverImage(srv, (lead + prompt).slice(0, 1400), opts, signal, ids.map((id) => portraits.get(id))); sources.server++; return r; } catch (e) { if (e?.name === 'AbortError') throw e; console.warn(e); }
+    }
     try {
       const r = await paintFree(prompt, opts, signal, (n) => onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} — free AI is busy, waiting (${n})…`), waitMs);
       sources.online++; return r;

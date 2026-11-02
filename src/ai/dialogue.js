@@ -33,12 +33,18 @@ export function dialogueRequest(plan, story) {
   };
 }
 
-// Puts the writer's lines into the plan; returns how many scenes got them.
+// Puts the director's plan into the film plan: each character's look (the same in every shot),
+// each scene's shot description, and the lines. Returns how many scenes got lines.
 export function applyDialogue(plan, result) {
   const ids = new Set(plan.cast.map((c) => c.id));
+  for (const c of result?.cast || []) {
+    const m = plan.cast.find((x) => x.id === c.id);
+    if (m && /[a-z]/i.test(c.look || '')) m.lookText = String(c.look).trim();
+  }
   let n = 0;
   for (const s of result?.scenes || []) {
     const sc = plan.scenes[s.index];
+    if (sc && /[a-z]/i.test(s.shot || '')) sc.shotText = String(s.shot).trim();
     const lines = (s.lines || []).filter((l) => ids.has(l.speaker) && /[A-Za-z]/.test(l.text || '')).map((l) => ({ speaker: l.speaker, text: String(l.text).trim() }));
     if (!sc || !lines.length) continue;
     sc.lines = lines;
