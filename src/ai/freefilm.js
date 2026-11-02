@@ -31,7 +31,8 @@ const ACT = { pray: 'praying with eyes closed', groom: 'brushing her hair in a m
 const isBaby = (c) => c?.age === 'baby' || /^(baby|infant|newborn)$/.test(c?.noun || '') || /\b(newborn|infant)\b/i.test(c?.lookText || '');
 // Bible stories (Bethlehem, the disciples, the empty tomb): everyone on screen, extras too, in ancient dress
 const BIBLE = /\b(Bethlehem|Nazareth|Galilee|Jerusalem|Judea|disciples?|apostles?|Pharaoh|Moses|manger|Pharisees?|garden tomb|Pontius|Herod|Goliath|Noah's ark)\b/i;
-const ERA = 'in ancient Israel in Bible times, everyone in simple ancient robes, tunics, cloaks and sandals, no modern clothes or objects';
+// (it says what people wear, not that there are people: "everyone in robes" filled empty places with crowds)
+const ERA = 'ancient Israel in Bible times, simple ancient robes, tunics, cloaks and sandals, no modern clothes or objects, no crowd unless described';
 
 function person(c, look = 'pixar') {
   // the AI director's description, fixed once for the whole film, wins: the same person in every shot
