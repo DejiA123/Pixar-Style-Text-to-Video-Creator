@@ -260,6 +260,13 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .btn-make:disabled::before { animation: spin 1.2s linear infinite; }
 
 .enhance-pill i { font-style: normal; }
+.share-sheet { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 60;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 20px; padding: 14px 16px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  width: min(420px, calc(100vw - 24px)); }
+.share-title { margin: 0 0 10px; font-weight: 600; }
+.share-row { display: flex; gap: 8px; }
+.share-row .btn-primary { flex: 1; height: 44px; font-size: 16px; }
+.share-row .btn-ghost { height: 44px; padding: 0 14px; }
 .enhance-pill[aria-busy='true'] { opacity: 0.75; cursor: progress; }
 .btn-primary { height: 34px; padding: 0 14px; border-radius: 999px; border: none; background: #fff; color: #0b0c0f; font-weight: 600; cursor: pointer; }
 .btn-ghost { height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); background: transparent; color: var(--text); cursor: pointer; }

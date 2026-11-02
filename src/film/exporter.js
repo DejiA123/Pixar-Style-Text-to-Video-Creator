@@ -11,9 +11,11 @@ export function webCodecsSupported() {
 }
 
 // renderFrame(t) must draw the final composited frame into `canvas`.
-export async function exportVideo({ canvas, duration, fps = 30, soundtrack, renderFrame, onProgress = () => {}, signal }) {
+// audioContext: one made during the tap on Download, for browsers that record in real time (iPhone
+// Safari only lets sound start from a tap; a context made later records silence).
+export async function exportVideo({ canvas, duration, fps = 30, soundtrack, renderFrame, onProgress = () => {}, signal, audioContext = null }) {
   const W = canvas.width, H = canvas.height;
-  if (!webCodecsSupported()) return recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, onProgress, signal });
+  if (!webCodecsSupported()) return recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, onProgress, signal, audioContext });
 
   let format = new Mp4OutputFormat({ fastStart: 'in-memory' });
   let vcodec = await getFirstEncodableVideoCodec(['avc', 'hevc', 'vp9', 'av1'], { width: W, height: H, frameRate: fps });
@@ -25,7 +27,7 @@ export async function exportVideo({ canvas, duration, fps = 30, soundtrack, rend
     const a2 = soundtrack ? await getFirstEncodableAudioCodec(['opus', 'vorbis'], { numberOfChannels: 2, sampleRate: soundtrack.sampleRate }) : null;
     if (v2 && (!soundtrack || a2)) { format = new WebMOutputFormat(); vcodec = v2; acodec = a2; ext = 'webm'; mime = 'video/webm'; }
   }
-  if (!vcodec) return recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, onProgress, signal });
+  if (!vcodec) return recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, onProgress, signal, audioContext });
 
   const output = new Output({ format, target: new BufferTarget() });
   const video = new CanvasSource(canvas, { codec: vcodec, bitrate: new Quality('very-high'), keyFrameInterval: 2 });
@@ -57,11 +59,12 @@ export async function exportVideo({ canvas, duration, fps = 30, soundtrack, rend
   return { blob: new Blob([output.target.buffer], { type: mime }), ext, codec: `${vcodec}${acodec ? '+' + acodec : ''}` };
 }
 
-async function recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, onProgress, signal }) {
+async function recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, onProgress, signal, audioContext }) {
   const stream = canvas.captureStream(fps);
   let ac = null, src = null;
   if (soundtrack) {
-    ac = new AudioContext();
+    ac = audioContext || new (window.AudioContext || window.webkitAudioContext)();
+    await ac.resume().catch(() => {});
     const dest = ac.createMediaStreamDestination();
     src = ac.createBufferSource();
     src.buffer = soundtrack;

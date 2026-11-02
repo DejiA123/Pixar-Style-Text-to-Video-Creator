@@ -1,9 +1,8 @@
-// Draws the final frame: the 3D render plus title card, subtitles and the
-// end card. What you see in the player is exactly what gets exported.
+// Draws the final frame: the picture plus subtitles and a short fade to black at
+// the end. What you see in the player is exactly what gets exported.
 import { clamp, smoothstep } from '../util.js';
 import { displayName } from '../story/parser.js';
 
-const FONT_DISPLAY = '"Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif';
 const FONT_BODY = '"Figtree", "Segoe UI", system-ui, sans-serif';
 
 export class Compositor {
@@ -11,7 +10,6 @@ export class Compositor {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.subtitles = true;
-    this.credit = 'Made with TakeOne';
   }
 
   setSize(w, h) {
@@ -27,33 +25,8 @@ export class Compositor {
     g.drawImage(source, 0, 0, W, H);
     const S = Math.min(W, H);
 
-    // title card over the opening shot
-    const title = tl.shots[0];
-    if (title && title.kind === 'title' && t < title.end) {
-      const a = smoothstep(0.6, 1.6, t) * (1 - smoothstep(title.end - 0.9, title.end - 0.1, t));
-      if (a > 0.01) {
-        g.save();
-        g.globalAlpha = a;
-        const grd = g.createLinearGradient(0, H * 0.15, 0, H * 0.75);
-        grd.addColorStop(0, 'rgba(0,0,0,0)'); grd.addColorStop(0.5, 'rgba(0,0,0,0.38)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
-        g.fillStyle = grd; g.fillRect(0, H * 0.15, W, H * 0.6);
-        g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.fillStyle = '#fff';
-        g.shadowColor = 'rgba(0,0,0,0.55)'; g.shadowBlur = S * 0.03; g.shadowOffsetY = S * 0.004;
-        const lines = wrap(g, tl.title, W * 0.82, `800 ${Math.round(S * 0.085)}px ${FONT_DISPLAY}`);
-        const lh = S * 0.095;
-        const y0 = H * 0.45 - ((lines.length - 1) * lh) / 2;
-        lines.forEach((ln, i) => g.fillText(ln, W / 2, y0 + i * lh + (1 - smoothstep(0.6, 2.0, t)) * S * 0.02));
-        g.shadowBlur = 0;
-        g.font = `600 ${Math.round(S * 0.026)}px ${FONT_BODY}`;
-        g.fillStyle = 'rgba(255,255,255,0.85)';
-        g.letterSpacing = `${Math.round(S * 0.004)}px`;
-        g.fillText('A STORYREEL ORIGINAL', W / 2, y0 + lines.length * lh + S * 0.01);
-        g.restore();
-      }
-    }
-
     // subtitles
+    const title = tl.shots[0]?.kind === 'title' ? tl.shots[0] : null;
     if (this.subtitles && (!title || t >= title.end - 0.2) && t < tl.endCard.start) {
       const line = film.lineAt(t);
       if (line) {
@@ -63,22 +36,11 @@ export class Compositor {
       }
     }
 
-    // end card
+    // the film ends with a short fade to black (no "The End" card)
     if (t >= tl.endCard.start - 0.3) {
-      const a = smoothstep(tl.endCard.start - 0.3, tl.endCard.start + 0.6, t);
       g.save();
-      g.globalAlpha = a;
+      g.globalAlpha = smoothstep(tl.endCard.start - 0.3, tl.endCard.end, t);
       g.fillStyle = '#07080b'; g.fillRect(0, 0, W, H);
-      g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillStyle = '#fff';
-      g.font = `800 ${Math.round(S * 0.1)}px ${FONT_DISPLAY}`;
-      g.fillText('The End', W / 2, H * 0.46);
-      g.font = `500 ${Math.round(S * 0.026)}px ${FONT_BODY}`;
-      g.fillStyle = 'rgba(255,255,255,0.7)';
-      g.fillText(tl.title, W / 2, H * 0.46 + S * 0.09);
-      g.fillStyle = 'rgba(245,184,65,0.9)';
-      g.font = `600 ${Math.round(S * 0.02)}px ${FONT_BODY}`;
-      g.fillText(this.credit.toUpperCase(), W / 2, H * 0.46 + S * 0.14);
       g.restore();
     }
   }

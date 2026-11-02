@@ -31,6 +31,8 @@ export class Player {
   get duration() { return this.film.tl.duration; }
 
   ensureAudio() {
+    // iPhone: play like a video (heard even with the silent switch on), not like a ringtone
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
     if (!this.ac) this.ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
     if (this.ac.state === 'suspended') this.ac.resume();
   }

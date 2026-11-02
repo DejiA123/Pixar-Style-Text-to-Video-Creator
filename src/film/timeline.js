@@ -4,7 +4,7 @@ import { makeRng } from '../util.js';
 import { INTERIOR_SETTINGS } from '../story/lexicon.js';
 
 let LEAD = 0.35, GAP = 0.22, TAIL = 0.65, MIN_SHOT = 2.8;
-const END_CARD = 3.5;
+const END_CARD = 0.8;  // a short fade to black: no "The End" card
 const TITLE_HOLD = 1.2;
 
 export function estimateDuration(text, rate = 1) {
@@ -30,8 +30,10 @@ export function buildTimeline(plan, durations = new Map(), opts = {}) {
   const castById = new Map(plan.cast.map((c) => [c.id, c]));
 
   // title shot: establishing view of the first scene, narrator reads the title
+  // an opening title shot only when the title is read out; when the characters tell the story
+  // the film starts straight on its first scene
   const first = plan.scenes[0];
-  if (first) {
+  if (first && plan.titleVoice !== false) {
     const spoken = plan.titleVoice !== false;  // characters tell the story: the title is only on screen
     const d = spoken ? dur('narrator', plan.title) : 0;
     shots.push(makeShot({
@@ -119,7 +121,7 @@ function sceneNatural(plan, scene, i, durations, opts) {
 function naturalLength(plan, durations, opts) {
   const dur = (sp, text) => durations.get(lineKey(sp, text)) ?? estimateDuration(text, opts.rate ?? 1);
   const spoken = plan.titleVoice !== false;
-  const title = plan.scenes[0] ? Math.max(spoken ? 4.2 : 3.2, 0.9 + (spoken ? dur('narrator', plan.title) : 0) + TITLE_HOLD) : 0;
+  const title = plan.scenes[0] && spoken ? Math.max(4.2, 0.9 + dur('narrator', plan.title) + TITLE_HOLD) : 0;
   return title + plan.scenes.reduce((a, sc, i) => a + sceneNatural(plan, sc, i, durations, opts), 0) + END_CARD;
 }
 

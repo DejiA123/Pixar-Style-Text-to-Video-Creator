@@ -48,7 +48,9 @@ import writer
 IMAGE_MODEL = os.environ.get('STORYREEL_IMAGE_MODEL', 'black-forest-labs/FLUX.2-klein-4B')
 FALLBACK_IMAGE_MODEL = 'stabilityai/sdxl-turbo'
 VIDEO_MODEL = os.environ.get('STORYREEL_VIDEO_MODEL', 'Lightricks/LTX-Video-0.9.8-13B-distilled')
-NEGATIVE = 'worst quality, static, still image, frozen, no motion, inconsistent motion, blurry, jittery, distorted, deformed, text, watermark'
+NEGATIVE = ('worst quality, static, still image, frozen, no motion, inconsistent motion, blurry, jittery, distorted, deformed, '
+            'extra arms, extra hands, extra legs, extra fingers, missing limbs, mutated hands, fused fingers, deformed body, '
+            'duplicate person, morphing face, melting, text, watermark')
 # the distilled LTX models are tuned for these exact timesteps (diffusers docs)
 DISTILLED_TIMESTEPS = [1000, 993, 987, 981, 975, 909, 725, 0.03]
 PRICE = float(os.environ.get('STORYREEL_GPU_PRICE', '0') or 0)  # your GPU's $/hour, for cost reports

@@ -11,7 +11,7 @@ import { buildTimeline, lineKey } from '../film/timeline.js';
 import { Film } from '../film/film.js';
 import { Compositor } from '../film/compositor.js';
 import { Player } from '../film/player.js';
-import { exportVideo } from '../film/exporter.js';
+import { exportVideo, webCodecsSupported } from '../film/exporter.js';
 import { castVoices, KOKORO_NARRATORS } from '../audio/voices.js';
 import { Painter, PaintedFilm, painterSize } from '../ai/painter.js';
 import { renderFreeFilm } from '../ai/freefilm.js';
@@ -509,7 +509,25 @@ async function makeMovie() {
   const clips = new Map();
   const durations = new Map();
   let usedNeural = false;
-  if (neural) {
+  // first choice: realistic voices straight from your AI server, from the voice samples stored with
+  // the app, so nothing heavy runs on the device (phones often can't run the in-browser voice model)
+  if (neural && server) {
+    let health = await server.health();
+    if (health?.ok === false) health = null;
+    if (health) health = await waitForServer(server, health, (p, msg) => steps.label('voices', msg));
+    if (health?.tts) {
+      steps.label('voices', 'Recording realistic voices');
+      try {
+        if (await serverVoices(server, plan, clips, voices, { stored: true, onProgress: (p, n) => { steps.set('voices', 'active', n); meter.stage('voices2', p); } })) {
+          for (const [sp, v] of voices) voices.set(sp, { ...v, rate: 1 });  // speed and pitch are in the recordings
+          for (const [key, clip] of clips) durations.set(key, clipDuration(clip, 1));
+          usedNeural = true;
+        }
+      } catch (e) { if (e?.name === 'AbortError') throw e; console.warn('Server voices from stored samples failed; trying in-browser voices', e); }
+      if (!usedNeural) { clips.clear(); durations.clear(); }
+    }
+  }
+  if (neural && !usedNeural) {
     try {
       if (!state.kokoro) state.kokoro = new KokoroEngine();
       const k = state.kokoro;
@@ -768,6 +786,9 @@ function buildBoard(tl) {
 async function doExport() {
   const p = state.player;
   if (!p || state.exporting) return;
+  // made right away, during the tap: iPhone Safari records its sound only from a context started by one
+  const audioContext = !webCodecsSupported() && state.soundtrack ? new (window.AudioContext || window.webkitAudioContext)() : null;
+  audioContext?.resume().catch(() => {});
   p.pause();
   if (!state.hasVoiceAudio && $('voice-engine').value === 'browser') {
     toast('Browser voices can’t be recorded, so the download will have music and subtitles but no narration. Switch Voices to “AI voices” for a full voice-over.', false, 9000);
@@ -792,7 +813,7 @@ async function doExport() {
   state.exportAbort = ac;
   try {
     const out = await exportVideo({
-      canvas: exportCanvas, duration: state.timeline.duration, fps: 30, soundtrack: state.soundtrack, signal: ac.signal,
+      canvas: exportCanvas, duration: state.timeline.duration, fps: 30, soundtrack: state.soundtrack, signal: ac.signal, audioContext,
       renderFrame: async (t) => {
         if (state.ai) await state.film.renderAtExact(t); else state.film.renderAt(t);
         comp.draw(state.film.canvas || state.glCanvas, state.film, t);
@@ -803,8 +824,13 @@ async function doExport() {
       },
     });
     const name = `${state.timeline.title.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'my-movie'}.${out.ext}`;
-    await saveFile(out.blob, name);
-    toast(`Saved ${name} (${(out.blob.size / 1e6).toFixed(1)} MB, ${out.codec}).`);
+    // phones: the share sheet, with "Save Video" to Photos; computers: a normal download
+    const file = new File([out.blob], name, { type: out.blob.type || 'video/mp4' });
+    if (matchMedia('(pointer: coarse)').matches && navigator.canShare?.({ files: [file] })) offerShare(file);
+    else {
+      await saveFile(out.blob, name);
+      toast(`Saved ${name} (${(out.blob.size / 1e6).toFixed(1)} MB).`);
+    }
   } finally {
     state.exporting = false;
     state.exportAbort = null;
@@ -829,6 +855,21 @@ function downscaleImage(file, max) {
     img.onerror = () => reject(new Error('That image could not be read.'));
     img.src = URL.createObjectURL(file);
   });
+}
+
+// Phones: sharing needs a fresh tap, and the film took a while to make, so ask for one:
+// "Save video" opens the share sheet (Save Video → Photos, WhatsApp, TikTok…); the file stays downloadable.
+function offerShare(file) {
+  document.getElementById('share-sheet')?.remove();
+  const box = document.createElement('div');
+  box.id = 'share-sheet'; box.className = 'share-sheet'; box.setAttribute('role', 'dialog');
+  box.innerHTML = '<p class="share-title">Your film is ready 🎬</p><div class="share-row"><button type="button" class="btn-primary" data-go>Save video</button><button type="button" class="btn-ghost" data-file>Download file</button><button type="button" class="btn-ghost" data-close aria-label="Close">✕</button></div>';
+  box.querySelector('[data-go]').onclick = async () => {
+    try { await navigator.share({ files: [file], title: file.name.replace(/\.\w+$/, '') }); box.remove(); } catch (e) { if (e?.name !== 'AbortError') saveFile(file, file.name); }
+  };
+  box.querySelector('[data-file]').onclick = () => { saveFile(file, file.name); box.remove(); };
+  box.querySelector('[data-close]').onclick = () => box.remove();
+  document.body.appendChild(box);
 }
 
 async function saveFile(blob, filename) {

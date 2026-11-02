@@ -75,16 +75,36 @@ function referenceVoices(lines, clips, voices) {
   return refs;
 }
 
-// Re-speak every line on the server (an aiserver.js client). Replaces entries in `clips` and returns true
-// only if every line succeeded (otherwise the in-browser voices stay as they were).
-export async function serverVoices(server, plan, clips, voices, { onProgress = () => {}, signal } = {}) {
+// Each speaker's reference voice from the samples stored with the app (assets/voices/<voice>.wav,
+// recorded once with the in-browser voice model), at their playback rate: the server can speak
+// every line without the device running a voice model at all (phones often can't).
+async function storedVoices(speakers, voices) {
+  const refs = new Map();
+  for (const sp of speakers) {
+    const v = voices.get(sp) || voices.get('narrator');
+    const id = v?.kokoro?.voice;
+    if (!id) continue;
+    const res = await fetch(new URL(`../../assets/voices/${id}.wav`, import.meta.url));
+    if (!res.ok) continue;
+    const c = await wavClip(await res.blob());
+    refs.set(sp, wavBlob(resample(c.samples, c.sampleRate, VOICE_SR, v.rate || 1), VOICE_SR));
+  }
+  return refs;
+}
+
+// Speak every line on the server (an aiserver.js client), in each character's voice. With `stored`,
+// from the stored voice samples (no in-browser voices needed); otherwise re-speaking the in-browser
+// recordings in `clips`. Replaces entries in `clips` and returns true only if every line succeeded.
+export async function serverVoices(server, plan, clips, voices, { stored = false, onProgress = () => {}, signal } = {}) {
   const lines = plan.titleVoice === false ? [] : [{ speaker: 'narrator', text: plan.title, emo: 'neutral' }];
   for (const s of plan.scenes) for (const l of s.lines) lines.push({ ...l, emo: s.emotions?.[l.speaker] });
-  const uniq = [...new Map(lines.map((l) => [lineKey(l.speaker, l.text), l])).values()].filter((l) => clips.has(lineKey(l.speaker, l.text)));
+  const uniq = [...new Map(lines.map((l) => [lineKey(l.speaker, l.text), l])).values()].filter((l) => stored || clips.has(lineKey(l.speaker, l.text)));
   if (!uniq.length) return false;
   // each reference voice is uploaded once; after that the server knows it by its sha1
   const refs = new Map();
-  for (const [sp, b] of referenceVoices(uniq, clips, voices)) {
+  const samples = stored ? await storedVoices([...new Set(uniq.map((l) => l.speaker))], voices) : referenceVoices(uniq, clips, voices);
+  if (stored && samples.size < new Set(uniq.map((l) => l.speaker)).size) return false;
+  for (const [sp, b] of samples) {
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-1', await b.arrayBuffer()))].map((x) => x.toString(16).padStart(2, '0')).join('');
     refs.set(sp, { key: hash, data: await blobToDataUrl(b), sent: false });
   }

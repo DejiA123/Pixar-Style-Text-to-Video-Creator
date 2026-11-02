@@ -13,8 +13,8 @@ const LTX_SPACE = 'Lightricks/ltx-video-distilled';
 const FLUX_SPACE = 'black-forest-labs/FLUX.1-schnell';
 // the film's look: Pixar-style 3D animation, or live action that looks filmed
 const STYLE = {
-  pixar: 'hyper realistic 3d pixar disney animation style, appealing cartoon characters with big expressive eyes, soft skin, detailed hair, rich fabric, cinematic lighting, shallow depth of field, 4k render',
-  real: 'photorealistic cinematic film still, live action, shot on 35mm film with an anamorphic lens, real people with natural skin texture and realistic proportions, natural light, soft film grain, shallow depth of field, color graded, 4k',
+  pixar: 'hyper realistic 3d pixar disney animation style, appealing cartoon characters with big expressive eyes, natural anatomy, two arms and two hands each, soft skin, detailed hair, rich fabric, cinematic lighting, shallow depth of field, 4k render',
+  real: 'photorealistic cinematic film still, live action, shot on 35mm film with an anamorphic lens, real people with natural skin texture, realistic proportions and natural anatomy, two arms and two hands each, natural light, soft film grain, shallow depth of field, color graded, 4k',
 };
 const LOOK_TAG = { pixar: 'pixar 3d animation', real: 'photorealistic live-action movie scene' };
 
@@ -170,6 +170,16 @@ async function animateFree(client, blob, prompt, shot, size, handle_file) {
 }
 
 // ---- your AI server (a pod/PC link or a RunPod Serverless endpoint; see aiserver.js) ----
+// A request that fails on the way (a dropped connection, a server busy waking up) gets two more tries.
+async function tries(fn, signal, n = 3) {
+  for (let k = 1; ; k++) {
+    try { return await fn(); } catch (e) {
+      if (e?.name === 'AbortError' || k >= n) throw e;
+      console.warn(`AI server request failed (try ${k} of ${n}), trying again`, e?.message || e);
+      await new Promise((r, j) => { const t = setTimeout(r, 2500 * k); signal?.addEventListener('abort', () => { clearTimeout(t); j(new DOMException('Aborted', 'AbortError')); }, { once: true }); });
+    }
+  }
+}
 async function serverImage(server, prompt, { w, h, seed }, signal, refs = []) {
   const blob = await server.image({ prompt, width: w, height: h, seed, ...(refs.length ? { refs } : {}) }, signal);
   return { img: await createImageBitmap(blob), blob };
@@ -242,7 +252,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
       onProgress(done / total, `Creating ${nameOf(c)}'s look`);
       try {
         const p = `portrait of ${person(c, look)}, head and shoulders, facing the camera, natural expression, plain soft background, ${LOOK_TAG[look] || LOOK_TAG.pixar}, ${STYLE[look] || STYLE.pixar}`;
-        const blob = await srv.image({ prompt: p.slice(0, 900), width: 768, height: 768, seed: 4242 }, signal);
+        const blob = await tries(() => srv.image({ prompt: p.slice(0, 900), width: 768, height: 768, seed: 4242 }, signal), signal);
         portraits.set(c.id, await blobToDataUrl(blob));
       } catch (e) { if (e?.name === 'AbortError') throw e; console.warn('portrait skipped', e); }
     }
@@ -255,7 +265,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
       const ids = castRefs(shots[i]);
       // e.g. "Daniel is the person in image 1. Keep exactly the same face, hair and clothes. New picture: …"
       const lead = ids.length ? `${ids.map((id, k) => `${nameOf(castById.get(id))} is the person in image ${k + 1}`).join(', ')}. Keep exactly the same face, hair and clothes. New picture: ` : '';
-      try { const r = await serverImage(srv, (lead + prompt).slice(0, 1400), opts, signal, ids.map((id) => portraits.get(id))); sources.server++; return r; } catch (e) { if (e?.name === 'AbortError') throw e; console.warn(e); }
+      try { const r = await tries(() => serverImage(srv, (lead + prompt).slice(0, 1400), opts, signal, ids.map((id) => portraits.get(id))), signal); sources.server++; return r; } catch (e) { if (e?.name === 'AbortError') throw e; console.warn(e); }
     }
     try {
       const r = await paintFree(prompt, opts, signal, (n) => onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} — free AI is busy, waiting (${n})…`), waitMs);
@@ -322,7 +332,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
         const mp = [notes[i], `${motionPrompt(shots[i], castById, look)}. ${freeShotPrompt(shots[i], castById, look)}`].filter(Boolean).join('. ').slice(0, 1400);
         try {
           if (srvVideo) {
-            const blob = await serverVideo(srv, blobs[i], mp, shots[i], size, signal, speed);
+            const blob = await tries(() => serverVideo(srv, blobs[i], mp, shots[i], size, signal, speed), signal);
             media[i].clip = { blob };
             onShot(i, null, 'animated');
             // lip sync: the on-screen speakers' words, on the clip's clock as the player will show it
