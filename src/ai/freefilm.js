@@ -5,7 +5,7 @@
 // slow camera drift. Playback/export reuse AiFilm from the cinematic renderer.
 import { LivingFilm } from './living.js';
 import { shotSpeech, lipsyncClip, blobToDataUrl } from './servervoice.js';
-import { waitForServer } from './aiserver.js';
+import { waitForServer, wakeServer } from './aiserver.js';
 
 const IMG = 'https://image.pollinations.ai/prompt/';
 const GRADIO = 'https://cdn.jsdelivr.net/npm/@gradio/client@2.5.0/dist/browser.js';
@@ -312,7 +312,19 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
       if (r) await place(i, r);
       return r ? blobs[i] : null;
     };
-    await review({ shots, blobs, notes, repaint });
+    // A sleepy server (Modal) stops 2 minutes after its last request. While you look at your shots it is
+    // kept awake for up to about 4 more minutes (cheaper than starting it again); after a longer look
+    // it is woken up again before the shots come to life.
+    let pings = 0;
+    const keepAwake = useSrv ? setInterval(() => { if (++pings <= 4) srv.health(20000).catch(() => null); }, 50000) : null;
+    try { await review({ shots, blobs, notes, repaint }); } finally { if (keepAwake) clearInterval(keepAwake); }
+    if (useSrv && animate) {
+      let h = await srv.health(8000).catch(() => null);
+      if (!h || h.ok === false) {
+        h = await wakeServer(srv, { signal, onWait: (s) => onProgress(done / total, `Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (1–3 minutes after a quiet spell)`) });
+      }
+      if (h) health = await waitForServer(srv, h, onProgress, signal);
+    }
   }
   let reason = '';
   let lipsynced = 0;
