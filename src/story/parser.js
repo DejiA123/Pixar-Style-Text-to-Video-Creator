@@ -781,6 +781,8 @@ export function parseStory(rawText, opts = {}) {
       if (['he', 'him', 'his'].includes(p)) targets = [lastByGender.m || lastMentioned.find((c) => c.gender !== 'f')];
       else if (['she', 'her', 'hers'].includes(p)) targets = [lastByGender.f || lastMentioned.find((c) => c.gender !== 'm')];
       else if (['it', 'its'].includes(p)) targets = [lastMentioned.find((c) => c.kind !== 'human')];
+      // "they"/"their" after a crowd named in the same sentence ("shepherds were watching their sheep") means that crowd
+      else if (mentions.some((m) => (m.c.crowd || m.c.group) && m.idx < idx)) targets = [];
       else targets = (lastMentioned.length > 1 ? lastMentioned : onStage.map((id) => cast.find((c) => c.id === id)));
       for (const t of targets) if (t && !resolved.has(t.id)) resolved.set(t.id, idx);
     }
@@ -843,7 +845,7 @@ export function parseStory(rawText, opts = {}) {
     if (characters.length === 0) {
       characters = isNewSetting && prevSetting !== null ? onStage.slice(0, 1) : onStage.slice();
       if (characters.length === 0 && cast.length) characters = [cast[0].id];
-    } else if (!isNewSetting && !prevLeft && !/\b(alone|by (?:him|her|them)sel(?:f|ves)|on (?:his|her|their) own|(?:ran|walked|went) (?:off|away|back))\b/.test(lowerNQ)) {
+    } else if (!isNewSetting && !prevLeft && !/\b(alone|by (?:him|her|them)sel(?:f|ves)|on (?:his|her|their) own|(?:ran|walked|went) (?:off|away|back)|nearby|meanwhile|elsewhere|far away|across town|at the same time)\b/.test(lowerNQ)) {
       // characters who were just here stay in the background unless the story moved on
       // (someone is alone, walks away, or just left home for somewhere else)
       for (const id of onStage) if (!characters.includes(id) && characters.length < 4) characters.push(id);

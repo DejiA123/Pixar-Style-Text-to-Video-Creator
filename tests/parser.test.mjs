@@ -159,4 +159,6 @@ test('app samples: only the people who are really there, and the right speaker',
   const shepherds = xmas.cast.find((c) => c.noun === 'shepherd');
   assert.ok(shepherds?.crowd);
   assert.ok(sceneOf(xmas, 'hurried to the stable').characters.includes(shepherds.id));
+  // "Nearby, shepherds were watching…": somewhere else, without Mary and Joseph
+  assert.ok(!sceneOf(xmas, 'watching their sheep').characters.includes(who(xmas, 'Mary')));
 });
