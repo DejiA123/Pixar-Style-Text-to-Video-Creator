@@ -32,7 +32,7 @@ const DEFAULT_AI_SERVER = 'https://dejiaugustine--storyreel-serve.us-east.modal.
 
 const state = {
   fr: null, film: null, compositor: null, player: null, soundtrack: null, timeline: null, plan: null,
-  busy: false, kokoro: null, aspect: '16:9', exportAbort: null,
+  busy: false, kokoro: null, aspect: '9:16', exportAbort: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -59,11 +59,13 @@ function init() {
   for (const n of KOKORO_NARRATORS) { const o = document.createElement('option'); o.value = n.id; o.textContent = n.label; nar.appendChild(o); }
   // AI film with AI voices only: their old saved choices are no longer restored
   for (const id of ['narrator', 'aspect', 'length', 'quality', 'export-res', 'ai-video', 'look', 'speed']) {
-    const el = $(id); const v = store.get(id, null);
+    const key = id === 'aspect' ? 'aspect-v2' : id;  // phone-shaped 9:16 is the default now: earlier saved frames don't count
+    const el = $(id); const v = store.get(key, null);
     if (v != null && [...el.options].some((o) => o.value === v)) el.value = v;
-    el.addEventListener('change', () => { store.set(id, el.value); onSettings(id); });
+    el.addEventListener('change', () => { store.set(key, el.value); onSettings(id); });
   }
-  for (const id of ['sfx', 'subs', 'char-voices']) {
+  // sound effects and characters telling the story are always on (their boxes are hidden): only subtitles are a choice
+  for (const id of ['subs']) {
     const key = id === 'subs' ? 'subs-v2' : id;  // subtitles are off by default now: earlier saved choices don't count
     const el = $(id); const v = store.get(key, null);
     if (v != null) el.checked = v;
@@ -82,7 +84,7 @@ function init() {
   setupServerStatus();
   $('hf-token').value = store.get('hf-token', '');
   $('hf-token').addEventListener('change', () => store.set('hf-token', $('hf-token').value.trim()));
-  $('free-animate').checked = store.get('free-animate', true);
+  $('free-animate').checked = true;  // every shot is AI video (the box is hidden; an old saved "off" doesn't count)
   $('free-animate').addEventListener('change', () => store.set('free-animate', $('free-animate').checked));
   $('review-first').checked = store.get('review-first', true);
   $('review-first').addEventListener('change', () => store.set('review-first', $('review-first').checked));
@@ -209,33 +211,33 @@ function setupServerStatus() {
     // check) wakes it and keeps it from sleeping. So the light never asks it: it wakes only when
     // you press Generate, and the film's progress card shows it starting.
     if (sleepy(value)) {
-      show('ready', 'Modal: asleep and free until you press Generate (the first film after a break waits 1–3 minutes while it wakes up).', 'AI ready');
+      show('ready', 'Your AI film studio is ready: press Generate and it wakes up (the first film after a break takes an extra minute or two).', 'Ready to create');
       return;
     }
     const mine = ++seq;
-    if (!box.dataset.server) show('checking', 'Checking your AI server…', 'Checking…');
+    if (!box.dataset.server) show('checking', 'Connecting to your AI film studio…', 'Connecting…');
     const h = await server.health();
     if (mine !== seq) return;
     let again = 15000;
     if (server.kind === 'serverless') {
       if (h?.needsKey) show('starting', 'Add your RunPod API key below.', 'Needs key');
       else if (h?.badKey) show('down', 'RunPod didn’t accept that API key.', 'Key refused');
-      else if (!h) show('down', 'Can’t reach that RunPod endpoint: check the endpoint ID.', 'Server off');
+      else if (!h) show('down', 'Can’t reach that RunPod endpoint: check the endpoint ID.', 'Studio offline');
       else {
-        show('ready', `Ready · RunPod Serverless · ${h.warm ? `${h.warm} GPU${h.warm > 1 ? 's' : ''} warm` : h.starting ? 'a GPU is starting…' : 'a GPU starts when you generate (the first film waits a few minutes)'}`, 'Server ready');
+        show('ready', `Ready · RunPod Serverless · ${h.warm ? `${h.warm} GPU${h.warm > 1 ? 's' : ''} warm` : h.starting ? 'a GPU is starting…' : 'a GPU starts when you generate (the first film waits a few minutes)'}`, 'Ready to create');
         again = 30000;
       }
     } else if (!h && sleepy(value)) show('starting', 'Asleep: it wakes up when you press Generate (the first film waits 1–3 minutes).', 'Asleep');
-    else if (!h) show('down', 'Not running. Your pod stops itself when idle: open Pods in RunPod and tap Start on it (it’s ready about 15 minutes later). A new pod has a new link: paste it here.', 'Server off');
+    else if (!h) show('down', 'Not running. Your pod stops itself when idle: open Pods in RunPod and tap Start on it (it’s ready about 15 minutes later). A new pod has a new link: paste it here.', 'Studio offline');
     else if (!h.ready) {
       const p = startupProgress(h.loading);
-      show('starting', `${p.label} · ${p.pct}% · ${p.elapsed}`, `Starting ${p.pct}%`, p);
+      show('starting', `${p.label} · ${p.pct}% · ${p.elapsed}`, `Warming up ${p.pct}%`, p);
       again = 3000;  // keeps the bar moving (and a sleeping server awake while it loads)
     }
     else {
       const lips = h.lipsync ? 'lip sync ✓' : h.lipsync_state === 'setting up' ? 'lip sync setting up…' : 'no lip sync';
       const video = h.video ? 'AI video ✓' : h.error ? 'AI video failed to load (start a fresh pod)' : 'no AI video';
-      show('ready', `Ready · ${[h.gpu, video, h.tts ? 'voices ✓' : 'no voices', lips].filter(Boolean).join(' · ')}`, 'Server ready');
+      show('ready', `Ready · ${[h.gpu, video, h.tts ? 'voices ✓' : 'no voices', lips].filter(Boolean).join(' · ')}`, 'Ready to create');
       if (h.lipsync_state !== 'setting up') again = 60000;
     }
     timer = setTimeout(refresh, again);

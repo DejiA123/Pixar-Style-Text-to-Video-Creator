@@ -30,7 +30,7 @@
         <div class="screen-empty" id="empty">
           <div class="orb" aria-hidden="true"></div>
           <h1>What story do you want to bring to life?</h1>
-          <p class="sub">Describe it below — characters, place, what they say. Storyreel turns it into an AI film: every shot animated, with realistic voices and subtitles.</p>
+          <p class="sub">Describe it below — characters, place, what they say. Storyreel turns it into an AI film: every shot animated, with characters who speak in realistic voices.</p>
         </div>
         <div class="progress" id="progress">
           <div class="p-head"><span class="p-pct" id="p-pct">0%</span><span class="p-time" id="p-time"></span></div>
@@ -105,9 +105,9 @@
               </select>
             </label>
             <div class="checks">
-              <label class="check"><input type="checkbox" id="sfx" checked> Sound FX</label>
+              <label class="check" hidden><input type="checkbox" id="sfx" checked> Sound FX</label>
               <label class="check"><input type="checkbox" id="subs"> Subtitles</label>
-              <label class="check"><input type="checkbox" id="char-voices" checked> Characters tell the story</label>
+              <label class="check" hidden><input type="checkbox" id="char-voices" checked> Characters tell the story</label>
             </div>
           </div>
           <div class="ai-box" id="free-box">
@@ -123,7 +123,7 @@
                 <option value="best">Best quality (with lip sync)</option>
               </select>
             </label>
-            <label class="check"><input type="checkbox" id="free-animate" checked> Animate every shot with AI video</label>
+            <label class="check" hidden><input type="checkbox" id="free-animate" checked> Animate every shot with AI video</label>
             <label class="check"><input type="checkbox" id="review-first" checked> Let me check the shots before animating</label>
             <div id="server-settings" hidden>  <!-- the AI server is built in (DEFAULT_AI_SERVER in src/ui/app.js) -->
             <label class="field"><span>Your AI server: a Modal link, a RunPod pod link, or a RunPod endpoint ID</span><input id="ai-server" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abc123xyz456 or https://xxxx-7860.proxy.runpod.net"></label>
@@ -150,8 +150,8 @@
       </details>
       <label class="pill select-pill"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
         <select id="aspect" aria-label="Frame">
+          <option value="9:16" selected>9:16</option>
           <option value="16:9">16:9</option>
-          <option value="9:16">9:16</option>
           <option value="1:1">1:1</option>
         </select>
       </label>
@@ -165,7 +165,7 @@
           <option value="180">3 min</option>
         </select>
       </label>
-      <button id="server-chip" class="pill server-pill" type="button" hidden title="Your AI server"><span class="dot"></span><span class="label">AI server</span></button>
+      <button id="server-chip" class="pill server-pill" type="button" hidden title="Your AI film studio"><span class="dot"></span><span class="label">Ready to create</span></button>
       <span class="spacer"></span>
       <button id="make" class="btn-make" type="button">Generate</button>
     </div>
@@ -192,6 +192,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793578024"></script>
+<script type="module" src="src/ui/app.js?v=1793578262"></script>
 </body>
 </html>
