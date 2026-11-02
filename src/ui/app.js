@@ -39,21 +39,27 @@ const state = {
 // setup
 // ---------------------------------------------------------------------------
 function init() {
-  const chips = $('samples');
+  // Example stories: a tap puts one in the box; a second tap takes it out again and leaves the box
+  // empty, ready for your own story. Editing the text makes it yours, so the example is no longer picked.
+  const chips = $('samples'), box = $('story');
+  const pressOnly = () => { for (const [k, c] of [...chips.children].entries()) c.setAttribute('aria-pressed', String(SAMPLES[k].text === box.value)); };
   for (const s of SAMPLES) {
     const b = document.createElement('button');
     b.className = 'chip'; b.type = 'button'; b.textContent = s.label; b.setAttribute('role', 'listitem');
     b.addEventListener('click', () => {
-      $('story').value = s.text;
-      for (const c of chips.children) c.setAttribute('aria-pressed', String(c === b));
-      store.set('draft', s.text);
+      const unpick = box.value === s.text;
+      box.value = unpick ? '' : s.text;
+      store.set('draft', box.value);
+      pressOnly();
+      if (unpick) box.focus();  // the keyboard comes up, ready to write
     });
     chips.appendChild(b);
   }
-  const draft = store.get('draft', null);
-  $('story').value = draft || SAMPLES[0].text;
-  if (!draft) chips.children[0].setAttribute('aria-pressed', 'true');
-  $('story').addEventListener('input', () => store.set('draft', $('story').value));
+  // nothing picked to begin with: an empty box for your own story (your own unfinished writing is kept)
+  const draft = store.get('draft', '');
+  box.value = SAMPLES.some((x) => x.text === draft) ? '' : draft || '';
+  pressOnly();
+  box.addEventListener('input', () => { store.set('draft', box.value); pressOnly(); });
 
   const nar = $('narrator');
   for (const n of KOKORO_NARRATORS) { const o = document.createElement('option'); o.value = n.id; o.textContent = n.label; nar.appendChild(o); }
@@ -179,6 +185,7 @@ let enhanceUndo = null, enhanceTimer = 0;
 function enhanceDone(label = 'Enhance') {
   const b = $('enhance');
   b.removeAttribute('aria-busy'); b.disabled = false;
+  b.closest('.composer-row')?.classList.toggle('enhancing', label === 'Undo');
   b.querySelector('.label').textContent = label;
   b.querySelector('i').textContent = label === 'Undo' ? '↩' : '✨';
 }
@@ -192,9 +199,17 @@ async function enhanceStory() {
   if (!idea) { toast('Type your idea first, then tap Enhance.'); return; }
   const say = (t) => { b.querySelector('.label').textContent = t; };
   b.setAttribute('aria-busy', 'true'); b.disabled = true;
-  const server = await pickServer(() => say('Waking up…'));
+  b.closest('.composer-row')?.classList.add('enhancing');  // phones: show the words while it works
+  say('Starting…');
+  // a sleeping AI studio takes 2–4 minutes to wake: say so once, then count the time on the button
+  let told = false;
+  const waking = (s) => {
+    say(`Waking up… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
+    if (!told) { told = true; toast('Waking up the AI studio (2–4 minutes after a quiet spell). Your story is enhanced right after.', false, 9000); }
+  };
+  const server = await pickServer((msg) => { const m = /(\d+):(\d\d)/.exec(msg); waking(m ? +m[1] * 60 + +m[2] : 0); });
   if (!server) { enhanceDone(); toast('Enhance needs the AI studio, which isn’t set up here.', true); return; }
-  let h = await wakeServer(server, { maxMs: sleepy($('ai-server').value) ? 4 * 60000 : 15000, onWait: () => say('Waking up…') });
+  let h = await wakeServer(server, { maxMs: sleepy($('ai-server').value) ? 6 * 60000 : 15000, onWait: waking });
   if (!h) { enhanceDone(); toast('Your AI studio isn’t answering right now. Please try again in a minute.', true); return; }
   h = await waitForServer(server, h, (p) => say(`Warming up ${Math.round(p * 100)}%`));
   for (const t0 = Date.now(); h && !h.writer && h.writer_state === 'loading' && Date.now() - t0 < 5 * 60000;) {
@@ -219,7 +234,7 @@ async function pickServer(onMsg = () => {}) {
   const main = currentServer(), backup = backupServer();
   if (!main) return backup;
   const h = sleepy($('ai-server').value)
-    ? await wakeServer(main, { onWait: (s) => onMsg(`Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (1–3 minutes after a quiet spell)`) })
+    ? await wakeServer(main, { onWait: (s) => onMsg(`Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (2–4 minutes after a quiet spell)`) })
     : await main.health(15000);
   if (!backup) return main;
   if (h && h.ok !== false) return main;
@@ -271,7 +286,7 @@ function setupServerStatus() {
         show('ready', `Ready · RunPod Serverless · ${h.warm ? `${h.warm} GPU${h.warm > 1 ? 's' : ''} warm` : h.starting ? 'a GPU is starting…' : 'a GPU starts when you generate (the first film waits a few minutes)'}`, 'Ready to create');
         again = 30000;
       }
-    } else if (!h && sleepy(value)) show('starting', 'Asleep: it wakes up when you press Generate (the first film waits 1–3 minutes).', 'Asleep');
+    } else if (!h && sleepy(value)) show('starting', 'Asleep: it wakes up when you press Generate (the first film waits 2–4 minutes).', 'Asleep');
     else if (!h) show('down', 'Not running. Your pod stops itself when idle: open Pods in RunPod and tap Start on it (it’s ready about 15 minutes later). A new pod has a new link: paste it here.', 'Studio offline');
     else if (!h.ready) {
       const p = startupProgress(h.loading);

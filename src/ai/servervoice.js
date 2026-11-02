@@ -131,7 +131,7 @@ export async function serverVoices(server, plan, clips, voices, { stored = false
         console.warn(`voice line failed (try ${k} of 4), waiting for the server`, e?.message || e);
         onProgress(out.size / uniq.length, `${out.size}/${uniq.length} · reconnecting…`);
         await new Promise((r) => setTimeout(r, 2000 * k));
-        if (!(await server.health(8000))) await wakeServer(server, { maxMs: 4 * 60000, signal });
+        if (!(await server.health(8000))) await wakeServer(server, { maxMs: 6 * 60000, signal });
       }
     }
     ref.sent = true;

@@ -203,7 +203,7 @@ async function tries(fn, signal, n = 3, srv = null) {
       if (e?.name === 'AbortError' || k >= n) throw e;
       console.warn(`AI server request failed (try ${k} of ${n}), trying again`, e?.message || e);
       await new Promise((r, j) => { const t = setTimeout(r, 2500 * k); signal?.addEventListener('abort', () => { clearTimeout(t); j(new DOMException('Aborted', 'AbortError')); }, { once: true }); });
-      if (srv && !(await srv.health(8000))) await wakeServer(srv, { maxMs: 4 * 60000, signal });
+      if (srv && !(await srv.health(8000))) await wakeServer(srv, { maxMs: 6 * 60000, signal });
     }
   }
 }
@@ -348,7 +348,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
     if (useSrv && animate) {
       let h = await srv.health(8000).catch(() => null);
       if (!h || h.ok === false) {
-        h = await wakeServer(srv, { signal, onWait: (s) => onProgress(done / total, `Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (1–3 minutes after a quiet spell)`) });
+        h = await wakeServer(srv, { signal, onWait: (s) => onProgress(done / total, `Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (2–4 minutes after a quiet spell)`) });
       }
       if (h) health = await waitForServer(srv, h, onProgress, signal);
     }

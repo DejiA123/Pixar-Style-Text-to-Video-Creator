@@ -267,7 +267,10 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .share-row { display: flex; gap: 8px; }
 .share-row .btn-primary { flex: 1; height: 44px; font-size: 16px; }
 .share-row .btn-ghost { height: 44px; padding: 0 14px; }
-.enhance-pill[aria-busy='true'] { opacity: 0.75; cursor: progress; }
+.enhance-pill[aria-busy='true'] { cursor: progress; border-color: rgba(138, 180, 255, 0.55); color: var(--text); }
+.enhance-pill[aria-busy='true'] i { display: inline-block; animation: spin 1.6s linear infinite; }
+/* a tap on a button never selects its text or icon (iPhone: no Copy / Look Up bubble) */
+button, .pill, .btn-make { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 .btn-primary { height: 34px; padding: 0 14px; border-radius: 999px; border: none; background: #fff; color: #0b0c0f; font-weight: 600; cursor: pointer; }
 .btn-ghost { height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); background: transparent; color: var(--text); cursor: pointer; }
 
@@ -316,6 +319,9 @@ button, select, input, textarea { font: inherit; color: inherit; }
   #story { font-size: 16px; height: 72px; }
   .field-grid { grid-template-columns: 1fr; }
   .pill span { display: none; }
+  /* while Enhance works (or offers Undo) it shows its words; the other pills make room */
+  .composer-row.enhancing .pill:not(.enhance-pill) { display: none; }
+  .composer-row.enhancing .enhance-pill span { display: inline; }
   .server-pill .dot { display: block; }
   .pill { padding: 0 11px; }
   .composer-row { flex-wrap: nowrap; gap: 6px; }

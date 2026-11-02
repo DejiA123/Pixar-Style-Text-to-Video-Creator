@@ -170,7 +170,7 @@ const TIPS = [
 
 // Wakes a sleeping server (Modal): while its GPU starts, it can answer with an error or not at all,
 // so keep asking until it really answers, for up to a few minutes.
-export async function wakeServer(server, { maxMs = 4 * 60000, onWait = () => {}, signal } = {}) {
+export async function wakeServer(server, { maxMs = 6 * 60000, onWait = () => {}, signal } = {}) {
   const t0 = Date.now();
   for (;;) {
     const h = await server.health(25000);
