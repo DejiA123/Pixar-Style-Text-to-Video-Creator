@@ -45,8 +45,7 @@ button, select, input, textarea { font: inherit; color: inherit; }
   backdrop-filter: blur(14px);
 }
 .brand { display: flex; align-items: center; gap: 10px; }
-.logo { width: 26px; height: 26px; border-radius: 8px; background: var(--grad); box-shadow: 0 0 24px rgba(140, 150, 255, 0.45); position: relative; }
-.logo::after { content: ''; position: absolute; inset: 7px 6px 7px 9px; background: #0b0c0f; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.logo { display: block; width: 28px; height: 28px; border-radius: 8px; box-shadow: 0 0 24px rgba(140, 150, 255, 0.45); }  /* assets/brand/takeone.svg: a clapperboard, take 1 */
 .name { font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
 .badge { font-size: 11px; font-weight: 600; color: var(--text-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 2px 9px; }
 .bar-link { color: var(--text-2); text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); }
