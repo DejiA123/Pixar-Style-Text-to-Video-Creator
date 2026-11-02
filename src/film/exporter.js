@@ -13,9 +13,10 @@ export function webCodecsSupported() {
 // renderFrame(t) must draw the final composited frame into `canvas`.
 // audioContext: one made during the tap on Download, for browsers that record in real time (iPhone
 // Safari only lets sound start from a tap; a context made later records silence).
-export async function exportVideo({ canvas, duration, fps = 30, soundtrack, renderFrame, onProgress = () => {}, signal, audioContext = null }) {
+// realtime: record the film as it plays (for devices that can't decode the clips frame by frame).
+export async function exportVideo({ canvas, duration, fps = 30, soundtrack, renderFrame, onProgress = () => {}, signal, audioContext = null, realtime = false }) {
   const W = canvas.width, H = canvas.height;
-  if (!webCodecsSupported()) return recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, onProgress, signal, audioContext });
+  if (realtime || !webCodecsSupported()) return recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, onProgress, signal, audioContext });
 
   let format = new Mp4OutputFormat({ fastStart: 'in-memory' });
   let vcodec = await getFirstEncodableVideoCodec(['avc', 'hevc', 'vp9', 'av1'], { width: W, height: H, frameRate: fps });

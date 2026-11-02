@@ -787,7 +787,8 @@ async function doExport() {
   const p = state.player;
   if (!p || state.exporting) return;
   // made right away, during the tap: iPhone Safari records its sound only from a context started by one
-  const audioContext = !webCodecsSupported() && state.soundtrack ? new (window.AudioContext || window.webkitAudioContext)() : null;
+  // (used when the film is recorded in real time; harmless otherwise)
+  const audioContext = state.soundtrack ? new (window.AudioContext || window.webkitAudioContext)() : null;
   audioContext?.resume().catch(() => {});
   p.pause();
   if (!state.hasVoiceAudio && $('voice-engine').value === 'browser') {
@@ -805,24 +806,40 @@ async function doExport() {
   const prevQ = state.fr?.qualityName;
   if (state.film instanceof PaintedFilm) state.film.setOutputSize(W, H);
   else if (!state.ai) { state.fr.setQuality('export'); state.fr.setSize(W, H, 1); }
-  else await state.film.prepareExport?.(W, H);
+  // frame-exact export decodes the AI clips (WebCodecs); where that isn't available (some phones),
+  // the film is recorded as it plays instead
+  let exact = !!state.ai;
+  if (state.ai) {
+    try { await state.film.prepareExport?.(W, H); } catch (e) { console.warn('Frame-exact export unavailable here; recording as it plays', e); exact = false; }
+  }
   await document.fonts.ready;
   $('busy').hidden = false;
   $('busy-title').textContent = 'Rendering your movie';
   const ac = new AbortController();
   state.exportAbort = ac;
   try {
-    const out = await exportVideo({
-      canvas: exportCanvas, duration: state.timeline.duration, fps: 30, soundtrack: state.soundtrack, signal: ac.signal, audioContext,
-      renderFrame: async (t) => {
-        if (state.ai) await state.film.renderAtExact(t); else state.film.renderAt(t);
-        comp.draw(state.film.canvas || state.glCanvas, state.film, t);
-      },
-      onProgress: (f, eta) => {
-        $('busy-bar').style.width = `${(f * 100).toFixed(1)}%`;
-        $('busy-sub').textContent = `${Math.round(f * 100)}% · about ${formatTime(eta)} left`;
-      },
-    });
+    const run = (realtime) => {
+      if (realtime && state.ai) state.film.setPlaying?.(true);  // the clips play while they're recorded
+      return exportVideo({
+        canvas: exportCanvas, duration: state.timeline.duration, fps: 30, soundtrack: state.soundtrack, signal: ac.signal, audioContext, realtime,
+        renderFrame: async (t) => {
+          if (state.ai && !realtime) await state.film.renderAtExact(t); else state.film.renderAt(t);
+          comp.draw(state.film.canvas || state.glCanvas, state.film, t);
+        },
+        onProgress: (f, eta) => {
+          $('busy-bar').style.width = `${(f * 100).toFixed(1)}%`;
+          $('busy-sub').textContent = `${Math.round(f * 100)}% · about ${formatTime(eta)} left`;
+        },
+      }).finally(() => { if (realtime && state.ai) state.film.setPlaying?.(false); });
+    };
+    let out;
+    try { out = await run(state.ai && !exact); } catch (e) {
+      // a clip this device can't decode frame by frame: record the film as it plays instead
+      if (!state.ai || !exact || e?.name === 'AbortError' || !/decod|codec|support/i.test(String(e?.message || e))) throw e;
+      console.warn('Frame-exact export failed here; recording as it plays', e);
+      $('busy-title').textContent = 'Recording your movie (it plays through once)';
+      out = await run(true);
+    }
     const name = `${state.timeline.title.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'my-movie'}.${out.ext}`;
     // phones: the share sheet, with "Save Video" to Photos; computers: a normal download
     const file = new File([out.blob], name, { type: out.blob.type || 'video/mp4' });
@@ -832,6 +849,7 @@ async function doExport() {
       toast(`Saved ${name} (${(out.blob.size / 1e6).toFixed(1)} MB).`);
     }
   } finally {
+    if (audioContext && audioContext.state !== 'closed') audioContext.close().catch(() => {});
     state.exporting = false;
     state.exportAbort = null;
     $('busy').hidden = true;
