@@ -39,7 +39,18 @@ export function applyDialogue(plan, result) {
   const ids = new Set(plan.cast.map((c) => c.id));
   for (const c of result?.cast || []) {
     const m = plan.cast.find((x) => x.id === c.id);
-    if (m && /[a-z]/i.test(c.look || '')) m.lookText = String(c.look).trim();
+    if (!m) continue;
+    // the director says this "character" isn't anyone (a place name read as a person): keep them out of the shots
+    if (/^\s*none\b/i.test(c.look || '')) {
+      for (const sc of plan.scenes) {
+        sc.characters = sc.characters.filter((id) => id !== m.id);
+        sc.lines = sc.lines.map((l) => (l.speaker === m.id ? { ...l, speaker: 'narrator' } : l));
+      }
+      plan.cast = plan.cast.filter((x) => x !== m);
+      ids.delete(m.id);
+      continue;
+    }
+    if (/[a-z]/i.test(c.look || '')) m.lookText = String(c.look).trim();
   }
   let n = 0;
   for (const s of result?.scenes || []) {

@@ -104,6 +104,8 @@ function settingMatchers() {
 }
 const SETTING_MATCHERS = settingMatchers();
 
+const PLACE_NOUNS = /^(?:Church|Chapel|Cathedral|Temple|Mosque|School|Academy|College|University|Park|Street|Road|Avenue|Lane|Square|Hospital|Hotel|Restaurant|Cafe|Café|Mall|Center|Centre|Station|Airport|Museum|Library|Stadium|Arena|Bridge|Tower|Castle|Palace|Lake|River|Mountain|Mountains|Beach|Forest|City|Town|Village|Island|Bay|Valley|Hall|Theater|Theatre|Market|Farm|Zoo|Studio|Club|Gym|Office|Building|House|Garden|Gardens)$/;
+const TITLE_WORDS = 'Pastor|Father|Reverend|Bishop|Deacon|Prophet|Doctor|Professor|Teacher|Coach|Captain|Officer|Detective|Uncle|Aunt|Auntie|Grandma|Grandpa|Granny|King|Queen|Prince|Princess|Sister|Brother|Nurse|Chef|Judge|Mama|Papa';
 const PLACE_WORDS = new Set(['in', 'to', 'at', 'from', 'of', 'visit', 'visited', 'visits', 'visiting', 'near', 'through', 'into', 'across', 'around',
   'toward', 'towards', 'inside', 'outside', 'reached', 'reach', 'entered', 'enter', 'explored', 'explore', 'left', 'arrived', 'above', 'over', 'beyond']);
 
@@ -389,8 +391,18 @@ function detectCast(sentences) {
   sentences.forEach((s, si) => {
     const stripped = s.replace(/"[^"]*"/g, (q) => q); // keep quotes: names can appear in dialogue
     const tokens = stripped.match(/[A-Za-z'-]+/g) || [];
+    // "Grace Baptist Church", "Central Park": every word of a named place is the place, not a person
+    const inPlace = new Set();
+    tokens.forEach((tok, ti) => {
+      if (!PLACE_NOUNS.test(tok)) return;
+      if (ti > 0 && /^[A-Z]/.test(tokens[ti - 1]) && !STOPWORDS_CAPS.has(tokens[ti - 1])) inPlace.add(ti);
+      for (let k = ti - 1; k >= 0 && /^[A-Z]/.test(tokens[k]) && !STOPWORDS_CAPS.has(tokens[k]); k--) inPlace.add(k);
+    });
+    // words that start a quote or a sentence inside one are capitalized for that reason ("…from God. Now I see Him")
+    const quoteStarts = new Set([...s.matchAll(/(?:["“]|[.!?]["”]?)\s*([A-Z][a-z]+)/g)].map((m) => m[1]));
     tokens.forEach((tok, ti) => {
       if (!/^[A-Z][a-z]{1,14}$/.test(tok)) return;
+      if (inPlace.has(ti)) { placeNames.add(tok); return; }
       if (STOPWORDS_CAPS.has(tok)) return;
       if (CHARACTER_NOUNS[tok.toLowerCase()]) return;
       const prev = (tokens[ti - 1] || '').toLowerCase();
@@ -399,7 +411,7 @@ function detectCast(sentences) {
       if (PLACE_WORDS.has(prev) || prev === 'the' || (PLACE_WORDS.has(prev2) && /^[a-z]/.test(tokens[ti - 1] || ''))) { placeNames.add(tok); return; }
       const e = capCounts.get(tok) || { n: 0, nonInitial: 0, first: si };
       e.n++;
-      if (ti > 0 && !/^"/.test(tok)) e.nonInitial++;
+      if (ti > 0 && !quoteStarts.has(tok)) e.nonInitial++;
       capCounts.set(tok, e);
     });
   });
@@ -413,6 +425,17 @@ function detectCast(sentences) {
     }
   }
 
+  // "Pastor Lee", "Uncle Ben": the title is who they are, and "the pastor" later is the same person
+  const titled = new Map();
+  for (const m of sentences.join(' ').matchAll(new RegExp(`\\b(${TITLE_WORDS})\\s+([A-Z][a-z]+)\\b`, 'g'))) {
+    const c = byName.get(m[2]);
+    const noun = m[1].toLowerCase();
+    if (!c || titled.has(noun)) continue;
+    titled.set(noun, c);
+    const info = nounInfo(noun);
+    if (info) { c.role = info.role || c.role; if (c.gender === 'n' && info.gender) c.gender = info.gender; if (info.age && c.age === 'teen') c.age = info.age; }
+  }
+
   // 4) Unnamed characters by noun: "a dragon", "the old wizard".
   sentences.forEach((s, si) => {
     const lower = s.toLowerCase();
@@ -424,8 +447,8 @@ function detectCast(sentences) {
       if (noun === 'friend' || noun === 'kid' || noun === 'child') continue; // too generic to spawn on their own
       const info = nounInfo(noun);
       if (!info) continue;
-      // Already covered by a named member with this noun?
-      const named = cast.find((c) => c.noun === noun);
+      // Already covered by a named member with this noun ("Pastor Lee" … "the pastor")?
+      const named = cast.find((c) => c.noun === noun) || titled.get(noun);
       if (named) { applyAdjectives(named, m[1].trim().split(/\s+/)); continue; }
       if (byNoun.has(noun)) continue;
       const mem = addMember({ noun, ...info, firstSentence: si });
@@ -679,9 +702,14 @@ export function parseStory(rawText, opts = {}) {
     const best = Object.entries(sc).sort((a, b) => b[1] - a[1])[0];
     if (best && best[1] >= 2) { setting = best[0]; settingKnown = true; }
     else if (best && si === 0) { setting = best[0]; settingKnown = true; }
-    const named = noQuotes.match(/\b(?:in|at|through|to|into|across|around|near|inside|outside|from|visited|visiting|explored)\s+((?:the\s+)?(?:[a-z]+\s+){0,2}[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
-    if (named && !cast.some((c) => c.name && named[1].includes(c.name))) place = named[1];
+    const TIME = /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|January|February|March|April|May|June|July|August|September|October|November|December|Christmas|Easter|Halloween)\b/;
+    const named = [...noQuotes.matchAll(/\b(?:in|at|through|to|into|across|around|near|inside|outside|from|visited|visiting|explored)\s+((?:the\s+)?(?:[a-z]+\s+){0,2}[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/g)]
+      .map((m) => m[1]).find((p) => !TIME.test(p) && !cast.some((c) => c.name && p.includes(c.name)));
+    if (named) place = named;
     else if (best && best[1] >= 2) place = null;
+    // "of Grace Baptist Church": a named place anywhere in the sentence
+    const proper = noQuotes.match(/\b((?:[A-Z][a-z]+\s+){0,3}(?:Church|Chapel|Cathedral|Temple|Mosque|School|Academy|College|University|Park|Hospital|Hotel|Restaurant|Cafe|Café|Mall|Station|Airport|Museum|Library|Stadium|Arena|Castle|Palace|Lake|River|Beach|Market|Zoo|Theater|Theatre))\b/);
+    if (proper && /\s/.test(proper[1]) && !cast.some((c) => c.name && proper[1].includes(c.name))) place = proper[1];
     // the moon only means space when you're on it
     if (setting === 'space' && !/space|galaxy|planet|spaceship|rocket|on the moon|to the moon|mars|orbit|universe|station/.test(lowerNQ) && sc.space == null) { /* keep */ }
 

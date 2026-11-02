@@ -26,6 +26,7 @@ Looks (the CAST section):
 - One line per character: Name: their look, which stays exactly the same in every shot.
 - Give age, gender, skin tone, face shape, eye colour, hair (colour, length, style), facial hair if any, and clothes with colours. At most 35 words.
 - Follow everything the story says about them; invent the rest so it is specific.
+- If a listed character is not really a person or creature in the story (a place, a word read by mistake), write: Name: none
 
 Shots (a SHOT line in every scene):
 - What the camera sees, as a picture description: who is in it (by name), where exactly, what each person is doing, their facial expression, the important objects, the light. At most 40 words.
@@ -59,12 +60,13 @@ Name: line"""
 
 ENHANCE = """You help people turn an idea into a short film story that an AI film studio can make well.
 
-Rewrite the user's idea as a clear story of 5 to 9 short sentences:
+Rewrite the user's idea as a clear story of 6 to 10 short sentences, each under 22 words:
 - Keep everything the user wrote: their characters, places, events, order and any dialogue, word for word where they quoted it.
 - Give each character a first name (keep the user's names) and say briefly how they look the first time they appear.
 - Say clearly where each part happens and what each person does: one visual moment per sentence.
 - Add a few short lines of dialogue in quotation marks, so the characters talk.
-- Simple, vivid English. No headings, no lists, no notes.
+- One moment per sentence: what someone does, where, or what they say. Put dialogue in its own sentence.
+- Simple, vivid English. No headings, no lists, no notes, no asterisks, no sound effects like *bang*.
 
 Answer with a short title on the first line, then the story, and nothing else."""
 
@@ -159,7 +161,7 @@ def enhance(req, gpu_lock, mock=False):
         return {'story': f'The Story\n{idea} "Here we go!" she said.'}
     msgs = [{'role': 'system', 'content': ENHANCE}, {'role': 'user', 'content': idea}]
     text = generate(msgs, 600, gpu_lock, 'story enhanced').strip()
-    text = re.sub(r'^(?:title\s*:\s*)', '', text, flags=re.I).replace('**', '').strip()
+    text = re.sub(r'^(?:title\s*:\s*)', '', text, flags=re.I).replace('*', '').replace('#', '').strip()
     return {'story': text or idea}
 
 
