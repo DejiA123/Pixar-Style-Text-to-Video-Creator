@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseStory, inflections } from '../src/story/parser.js';
-import { SAMPLES } from '../src/story/samples.js';
+import { SAMPLES } from './fixtures/stories.mjs';
 
 const byName = (plan, name) => plan.cast.find((c) => c.name === name);
 

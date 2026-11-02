@@ -262,6 +262,10 @@ function detectCast(sentences) {
       id, name: null, noun: null, kind: 'human', gender: 'n', age: 'adult', role: null, color: null, size: 1,
       hair: { color: null, style: null }, accessories: [], traits: [], mentions: 0, firstSentence: 0, ...props,
     };
+    if (m.name) {  // a known first name decides gender, whatever noun is next to it ("his neighbor Grace")
+      const ln = m.name.toLowerCase();
+      if (NAMES_F.has(ln)) m.gender = 'f'; else if (NAMES_M.has(ln)) m.gender = 'm';
+    }
     cast.push(m);
     if (m.name) byName.set(m.name, m);
     if (m.noun && !m.name) byNoun.set(m.noun, m);
@@ -279,7 +283,7 @@ function detectCast(sentences) {
       if (a in SIZE_WORDS) m.size = SIZE_WORDS[a];
       if (TRAIT_WORDS.includes(a) && !m.traits.includes(a)) m.traits.push(a);
       if (a === 'old' && m.kind === 'human' && m.age === 'adult') m.age = 'old';
-      if (a === 'young' && m.kind === 'human' && m.age === 'adult' && !/^(?:woman|man|lady|guy|gentleman|mother|father|mom|mum|dad|wife|husband|couple|adult|bride|groom)$/.test(m.noun || '')) m.age = 'teen';
+      if (a === 'young' && m.kind === 'human' && m.age === 'adult' && /^(?:guy|lad|kid|person|student|teenager)$/.test(m.noun || '')) m.age = 'teen';
       if (/^(teen|teenage|teenaged|adolescent)$/.test(a) && m.kind === 'human') m.age = 'teen';
       if (/^(little|small|tiny)$/.test(a) && m.kind === 'human' && m.age !== 'old') m.age = 'child';
       if (/^(grown|adult)$/.test(a) && m.kind === 'human') m.age = 'adult';
@@ -373,7 +377,7 @@ function detectCast(sentences) {
 
   // 2c) Kinship / title words used as names: "Grandpa laughed", "Mom said".
   sentences.forEach((s, si) => {
-    const re = /(^|[^A-Za-z])(Grandpa|Grandma|Granny|Grandmother|Grandfather|Mom|Mum|Dad|Mother|Father|Princess|Prince|King|Queen|Captain|Wizard|Witch)(?=[^A-Za-z]|$)/g;
+    const re = /(^|[^A-Za-z])(Grandpa|Grandma|Granny|Grandmother|Grandfather|Mom|Mum|Dad|Daddy|Mommy|Mummy|Mama|Papa|Mother|Father|Princess|Prince|King|Queen|Captain|Wizard|Witch)(?=[^A-Za-z]|$)/g;
     let m;
     while ((m = re.exec(s))) {
       const word = m[2];
@@ -436,9 +440,9 @@ function detectCast(sentences) {
     if (info) { c.role = info.role || c.role; if (c.gender === 'n' && info.gender) c.gender = info.gender; if (info.age && c.age === 'teen') c.age = info.age; }
   }
 
-  // 4) Unnamed characters by noun: "a dragon", "the old wizard".
+  // 4) Unnamed characters by noun: "a dragon", "the old wizard". Not from inside quotes ("My son was lost").
   sentences.forEach((s, si) => {
-    const lower = s.toLowerCase();
+    const lower = s.replace(/"[^"]*"/g, (q) => ' '.repeat(q.length)).toLowerCase();
     const re = new RegExp(`(?:^|\\b(?:a|an|the|one|his|her|their|my|our)\\s+)((?:(?!(?:a|an|the|and|or|with|is|was|are|in|on|at|to|of)\\b)[a-z'’"‘“”-]+\\s+){0,4})(${nounAlt})\\b(?!\\s+(?:named|called))`, 'g');
     let m;
     while ((m = re.exec(lower))) {
@@ -447,6 +451,10 @@ function detectCast(sentences) {
       if (noun === 'friend' || noun === 'kid' || noun === 'child') continue; // too generic to spawn on their own
       const info = nounInfo(noun);
       if (!info) continue;
+      // "His father, an old man with a gray beard": the old man IS the father
+      const appo = lower.slice(0, m.index).match(/\b([a-z]+),\s*$/);
+      const head = appo && (byNoun.get(appo[1]) || cast.find((c) => c.noun === appo[1] || (c.name && c.name.toLowerCase() === appo[1])));
+      if (head) { applyAdjectives(head, m[1].trim().split(/\s+/)); continue; }
       // Already covered by a named member with this noun ("Pastor Lee" … "the pastor")?
       const named = cast.find((c) => c.noun === noun) || titled.get(noun);
       if (named) { applyAdjectives(named, m[1].trim().split(/\s+/)); continue; }

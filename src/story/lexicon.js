@@ -19,9 +19,14 @@ export const CHARACTER_NOUNS = {
   guy: { kind: 'human', gender: 'm', age: 'adult' },
   gentleman: { kind: 'human', gender: 'm', age: 'adult' },
   mom: { kind: 'human', gender: 'f', age: 'adult' },
+  mommy: { kind: 'human', gender: 'f', age: 'adult' },
+  mummy: { kind: 'human', gender: 'f', age: 'adult' },
+  mama: { kind: 'human', gender: 'f', age: 'adult' },
   mother: { kind: 'human', gender: 'f', age: 'adult' },
   mum: { kind: 'human', gender: 'f', age: 'adult' },
   dad: { kind: 'human', gender: 'm', age: 'adult' },
+  daddy: { kind: 'human', gender: 'm', age: 'adult' },
+  papa: { kind: 'human', gender: 'm', age: 'adult' },
   father: { kind: 'human', gender: 'm', age: 'adult' },
   sister: { kind: 'human', gender: 'f', age: 'child' },
   brother: { kind: 'human', gender: 'm', age: 'child' },
@@ -131,11 +136,14 @@ export const BIG_KINDS = new Set(['bear', 'elephant', 'dragon', 'dinosaur', 'mon
 
 // Common first names → gender hint (used when no pronoun resolves it).
 export const NAMES_F = new Set(('mia emma olivia ava sophia lily luna zoe chloe ella grace ruby rosie rose maya sara sarah anna ' +
+  'mary martha ruth naomi esther hannah rebecca rachel leah miriam deborah lydia priscilla elizabeth eve dorcas tabitha joanna amara ' +
   'hannah amelia isla ivy nora penny poppy daisy molly lucy alice bella clara emily sofia leah aria nina tina ' +
   'kate katie jane jenny julia lisa maria mary nala elsa moana sky amara zara aisha fatima priya mei yuki ' +
   'hazel willow iris violet jade pearl stella hope joy coco kiki lola mimi gigi fifi dot').split(' '));
 export const NAMES_M = new Set(('leo max sam jack oliver noah liam ethan lucas james ben tom tim finn milo oscar charlie henry ' +
   'theo jake luke mark john mike david daniel alex adam andrew ryan kevin bob bill joe carl paul peter pete ' +
+  'joseph samuel moses abraham isaac jacob noah solomon elijah elisha isaiah jeremiah ezekiel nathan aaron benjamin joshua caleb ' +
+  'gideon jonah micah amos joel timothy titus stephen barnabas lazarus zacchaeus matthew thomas philip simon jaden james ' +
   'arthur george harry louis felix hugo otto rex rocky buddy bolt bruno duke chase marco diego omar ali ' +
   'kai kenji raj arjun tobi tunde deji femi kofi kwame juan pablo carlos ivan igor zack zeke ziggy spike pip ' +
   'rusty sparky gizmo sprocket bob').split(' '));
@@ -149,7 +157,7 @@ export const SETTINGS = {
   underwater: ['underwater', 'under the sea', 'under the ocean', 'ocean floor', 'sea floor', 'coral reef', 'reef', 'deep sea'],
   city: ['city', 'street', 'downtown', 'skyscrapers?', 'traffic', 'sidewalk', 'neon', 'subway', 'times square', 'mall'],
   village: ['village', 'town', 'cottage', 'neighbou?rhood'],
-  farm: ['farm', 'barn', 'ranch', 'tractor'],
+  farm: ['farm', 'barn', 'ranch', 'tractor', 'stable', 'manger', 'the stable', 'the manger', 'in a stable'],
   home: ['house', 'home', 'bedroom', 'window', 'sofa', 'couch', 'dinner table', 'kitchen table', 'mirror', 'vanity', 'dressing table', 'bathroom', 'wardrobe', 'closet', 'kitchen', 'living room', 'room', 'attic', 'inside', 'indoors'],
   school: ['school', 'classroom', 'library', 'office', 'lab', 'laboratory', 'studio', 'cafe', 'café', 'coffee shop', 'bakery', 'shop', 'store', 'restaurant'],
   space: ['space', 'outer space', 'galaxy', 'planets?', 'spaceship', 'space ?station', 'on the moon', 'to the moon', 'mars', 'universe', 'orbit'],
@@ -357,4 +365,5 @@ export const STOPWORDS_CAPS = new Set(('African American European Asian Nigerian
   'September October November December Christmas Halloween Easter Earth Moon Mars Sun God Mr Mrs Ms Dr Sir Miss ' +
   'Not Just Even Still Also Only All Some Every Nobody Everyone Someone Something Nothing Everything Maybe Okay OK ' +
   'Good Great Little Big Old New Happy Sad Dear Once The End Title Chapter Scene Narrator Can Will Would Could Should ' +
-  'Did Do Does Is Are Was Were Be Been Being Have Has Had Am Wait Stop Go Run Help Watch Listen See Yay Hooray Whoa Ah Ahh Hmm Uh').split(' '));
+  'Did Do Does Is Are Was Were Be Been Being Have Has Had Am Wait Stop Go Run Help Watch Listen See Yay Hooray Whoa Ah Ahh Hmm Uh ' +
+  'Savior Saviour Messiah Christ Holy Spirit Heaven Amen Hallelujah Gospel Scripture Psalm Psalms Church').split(' '));

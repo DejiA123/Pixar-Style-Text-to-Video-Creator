@@ -1,61 +1,6 @@
-// Example stories shown in the app. Each one exercises different settings,
-// characters and actions so people can see what the engine understands.
+// Example stories shown in the app: Christian stories and Bible stories told simply,
+// with named people, clear looks and places, one moment per sentence, and spoken lines.
 export const SAMPLES = [
-  {
-    id: 'robot',
-    label: 'The Robot Who Wanted to Fly',
-    text: `The Robot Who Wanted to Fly
-
-In a busy city, there lived a little blue robot named Bolt.
-Every night, Bolt looked up at the stars and dreamed of flying.
-One morning, Bolt met a curious girl named Mia with big round glasses and a red backpack.
-"Why do you look so sad?" Mia asked.
-"I want to fly, but robots can't fly," Bolt said quietly.
-Mia smiled. "Let's build you some wings!"
-They worked together all day in the park, building shiny wings.
-At sunset, Bolt jumped into the air and flew over the city!
-"I'm flying!" Bolt shouted.
-Mia cheered and danced with joy.
-From that day on, they were best friends forever.`,
-  },
-  {
-    id: 'leo',
-    label: 'Leo’s First Day',
-    text: `Leo's First Day
-
-Leo was a nerdy teenager with spiky brown hair, glasses and an orange hoodie.
-On his first day at the new school, Leo walked nervously into the classroom.
-Two students named Sam and Ava turned around and stared at him.
-"Hi, I'm Leo," he said with a shy smile.
-"Do you like video games?" Ava asked.
-Leo's eyes lit up. "I love video games!"
-Sam laughed. "Then you should sit with us!"
-Leo grinned. His first day was going to be amazing.`,
-  },
-  {
-    id: 'dragon',
-    label: 'Pip and the Little Dragon',
-    text: `Pip and the Little Dragon
-
-Deep in an enchanted forest, a little fox named Pip went exploring.
-Suddenly, Pip discovered a tiny green dragon hiding behind a mushroom.
-The dragon was scared and shivered in the dark.
-"Don't be afraid," Pip whispered. "I'm your friend."
-The dragon smiled and sneezed a puff of magic sparkles.
-That night, they sat by a campfire under the stars and laughed together.`,
-  },
-  {
-    id: 'space',
-    label: 'Luna’s Space Adventure',
-    text: `Luna's Space Adventure
-
-Luna was a brave astronaut who loved the stars.
-She climbed into her shiny rocket and blasted off into outer space.
-Out among the planets, Luna met a friendly green alien named Zib.
-"Welcome to my galaxy!" Zib said, waving all four fingers.
-They floated together past glowing planets and laughed.
-Then Luna flew home and told everyone about her new friend.`,
-  },
   {
     id: 'church',
     label: 'Born Again',
@@ -73,15 +18,87 @@ Tears rolled down his face, but his heart felt light and new.
 Grace hugged him, and everyone in the church cheered with joy.`,
   },
   {
-    id: 'beach',
-    label: 'Grandpa and the Kite',
-    text: `Grandpa and the Kite
+    id: 'prodigal',
+    label: 'The Prodigal Son',
+    text: `The Prodigal Son
 
-On a sunny afternoon, Grandpa and his granddaughter Rosie walked along the beach.
-Rosie was carrying a bright red kite.
-"Can we fly it, Grandpa?" Rosie asked excitedly.
-Grandpa laughed. "Of course we can!"
-Rosie ran across the sand and the kite soared into the sky.
-They sat on the sand and watched the sunset together.`,
+Samuel was a young man with curly black hair and a brown leather jacket.
+He took his share of his father's money and left the family farm for the big city.
+In the city he spent everything on parties until he had nothing left.
+Hungry and alone, Samuel sat on a cold street corner and cried.
+"I will go home and ask my father to forgive me," he whispered.
+Samuel walked the long dusty road back to the farm.
+His father, an old man with a gray beard, saw him far away and ran to him.
+The father hugged Samuel tightly and wept with joy.
+"My son was lost, and now he is found!" the father said.`,
+  },
+  {
+    id: 'samaritan',
+    label: 'The Good Samaritan',
+    text: `The Good Samaritan
+
+On a rainy evening, an old man slipped and fell on a quiet city street.
+People hurried past him and did not stop.
+Then a young nurse named Amara, with braided hair and a yellow raincoat, saw him lying there.
+She knelt beside him and held her umbrella over his head.
+"Don't worry, sir, I am here to help you," Amara said gently.
+She helped the old man to his feet and walked him to the hospital.
+The old man smiled at her. "God bless you, my child."
+Amara smiled back. "That is what Jesus would do."`,
+  },
+  {
+    id: 'grandma',
+    label: 'Grandma’s Prayer',
+    text: `Grandma's Prayer
+
+Zoe was a little girl with curly hair and a pink dress.
+Her daddy was sick in the hospital, and Zoe was very worried.
+That night, Grandma sat beside Zoe's bed and held her hand.
+"Let's pray for Daddy together," Grandma said softly.
+Zoe closed her eyes and prayed, "Dear God, please make my daddy strong again."
+A few days later, Daddy came home smiling.
+Zoe ran across the living room and jumped into his arms.
+"God heard our prayers!" Zoe said, and Grandma smiled with tears of joy.`,
+  },
+  {
+    id: 'choir',
+    label: 'The Choir Solo',
+    text: `The Choir Solo
+
+Ruth was a shy teenage girl with long braids and a blue choir robe.
+Every Sunday she sang quietly in the back row of the church choir.
+One morning, the choir leader asked Ruth to sing the solo.
+Her hands shook as she walked to the front of the church.
+Her mother smiled from the pews and whispered, "You can do it, my love."
+Ruth closed her eyes, took a deep breath, and sang a beautiful hymn.
+Her voice filled the whole church.
+When the song ended, everyone stood up and clapped for Ruth.`,
+  },
+  {
+    id: 'christmas',
+    label: 'The First Christmas',
+    text: `The First Christmas
+
+On a cold starry night, Mary and Joseph arrived in the little town of Bethlehem.
+Every inn was full, so a kind farmer let them rest in his warm stable.
+That night, baby Jesus was born, and Mary wrapped him in a soft blanket.
+She laid him gently in a manger filled with hay.
+Nearby, shepherds were watching their sheep on a quiet hill.
+A shining angel appeared in the sky and said, "Do not be afraid, a Savior is born today!"
+The shepherds hurried to the stable and knelt beside the baby.
+Mary smiled softly. "His name is Jesus."`,
+  },
+  {
+    id: 'easter',
+    label: 'Easter Morning',
+    text: `Easter Morning
+
+Early on Sunday morning, Mary walked to the garden tomb with her friends.
+She carried a jar of sweet spices, and her eyes were full of tears.
+When they arrived, the heavy stone was rolled away and the tomb was empty.
+An angel in shining white clothes sat beside the tomb.
+"Why are you looking for the living among the dead? He is risen!" the angel said.
+Mary's face filled with joy, and she ran back down the garden path.
+"He is alive!" Mary shouted to the disciples. "Jesus is alive!"`,
   },
 ];
