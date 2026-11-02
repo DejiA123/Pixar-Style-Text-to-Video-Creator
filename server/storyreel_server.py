@@ -59,7 +59,14 @@ LIPSYNC_URL = os.environ.get('STORYREEL_LIPSYNC_URL', 'http://127.0.0.1:7862')  
 gpu_lock = threading.Lock()  # one generation at a time on the GPU
 state = {'image': None, 'video': None, 'video_kind': None, 'tts': None, 'device': 'cpu', 'gpu': '', 'mock': False,
          'loading': 'starting', 'error': None, 'last_use': time.time()}
-stats = {'images': 0, 'videos': 0, 'video_seconds': 0.0, 'lines': 0, 'lipsyncs': 0, 'busy_seconds': 0.0, 'since': time.time()}
+stats = {'images': 0, 'videos': 0, 'video_seconds': 0.0, 'lines': 0, 'lipsyncs': 0, 'busy_seconds': 0.0, 'since': time.time(),
+         # GPU seconds by kind of work, to see where a film's time (and cost) goes
+         'seconds_by': {'image': 0.0, 'video': 0.0, 'voice': 0.0, 'lipsync': 0.0, 'writer': 0.0}}
+
+
+def spent(kind, took):
+    stats['busy_seconds'] += took
+    stats['seconds_by'][kind] = round(stats['seconds_by'][kind] + took, 1)
 jobs = {}  # id -> {'status', 'body', 'type', 'error', 't'}
 
 
@@ -404,7 +411,7 @@ def video_from_request(req):
     os.unlink(path)
     took = time.time() - t0
     free_memory()
-    stats['videos'] += 1; stats['video_seconds'] += seconds; stats['busy_seconds'] += took
+    stats['videos'] += 1; stats['video_seconds'] += seconds; spent('video', took)
     cost = f' (≈${took / 3600 * PRICE:.4f})' if PRICE else ''
     print(f'[storyreel] video {seconds:.0f}s clip in {took:.1f}s{cost}', flush=True)
     return body
@@ -416,7 +423,7 @@ def lipsync_from_request(req):
                         base64.b64decode(re.sub(r'^data:[^,]+,', '', req.get('audio', ''))))
     took = time.time() - t0
     free_memory()
-    stats['lipsyncs'] += 1; stats['busy_seconds'] += took
+    stats['lipsyncs'] += 1; spent('lipsync', took)
     print(f'[storyreel] lip sync in {took:.1f}s', flush=True)
     return body
 
@@ -424,14 +431,14 @@ def lipsync_from_request(req):
 def script_from_request(req):
     t0 = time.time()
     body = json.dumps(writer.write(req, gpu_lock, mock=state['mock'])).encode()
-    stats['busy_seconds'] += time.time() - t0
+    spent('writer', time.time() - t0)
     return body
 
 
 def enhance_from_request(req):
     t0 = time.time()
     body = json.dumps(writer.enhance(req, gpu_lock, mock=state['mock'])).encode()
-    stats['busy_seconds'] += time.time() - t0
+    spent('writer', time.time() - t0)
     return body
 
 
@@ -510,7 +517,7 @@ class Handler(BaseHTTPRequestHandler):
                 im = make_image(str(req.get('prompt', ''))[:1500], int(req.get('width', 1024)), int(req.get('height', 576)), int(req.get('seed', 1)) % (2 ** 31), decode_refs(req))
                 buf = io.BytesIO(); im.save(buf, 'PNG')
                 took = time.time() - t0
-                stats['images'] += 1; stats['busy_seconds'] += took
+                stats['images'] += 1; spent('image', took)
                 print(f'[storyreel] image {took:.1f}s', flush=True)
                 return self._send(200, buf.getvalue(), 'image/png')
             if path in ('/video', '/video/start'):
@@ -529,7 +536,7 @@ class Handler(BaseHTTPRequestHandler):
                 except KeyError:  # the server restarted and forgot this voice: send the clip again
                     return self._json(409, {'error': 'unknown ref_key'})
                 took = time.time() - t0
-                stats['lines'] += 1; stats['busy_seconds'] += took
+                stats['lines'] += 1; spent('voice', took)
                 return self._send(200, body, 'audio/wav')
             if path == '/enhance/start':
                 if not (writer.state['status'] == 'ready' or state['mock']):
