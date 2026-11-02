@@ -99,6 +99,18 @@ def memory_gb():
     return os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / 2**30
 
 
+def last_crash():
+    """When the server last stopped unexpectedly and why (Modal saves it on the volume), within the last 3 days."""
+    f = os.path.join(os.environ.get('STORYREEL_DATA', ''), 'logs', 'last_crash.txt')
+    try:
+        if os.environ.get('STORYREEL_DATA') and time.time() - os.path.getmtime(f) < 3 * 86400:
+            with open(f) as fh:
+                return fh.read()[:600]
+    except OSError:
+        pass
+    return None
+
+
 def memory_use():
     """RAM/GPU numbers for /health, to see how close a card or machine is to its limit."""
     m = {'ram_limit_gb': round(memory_gb(), 1)}
@@ -490,7 +502,8 @@ class Handler(BaseHTTPRequestHandler):
                                     'lipsync_state': 'ready' if (not state['loading'] and lipsync_ready()) else ('setting up' if os.environ.get('STORYREEL_LIPSYNC_ON') == '1' else 'off'),
                                     'writer': writer.state['status'] == 'ready' or mock, 'writer_state': 'ready' if mock else writer.state['status'],
                                     'jobs': True, 'device': state['device'], 'gpu': state['gpu'], 'mock': mock, 'name': 'storyreel-server',
-                                    'stats': {**stats, 'busy_seconds': round(stats['busy_seconds'], 1)}, 'memory': memory_use(), 'price_per_hour': PRICE})
+                                    'stats': {**stats, 'busy_seconds': round(stats['busy_seconds'], 1)}, 'memory': memory_use(), 'price_per_hour': PRICE,
+                                    'last_crash': last_crash()})
         if url.path in ('/video/result', '/lipsync/result', '/script/result', '/enhance/result'):
             jid = (parse_qs(url.query).get('id') or [''])[0]
             job = jobs.get(jid)

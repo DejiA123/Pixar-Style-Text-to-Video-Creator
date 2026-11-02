@@ -30,7 +30,42 @@ app = modal.App('storyreel')
 @modal.web_server(7860, startup_timeout=600)
 def serve():
     env = {**os.environ, 'STORYREEL_DATA': '/data', 'HF_HOME': '/data/hf', 'STORYREEL_GPU_PRICE': '1.95'}
-    subprocess.Popen(['/usr/local/bin/storyreel-python', '-u', '/app/server/modal_start.py'], env=env, cwd='/app')
+
+    def run():
+        # the server's output goes to the Modal log as before; its last lines are kept, so that if it ever
+        # stops, the reason is saved on the volume (/data/logs, and "last_crash" in /health) and it starts again
+        import collections, signal
+        while True:
+            started = time.time()
+            p = subprocess.Popen(['/usr/local/bin/storyreel-python', '-u', '/app/server/modal_start.py'], env=env, cwd='/app',
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1,
+                                 start_new_session=True)  # its own process group: the lip-sync worker goes with it
+            tail = collections.deque(maxlen=200)
+
+            def pump(out=p.stdout, tail=tail):
+                for line in out:
+                    print(line, end='', flush=True)
+                    tail.append(line)
+            threading.Thread(target=pump, daemon=True).start()
+            code = p.wait()
+            time.sleep(1)  # the last lines
+            try:
+                os.killpg(p.pid, signal.SIGKILL)  # anything it started (lip sync) stops too, freeing the GPU
+            except OSError:
+                pass
+            stamp = time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())
+            print(f'[storyreel] server stopped (exit code {code}) after {time.time() - started:.0f} s; starting it again', flush=True)
+            try:
+                os.makedirs('/data/logs', exist_ok=True)
+                with open(f'/data/logs/crash-{int(time.time())}.log', 'w') as f:
+                    f.write(f'{stamp} exit code {code}\n' + ''.join(tail))
+                with open('/data/logs/last_crash.txt', 'w') as f:
+                    f.write(f'{stamp}: exit code {code}: ' + ' | '.join(x.strip() for x in list(tail)[-6:])[:600])
+                models.commit()
+            except Exception as e:
+                print('[storyreel] could not save the crash log:', e, flush=True)
+            time.sleep(3)
+    threading.Thread(target=run, daemon=True).start()
 
     def keep():  # save new downloads to the volume as they arrive (it also saves when the container stops)
         while True:
