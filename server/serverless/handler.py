@@ -6,7 +6,7 @@ stops the GPU: a worker exists only while films are being made. Models live on
 the endpoint's network volume (/runpod-volume), so a cold start loads them
 instead of downloading them again.
 
-Job input:  {"op": "health" | "image" | "video" | "tts" | "lipsync" | "script", ...the same fields as the HTTP API}
+Job input:  {"op": "health" | "image" | "video" | "tts" | "lipsync" | "script" | "enhance", ...the same fields as the HTTP API}
 Job output: {"mime": "image/png" | "video/mp4" | "audio/wav" | "application/json", "data": base64} or, for health,
             {"image", "video", "tts", "lipsync", "gpu"}; {"error": "..."} on failure
             (for tts, "unknown ref_key" means: send the reference clip itself again).
@@ -93,7 +93,7 @@ def handler(job):
                     'tts': bool(S.state['tts']) or S.state['mock'], 'lipsync': S.lipsync_ready(), 'gpu': S.state['gpu'],
                     'writer': S.writer.state['status'] == 'ready' or S.state['mock']}
         if op == 'image':
-            im = S.make_image(str(req.get('prompt', ''))[:1500], int(req.get('width', 1024)), int(req.get('height', 576)), int(req.get('seed', 1)) % (2 ** 31))
+            im = S.make_image(str(req.get('prompt', ''))[:1500], int(req.get('width', 1024)), int(req.get('height', 576)), int(req.get('seed', 1)) % (2 ** 31), S.decode_refs(req))
             buf = io.BytesIO(); im.save(buf, 'PNG')
             body, mime = buf.getvalue(), 'image/png'
         elif op == 'video':
@@ -107,6 +107,8 @@ def handler(job):
             mime = 'audio/wav'
         elif op == 'script':
             body, mime = S.script_from_request(req), 'application/json'
+        elif op == 'enhance':
+            body, mime = S.enhance_from_request(req), 'application/json'
         elif op == 'lipsync':
             # a worker that just started may still be loading LatentSync: give it a few minutes
             if not (S.lipsync_ready() or wait_for_lipsync(300)):

@@ -26,7 +26,8 @@ Usage:
 
 API (CORS open; JSON in, media out):
   GET  /health -> {"ok", "ready", "loading", "image", "video", "jobs", "device", "stats", "price_per_hour"}
-  POST /image  {"prompt", "width", "height", "seed"}                         -> image/png
+  POST /image  {"prompt", "width", "height", "seed", "refs": [data-URL, …]}   -> image/png
+               (refs: up to 3 reference pictures, e.g. character portraits, so faces stay the same)
   POST /video  {"prompt", "image": data-URL, "width", "height", "seconds", "seed"} -> video/mp4
   POST /video/start  (same body)  -> {"id"}         start a clip in the background
   GET  /video/result?id=…         -> 202 {"status"} while working, then video/mp4
@@ -35,7 +36,8 @@ API (CORS open; JSON in, media out):
   POST /lipsync/start {"video": data-URL mp4, "audio": data-URL wav} -> {"id"}
   GET  /lipsync/result?id=…       -> 202 while working, then video/mp4 (500 if no face was found)
   POST /script/start {"title", "story", "cast", "scenes"} -> {"id"}   the characters' dialogue (see server/writer.py)
-  GET  /script/result?id=…        -> 202 while working, then {"scenes": [{"index", "lines": [{"speaker", "text"}]}]}
+  GET  /script/result?id=…        -> 202 while working, then {"cast": [{"id", "look"}], "scenes": [{"index", "shot", "lines": [...]}]}
+  POST /enhance/start {"story"}   -> {"id"};  GET /enhance/result?id=… -> {"story"}   (a short idea → a fuller story)
 """
 import argparse, base64, io, json, os, re, shutil, subprocess, sys, tempfile, threading, time, uuid, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -310,7 +312,19 @@ def make_lipsync(video, audio):
         shutil.rmtree(d, ignore_errors=True)
 
 
-def make_image(prompt, width, height, seed):
+def decode_refs(req):
+    """Reference pictures (data-URLs) → PIL images, at most 3."""
+    from PIL import Image
+    out = []
+    for r in (req.get('refs') or [])[:3]:
+        try:
+            out.append(Image.open(io.BytesIO(base64.b64decode(re.sub(r'^data:[^,]+,', '', r)))).convert('RGB'))
+        except Exception as e:
+            print('[storyreel] skipped a reference picture:', e, flush=True)
+    return out
+
+
+def make_image(prompt, width, height, seed, refs=None):
     from PIL import Image, ImageDraw
     w, h = snap(width, 64, 256, 1280), snap(height, 64, 256, 1280)
     if state['mock']:
@@ -325,13 +339,15 @@ def make_image(prompt, width, height, seed):
     g = torch.Generator(device='cpu').manual_seed(int(seed))
     with gpu_lock:
         if state.get('image_kind') == 'flux2':
+            # FLUX.2 paints from reference pictures too: a character's portrait keeps their face the same in every shot
+            extra = {'image': refs} if refs else {}
             try:
-                return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=1.0, generator=g).images[0]
+                return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=1.0, generator=g, **extra).images[0]
             except torch.cuda.OutOfMemoryError:  # the card is full (video and lip-sync models): move layers in one by one
                 print('[storyreel] image: GPU memory full, painting with sequential offload', flush=True)
                 free_memory()
                 state['image'].enable_sequential_cpu_offload()
-                return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=1.0, generator=g).images[0]
+                return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=1.0, generator=g, **extra).images[0]
         return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=0.0, generator=g).images[0]
 
 
@@ -410,6 +426,13 @@ def script_from_request(req):
     return body
 
 
+def enhance_from_request(req):
+    t0 = time.time()
+    body = json.dumps(writer.enhance(req, gpu_lock, mock=state['mock'])).encode()
+    stats['busy_seconds'] += time.time() - t0
+    return body
+
+
 def start_job(fn, req, ctype='video/mp4'):
     jid = uuid.uuid4().hex
     jobs[jid] = {'status': 'running', 'body': None, 'error': None, 't': time.time(), 'ctype': ctype}
@@ -459,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
                                     'writer': writer.state['status'] == 'ready' or mock, 'writer_state': 'ready' if mock else writer.state['status'],
                                     'jobs': True, 'device': state['device'], 'gpu': state['gpu'], 'mock': mock, 'name': 'storyreel-server',
                                     'stats': {**stats, 'busy_seconds': round(stats['busy_seconds'], 1)}, 'memory': memory_use(), 'price_per_hour': PRICE})
-        if url.path in ('/video/result', '/lipsync/result', '/script/result'):
+        if url.path in ('/video/result', '/lipsync/result', '/script/result', '/enhance/result'):
             jid = (parse_qs(url.query).get('id') or [''])[0]
             job = jobs.get(jid)
             if not job:
@@ -482,7 +505,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(503, {'error': f'server is starting: {state["loading"]}'})
             if path == '/image':
                 t0 = time.time()
-                im = make_image(str(req.get('prompt', ''))[:1500], int(req.get('width', 1024)), int(req.get('height', 576)), int(req.get('seed', 1)) % (2 ** 31))
+                im = make_image(str(req.get('prompt', ''))[:1500], int(req.get('width', 1024)), int(req.get('height', 576)), int(req.get('seed', 1)) % (2 ** 31), decode_refs(req))
                 buf = io.BytesIO(); im.save(buf, 'PNG')
                 took = time.time() - t0
                 stats['images'] += 1; stats['busy_seconds'] += took
@@ -506,6 +529,10 @@ class Handler(BaseHTTPRequestHandler):
                 took = time.time() - t0
                 stats['lines'] += 1; stats['busy_seconds'] += took
                 return self._send(200, body, 'audio/wav')
+            if path == '/enhance/start':
+                if not (writer.state['status'] == 'ready' or state['mock']):
+                    return self._json(503, {'error': f"the writer is {writer.state['status']}"})
+                return self._json(200, {'id': start_job(enhance_from_request, req, 'application/json')})
             if path == '/script/start':
                 if not (writer.state['status'] == 'ready' or state['mock']):
                     return self._json(503, {'error': f"dialogue writer is {writer.state['status']}"})

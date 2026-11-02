@@ -1,5 +1,9 @@
-"""Dialogue writer: a small open language model turns a story into what the
-characters say out loud in each scene, so a film is acted, not narrated.
+"""Writer and director: a small open language model reads the whole story and
+- writes what the characters say out loud in each scene, so a film is acted, not narrated;
+- fixes each character's look once (face, hair, skin, age, clothes), so every shot shows
+  the same person;
+- describes each shot as a picture (who, where, doing what, expression, objects);
+- on request, turns a short idea into a fuller story ("Enhance").
 
   writer: Qwen3-4B-Instruct-2507 (Qwen/Qwen3-4B-Instruct-2507, Apache 2.0)   ~8 GB
 
@@ -8,16 +12,27 @@ per film), so it fits next to the video and lip-sync models.
 
 Request:  {"title", "story", "cast": [{"id", "name", "about"}],
            "scenes": [{"index", "text", "characters": [id], "quotes": [{"speaker", "text"}], "mood"}]}
-Response: {"scenes": [{"index", "lines": [{"speaker": id, "text"}]}]}
+Response: {"cast": [{"id", "look"}], "scenes": [{"index", "shot", "lines": [{"speaker": id, "text"}]}]}
+Enhance:  {"story"} -> {"story"}
 """
 import os, re, threading, time
 
 MODEL = os.environ.get('STORYREEL_WRITER_MODEL', 'Qwen/Qwen3-4B-Instruct-2507')
 state = {'model': None, 'tok': None, 'status': 'off', 'error': None}  # off | loading | ready | failed
 
-SYSTEM = """You write the spoken dialogue for short animated films. There is no narrator: the audience only hears what the characters say on screen, so their words alone must carry the story.
+SYSTEM = """You are the director and writer of a short film. You fix how every character looks, describe every shot for the camera, and write the spoken dialogue. There is no narrator: the audience only hears what the characters say on screen, so their words alone must carry the story.
 
-Rules:
+Looks (the CAST section):
+- One line per character: Name: their look, which stays exactly the same in every shot.
+- Give age, gender, skin tone, face shape, eye colour, hair (colour, length, style), facial hair if any, and clothes with colours. At most 35 words.
+- Follow everything the story says about them; invent the rest so it is specific.
+
+Shots (a SHOT line in every scene):
+- What the camera sees, as a picture description: who is in it (by name), where exactly, what each person is doing, their facial expression, the important objects, the light. At most 40 words.
+- Follow the story exactly: the right people, the right place, the right action and objects (if someone plays the drums, show them at a drum kit).
+- Do not describe the characters' looks again: those come from CAST.
+
+Dialogue rules:
 - For every scene, write 1 or 2 lines that the characters on screen in that scene say out loud in that moment.
 - Only characters listed as on screen in a scene may speak in it.
 - If a scene already has dialogue, keep those lines word for word, and add at most one more line.
@@ -31,11 +46,27 @@ Rules:
 - Family friendly.
 
 Answer in exactly this format and nothing else:
+CAST
+Name: look
+Name: look
 SCENE 1
+SHOT: what the camera sees
 Name: line
 SCENE 2
+SHOT: what the camera sees
 Name: line
 Name: line"""
+
+ENHANCE = """You help people turn an idea into a short film story that an AI film studio can make well.
+
+Rewrite the user's idea as a clear story of 5 to 9 short sentences:
+- Keep everything the user wrote: their characters, places, events, order and any dialogue, word for word where they quoted it.
+- Give each character a first name (keep the user's names) and say briefly how they look the first time they appear.
+- Say clearly where each part happens and what each person does: one visual moment per sentence.
+- Add a few short lines of dialogue in quotation marks, so the characters talk.
+- Simple, vivid English. No headings, no lists, no notes.
+
+Answer with a short title on the first line, then the story, and nothing else."""
 
 
 def describe(req):
@@ -56,22 +87,32 @@ def describe(req):
 
 
 def parse(text, req):
-    """The model's "SCENE n / Name: line" answer → {"scenes": [...]}, keeping only lines
-    spoken by a character who is on screen in that scene."""
+    """The model's answer → {"cast": [...], "scenes": [...]}: CAST looks, each scene's SHOT, and only
+    the lines spoken by a character who is on screen in that scene."""
     by_name = {}
     for c in req.get('cast', []):
         n = c['name'].lower()
         by_name[n] = c['id']
         by_name[re.sub(r'^the\s+', '', n)] = c['id']
     scenes = {sc['index']: set(sc.get('characters', [])) for sc in req.get('scenes', [])}
-    out, cur = {}, None
+    out, shots, looks, cur = {}, {}, {}, None
     for raw in text.splitlines():
         line = raw.strip().strip('*').strip()
         m = re.match(r'^(?:#+\s*)?scene\s+(\d+)\b', line, re.I)
         if m:
             cur = int(m.group(1)) - 1
             continue
+        m = re.match(r'^shot\s*:\s*(.+)$', line, re.I)
+        if m:
+            if cur in scenes:
+                shots[cur] = m.group(1).strip()[:320]
+            continue
         m = re.match(r'^([A-Za-z][\w .\'-]{0,40}?)\s*:\s*(.+)$', line)
+        if cur is None and m:  # the CAST section, before the first scene
+            who = by_name.get(re.sub(r'^the\s+', '', m.group(1).strip().lower()))
+            if who:
+                looks[who] = m.group(2).strip()[:260]
+            continue
         if cur is None or cur not in scenes or not m:
             continue
         who = by_name.get(re.sub(r'^the\s+', '', m.group(1).strip().lower()))
@@ -81,7 +122,8 @@ def parse(text, req):
         lines = out.setdefault(cur, [])
         if len(lines) < 3:
             lines.append({'speaker': who, 'text': said[:200]})
-    return {'scenes': [{'index': i, 'lines': ls} for i, ls in sorted(out.items())]}
+    return {'cast': [{'id': i, 'look': l} for i, l in looks.items()],
+            'scenes': [{'index': i, 'shot': shots.get(i, ''), 'lines': out.get(i, [])} for i in sorted(set(out) | set(shots))]}
 
 
 def load():
@@ -101,15 +143,32 @@ def load():
 
 def write(req, gpu_lock, mock=False):
     if mock:  # each scene: its first character says the scene's sentence
-        return {'scenes': [{'index': sc['index'], 'lines': [{'speaker': sc['characters'][0], 'text': sc.get('text', '')}]}
+        return {'cast': [{'id': c['id'], 'look': f"{c.get('about', '')}, short brown hair, blue jacket".strip(', ')} for c in req.get('cast', [])],
+                'scenes': [{'index': sc['index'], 'shot': sc.get('text', ''), 'lines': [{'speaker': sc['characters'][0], 'text': sc.get('text', '')}]}
                            for sc in req.get('scenes', []) if sc.get('characters')]}
+    n, nc = len(req.get('scenes', [])), len(req.get('cast', []))
+    msgs = [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': describe(req)}]
+    text = generate(msgs, min(3200, 150 + 50 * nc + 120 * n), gpu_lock, f'direction for {n} scenes')
+    return parse(text, req)
+
+
+def enhance(req, gpu_lock, mock=False):
+    """A short idea → a fuller story the studio understands (title on the first line)."""
+    idea = re.sub(r'\s+\n', '\n', str(req.get('story', ''))).strip()[:4000]
+    if mock:
+        return {'story': f'The Story\n{idea} "Here we go!" she said.'}
+    msgs = [{'role': 'system', 'content': ENHANCE}, {'role': 'user', 'content': idea}]
+    text = generate(msgs, 600, gpu_lock, 'story enhanced').strip()
+    text = re.sub(r'^(?:title\s*:\s*)', '', text, flags=re.I).replace('**', '').strip()
+    return {'story': text or idea}
+
+
+def generate(msgs, max_new, gpu_lock, what):
     if state['status'] != 'ready':
-        raise RuntimeError(f"dialogue writer is {state['status']}")
+        raise RuntimeError(f"the writer is {state['status']}")
     import torch
     tok, model = state['tok'], state['model']
-    msgs = [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': describe(req)}]
     ids = tok.apply_chat_template(msgs, add_generation_prompt=True, return_tensors='pt', return_dict=True)['input_ids']
-    n = len(req.get('scenes', []))
     t0 = time.time()
     with gpu_lock:
         # borrow the GPU when there's room (the video model stays put); otherwise write on the CPU
@@ -118,14 +177,14 @@ def write(req, gpu_lock, mock=False):
             model.to('cuda'); dev = 'cuda'
         try:
             with torch.no_grad():
-                out = model.generate(ids.to(dev), max_new_tokens=min(2400, 60 + 70 * n), do_sample=True,
+                out = model.generate(ids.to(dev), max_new_tokens=max_new, do_sample=True,
                                      temperature=0.7, top_p=0.8, top_k=20, pad_token_id=tok.eos_token_id)
         finally:
             if dev == 'cuda':
                 model.to('cpu'); torch.cuda.empty_cache()
     text = tok.decode(out[0][ids.shape[1]:], skip_special_tokens=True)
-    print(f'[storyreel] dialogue for {n} scenes in {time.time() - t0:.1f}s on {dev}', flush=True)
-    return parse(text, req)
+    print(f'[storyreel] {what} in {time.time() - t0:.1f}s on {dev}', flush=True)
+    return text
 
 
 def start_loading():
