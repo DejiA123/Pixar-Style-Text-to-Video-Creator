@@ -11,7 +11,7 @@ export class Compositor {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.subtitles = true;
-    this.credit = 'Animated with Storyreel';
+    this.credit = 'Made with TakeOne';
   }
 
   setSize(w, h) {

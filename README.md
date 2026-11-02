@@ -1,4 +1,4 @@
-# Storyreel — type a story, get a 3D animated film
+# TakeOne — type a story, get an AI film
 
 Everything runs in the browser, built in code: no paid AI services needed.
 

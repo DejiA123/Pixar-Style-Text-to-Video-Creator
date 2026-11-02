@@ -6,20 +6,20 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Storyreel">
+<meta name="apple-mobile-web-app-title" content="TakeOne">
 <meta name="theme-color" content="#0b0c0f">
-<title>Storyreel</title>
+<title>TakeOne</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Type a story and get a Pixar-style 3D animated film with voice-over, music and subtitles — rendered in your browser and downloadable as MP4.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1793573989">
+<link rel="stylesheet" href="src/ui/styles.css?v=1793579516">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
 <header class="bar">
-  <div class="brand"><span class="logo" aria-hidden="true"></span><span class="name">Storyreel</span><span class="badge">AI Studio</span></div>
+  <div class="brand"><span class="logo" aria-hidden="true"></span><span class="name">TakeOne</span><span class="badge">AI Studio</span></div>
 </header>
 
 <main class="app">
@@ -30,7 +30,7 @@
         <div class="screen-empty" id="empty">
           <div class="orb" aria-hidden="true"></div>
           <h1>What story do you want to bring to life?</h1>
-          <p class="sub">Describe it below — characters, place, what they say. Storyreel turns it into an AI film: every shot animated, with characters who speak in realistic voices.</p>
+          <p class="sub">Describe it below — characters, place, what they say. TakeOne turns it into an AI film: every shot animated, with characters who speak in realistic voices.</p>
         </div>
         <div class="progress" id="progress">
           <div class="p-head"><span class="p-pct" id="p-pct">0%</span><span class="p-time" id="p-time"></span></div>
@@ -192,6 +192,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793579184"></script>
+<script type="module" src="src/ui/app.js?v=1793579516"></script>
 </body>
 </html>

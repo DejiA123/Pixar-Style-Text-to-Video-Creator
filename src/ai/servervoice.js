@@ -1,4 +1,4 @@
-// Realistic voices and lip sync from your own Storyreel AI server.
+// Realistic voices and lip sync from your own TakeOne AI server.
 // Voices: every line is re-spoken by Chatterbox in the voice of that character's
 // in-browser (Kokoro) voice, with the scene's emotion. Lip sync: talking shots'
 // AI video clips get their mouths re-rendered by LatentSync to match the words.

@@ -1,4 +1,4 @@
-// Storyreel app controller: story → plan → voices → timeline → film →
+// TakeOne app controller: story → plan → voices → timeline → film →
 // soundtrack → player, plus export. Two render paths: the built-in 3D engine
 // and the Cinematic AI renderer (fal.ai).
 import { parseStory, displayName } from '../story/parser.js';
@@ -28,7 +28,7 @@ const store = {
 };
 
 // the AI server used until you paste another one in Settings (the current RunPod pod)
-const DEFAULT_AI_SERVER = 'https://dejiaugustine--storyreel-serve.us-east.modal.run';  // Storyreel's own AI server on Modal
+const DEFAULT_AI_SERVER = 'https://dejiaugustine--storyreel-serve.us-east.modal.run';  // TakeOne's own AI server on Modal
 
 const state = {
   fr: null, film: null, compositor: null, player: null, soundtrack: null, timeline: null, plan: null,
