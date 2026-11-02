@@ -3,6 +3,7 @@
 // in-browser (Kokoro) voice, with the scene's emotion. Lip sync: talking shots'
 // AI video clips get their mouths re-rendered by LatentSync to match the words.
 import { lineKey } from '../film/timeline.js';
+import { wakeServer } from './aiserver.js';
 
 const VOICE_SR = 24000;
 const LIPSYNC_SR = 16000;
@@ -115,10 +116,23 @@ export async function serverVoices(server, plan, clips, voices, { stored = false
     const emotion = l.speaker === 'narrator' ? 0.35 : Math.min(1, (EMOTION_LEVEL[l.emo] ?? 0.4) + (/!/.test(l.text) ? 0.1 : 0));
     const ref = refs.get(l.speaker);
     const say = (withClip) => server.tts({ text: l.text, ...(withClip ? { ref: ref.data } : { ref_key: ref.key }), emotion, seed }, signal);
+    const sayLine = async () => {
+      try { return await say(!ref.sent); } catch (e) {
+        if (e?.code !== 'unknown-ref') throw e;
+        return say(true);  // this server (or serverless worker, or a restarted one) hasn't heard that voice yet
+      }
+    };
     let wav;
-    try { wav = await say(!ref.sent); } catch (e) {
-      if (e?.code !== 'unknown-ref') throw e;
-      wav = await say(true);  // this server (or serverless worker) hasn't heard that voice yet
+    for (let k = 1; ; k++) {
+      try { wav = await sayLine(); break; } catch (e) {
+        if (e?.name === 'AbortError' || k >= 4) throw e;
+        // a hiccup or a server restarting: wait until it answers again and carry on from this line
+        // (phones have no other realistic voice, so this is worth a short wait)
+        console.warn(`voice line failed (try ${k} of 4), waiting for the server`, e?.message || e);
+        onProgress(out.size / uniq.length, `${out.size}/${uniq.length} · reconnecting…`);
+        await new Promise((r) => setTimeout(r, 2000 * k));
+        if (!(await server.health(8000))) await wakeServer(server, { maxMs: 4 * 60000, signal });
+      }
     }
     ref.sent = true;
     seed++;
