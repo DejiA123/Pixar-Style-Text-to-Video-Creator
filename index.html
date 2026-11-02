@@ -124,7 +124,7 @@
               </select>
             </label>
             <label class="check" hidden><input type="checkbox" id="free-animate" checked> Animate every shot with AI video</label>
-            <label class="check"><input type="checkbox" id="review-first" checked> Let me check the shots before animating</label>
+            <label class="check"><input type="checkbox" id="review-first" checked> 👀 Preview my scenes first (fix any before they come to life)</label>
             <div id="server-settings" hidden>  <!-- the AI server is built in (DEFAULT_AI_SERVER in src/ui/app.js) -->
             <label class="field"><span>Your AI server: a Modal link, a RunPod pod link, or a RunPod endpoint ID</span><input id="ai-server" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abc123xyz456 or https://xxxx-7860.proxy.runpod.net"></label>
             <label class="field" id="runpod-key-field" hidden><span>RunPod API key (stays in this browser, sent only to RunPod)</span><input id="runpod-key" type="password" autocomplete="off" placeholder="rpa_…"></label>
@@ -174,13 +174,13 @@
 
 <div class="review" id="review" role="dialog" aria-modal="true" aria-labelledby="review-title" hidden>
   <div class="review-head">
-    <h2 id="review-title">Check your shots</h2>
-    <p class="dim">Redo any picture that isn't right, or say what to change. Pictures are quick; animating is where the GPU time goes.</p>
+    <h2 id="review-title">Preview your scenes</h2>
+    <p class="dim">Not quite right? Tell it what to change and tap Redo. When you love them all, bring them to life.</p>
   </div>
   <div class="review-grid" id="review-grid"></div>
   <div class="review-foot">
     <button class="btn-ghost" id="review-cancel" type="button">Cancel</button>
-    <button class="btn-primary" id="review-go" type="button">Animate film</button>
+    <button class="btn-primary" id="review-go" type="button">✨ Bring to life</button>
   </div>
 </div>
 
@@ -192,6 +192,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793578262"></script>
+<script type="module" src="src/ui/app.js?v=1793579184"></script>
 </body>
 </html>

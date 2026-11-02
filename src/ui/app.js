@@ -119,14 +119,14 @@ function init() {
 
 // Shot review: every picture is shown before anything is animated. Redo repaints one
 // shot (a note like "she wears a red dress" goes first in its picture and video
-// prompts); Animate film continues, Cancel stops the film.
+// prompts); Bring to life continues, Cancel stops the film.
 function reviewShots({ shots, blobs, repaint }) {
   return new Promise((resolve, reject) => {
     const panel = $('review'), grid = $('review-grid'), go = $('review-go');
     const urls = [];
     const url = (b) => { const u = URL.createObjectURL(b); urls.push(u); return u; };
     let busy = 0;
-    const sync = () => { go.disabled = busy > 0; go.textContent = busy ? 'Painting…' : 'Animate film'; };
+    const sync = () => { go.disabled = busy > 0; go.textContent = busy ? 'Painting…' : '✨ Bring to life'; };
     grid.innerHTML = '';
     shots.forEach((shot, i) => {
       const card = document.createElement('div'); card.className = 'review-card';
