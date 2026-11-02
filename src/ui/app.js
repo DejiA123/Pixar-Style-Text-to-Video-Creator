@@ -28,7 +28,7 @@ const store = {
 };
 
 // the AI server used until you paste another one in Settings (the current RunPod pod)
-const DEFAULT_AI_SERVER = 'https://lc576esqj3lg0x-7860.proxy.runpod.net';
+const DEFAULT_AI_SERVER = 'https://dejiaugustine--storyreel-serve.us-east.modal.run';  // Storyreel's own AI server on Modal
 
 const state = {
   fr: null, film: null, compositor: null, player: null, soundtrack: null, timeline: null, plan: null,
@@ -71,9 +71,10 @@ function init() {
   $('fal-key').value = store.get('fal-key', '');
   $('fal-key').addEventListener('change', () => store.set('fal-key', $('fal-key').value.trim()));
   if (store.get('render-mode', null) == null) $('render-mode').value = 'free';
-  $('ai-server').value = store.get('ai-server', '') || DEFAULT_AI_SERVER;
+  // the server is built in and its boxes are hidden: links saved by earlier versions are ignored
+  $('ai-server').value = DEFAULT_AI_SERVER;
   $('ai-server').addEventListener('change', () => store.set('ai-server', $('ai-server').value.trim()));
-  $('ai-server-2').value = store.get('ai-server-2', '');
+  $('ai-server-2').value = '';
   $('ai-server-2').addEventListener('change', () => store.set('ai-server-2', $('ai-server-2').value.trim()));
   $('runpod-key').value = store.get('runpod-key', '');
   $('runpod-key').addEventListener('change', () => store.set('runpod-key', $('runpod-key').value.trim()));
@@ -207,7 +208,7 @@ function setupServerStatus() {
     // check) wakes it and keeps it from sleeping. So the light never asks it: it wakes only when
     // you press Generate, and the film's progress card shows it starting.
     if (sleepy(value)) {
-      show('ready', 'Modal: asleep and free until you press Generate (the first film after a break waits 1–3 minutes while it wakes up).', 'Modal ready');
+      show('ready', 'Modal: asleep and free until you press Generate (the first film after a break waits 1–3 minutes while it wakes up).', 'AI ready');
       return;
     }
     const mine = ++seq;
