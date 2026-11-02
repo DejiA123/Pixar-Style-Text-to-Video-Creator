@@ -88,7 +88,7 @@
                 <option value="browser">Device voices (instant)</option>
               </select>
             </label>
-            <label class="field"><span>Narrator</span><select id="narrator"></select></label>
+            <label class="field" hidden><span>Narrator</span><select id="narrator"></select></label>
             <label class="field" hidden><span>Preview quality</span>
               <select id="quality">
                 <option value="low">Draft (fast)</option>
@@ -96,7 +96,7 @@
                 <option value="high">High</option>
               </select>
             </label>
-            <label class="field"><span>Export</span>
+            <label class="field" style="grid-column: 1 / -1"><span>Export</span>
               <select id="export-res">
                 <option value="720">720p (fastest)</option>
                 <option value="1080" selected>1080p HD</option>
@@ -106,7 +106,7 @@
             </label>
             <div class="checks">
               <label class="check"><input type="checkbox" id="sfx" checked> Sound FX</label>
-              <label class="check"><input type="checkbox" id="subs" checked> Subtitles</label>
+              <label class="check"><input type="checkbox" id="subs"> Subtitles</label>
               <label class="check"><input type="checkbox" id="char-voices" checked> Characters tell the story</label>
             </div>
           </div>
@@ -192,6 +192,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1793577721"></script>
+<script type="module" src="src/ui/app.js?v=1793578024"></script>
 </body>
 </html>

@@ -64,9 +64,10 @@ function init() {
     el.addEventListener('change', () => { store.set(id, el.value); onSettings(id); });
   }
   for (const id of ['sfx', 'subs', 'char-voices']) {
-    const el = $(id); const v = store.get(id, null);
+    const key = id === 'subs' ? 'subs-v2' : id;  // subtitles are off by default now: earlier saved choices don't count
+    const el = $(id); const v = store.get(key, null);
     if (v != null) el.checked = v;
-    el.addEventListener('change', () => { store.set(id, el.checked); onSettings(id); });
+    el.addEventListener('change', () => { store.set(key, el.checked); onSettings(id); });
   }
   $('fal-key').value = store.get('fal-key', '');
   $('fal-key').addEventListener('change', () => store.set('fal-key', $('fal-key').value.trim()));
