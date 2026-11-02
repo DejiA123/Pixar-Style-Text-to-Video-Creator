@@ -11,10 +11,25 @@ const sleep = (ms, signal) => new Promise((r, j) => {
 });
 
 function about(c) {
+  if (c.crowd) return `a group of ${c.noun}s`;
   const age = { child: 'young', teen: 'teenage', old: 'elderly' }[c.age] || '';
   const sex = c.kind === 'human' ? { f: 'female', m: 'male' }[c.gender] || '' : '';
   const what = c.role && c.role !== 'student' ? c.role : c.kind === 'human' ? c.noun || 'person' : c.noun || c.kind;
-  return [age, sex, what, ...(c.traits || []).slice(0, 2)].filter(Boolean).join(' ');
+  const baby = /^(baby|infant|newborn)$/.test(c.noun || '') ? 'newborn, cannot talk' : '';
+  return [age, sex, what, ...(c.traits || []).slice(0, 2), baby].filter(Boolean).join(' ');
+}
+
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Who the director put in a shot, in the order it names them ("The father and Samuel sit on a bench"):
+// people by name; unnamed ones ("the old man", "the shepherds") by what they are.
+function namedIn(text, cast) {
+  const t = text.toLowerCase();
+  const at = (c) => {
+    const keys = c.name ? [c.name] : c.noun ? [c.noun, `${c.noun}s`, `${c.noun}es`] : [];
+    const hits = keys.map((k) => t.search(new RegExp(`\\b${esc(k.toLowerCase())}\\b`))).filter((i) => i >= 0);
+    return hits.length ? Math.min(...hits) : -1;
+  };
+  return cast.map((c) => [c.id, at(c)]).filter(([, i]) => i >= 0).sort((a, b) => a[1] - b[1]).map(([id]) => id);
 }
 
 export function dialogueRequest(plan, story) {
@@ -55,9 +70,22 @@ export function applyDialogue(plan, result) {
   let n = 0;
   for (const s of result?.scenes || []) {
     const sc = plan.scenes[s.index];
-    if (sc && /[a-z]/i.test(s.shot || '')) sc.shotText = String(s.shot).trim();
-    const lines = (s.lines || []).filter((l) => ids.has(l.speaker) && /[A-Za-z]/.test(l.text || '')).map((l) => ({ speaker: l.speaker, text: String(l.text).trim() }));
-    if (!sc || !lines.length) continue;
+    if (!sc) continue;
+    let lines = (s.lines || []).filter((l) => ids.has(l.speaker) && /[A-Za-z]/.test(l.text || '')).map((l) => ({ speaker: l.speaker, text: String(l.text).trim() }));
+    if (/[a-z]/i.test(s.shot || '')) {
+      sc.shotText = String(s.shot).trim();
+      // the shot shows only who the director put in it (and whoever the story has speaking here):
+      // nobody who is only talked about, far away, or already gone
+      const said = sc.lines.filter((l) => l.speaker !== 'narrator' && ids.has(l.speaker)).map((l) => l.speaker);
+      let seen = [...new Set([...namedIn(sc.shotText, plan.cast), ...said])];
+      if (!seen.length) seen = [...new Set(lines.map((l) => l.speaker))];
+      if (!seen.length && /\b(he|she|they|him|her|his|their|man|woman|boy|girl|child|people|person|family|crowd|friends)\b/i.test(sc.shotText)) seen = sc.characters.slice(0, 2);
+      lines = lines.filter((l) => seen.includes(l.speaker));
+      sc.characters = seen;
+      if (!seen.includes(sc.focus)) sc.focus = seen[0] || null;
+      if (sc.target && !seen.includes(sc.target)) sc.target = seen.find((id) => id !== sc.focus) || null;
+    }
+    if (!lines.length) continue;
     sc.lines = lines;
     for (const l of lines) {
       if (!sc.characters.includes(l.speaker)) sc.characters.push(l.speaker);

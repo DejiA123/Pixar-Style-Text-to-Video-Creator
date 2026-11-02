@@ -88,6 +88,7 @@ export const CHARACTER_NOUNS = {
   uncle: { kind: 'human', gender: 'm', age: 'adult' },
   aunt: { kind: 'human', gender: 'f', age: 'adult' },
   shepherd: { kind: 'human', gender: 'm', age: 'adult', role: 'shepherd' },
+  disciple: { kind: 'human', gender: 'm', age: 'adult', role: 'disciple' },
   singer: { kind: 'human', gender: 'n', age: 'adult', role: 'musician' },
   artist: { kind: 'human', gender: 'n', age: 'adult', role: 'artist' },
   painter: { kind: 'human', gender: 'n', age: 'adult', role: 'artist' },

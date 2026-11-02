@@ -29,7 +29,8 @@ const ACT = { pray: 'praying with eyes closed', groom: 'brushing her hair in a m
 
 function person(c, look = 'pixar') {
   // the AI director's description, fixed once for the whole film, wins: the same person in every shot
-  if (c.lookText) return `${c.name || `the ${c.noun || c.kind}`}, ${c.lookText}`;
+  if (c.lookText) return `${c.name || (c.crowd ? `the ${c.noun}s` : `the ${c.noun || c.kind}`)}, ${c.lookText}`;
+  if (c.crowd) return `a few ${c.noun}s`;
   if (c.kind !== 'human') return `${look === 'real' ? 'a real' : 'a cute cartoon'} ${c.noun || c.kind}`;
   const who = { child: c.gender === 'f' ? 'little girl' : 'little boy', teen: c.gender === 'f' ? 'teenage girl' : 'teenage boy', old: c.gender === 'f' ? 'grandmother' : 'grandfather' }[c.age] || (c.gender === 'f' ? 'young woman' : 'young man');
   const tone = { dark: 'black', brown: 'brown-skinned', tan: 'latino', 'light-warm': 'asian', light: 'fair-skinned' }[c.skinTone] || '';
@@ -247,7 +248,8 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
   if (useSrv) {
     const seen = new Map();
     for (const s of shots) if (s.kind !== 'title') for (const id of s.ids || s.scene.characters || []) if (castById.has(id)) seen.set(id, (seen.get(id) || 0) + 1);
-    const main = [...seen].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => castById.get(id));
+    // one portrait per person: a crowd ("the shepherds") isn't one face
+    const main = [...seen].filter(([id]) => !castById.get(id).crowd).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => castById.get(id));
     for (const c of main) {
       onProgress(done / total, `Creating ${nameOf(c)}'s look`);
       try {
@@ -264,7 +266,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
     if (useSrv) {
       const ids = castRefs(shots[i]);
       // e.g. "Daniel is the person in image 1. Keep exactly the same face, hair and clothes. New picture: …"
-      const lead = ids.length ? `${ids.map((id, k) => `${nameOf(castById.get(id))} is the person in image ${k + 1}`).join(', ')}. Keep exactly the same face, hair and clothes. New picture: ` : '';
+      const lead = ids.length ? `${ids.map((id, k) => `${nameOf(castById.get(id))} is the person in image ${k + 1}`).join(', ')}. Keep exactly the same face, hair and clothes. Each person appears only once. New picture: ` : '';
       try { const r = await tries(() => serverImage(srv, (lead + prompt).slice(0, 1400), opts, signal, ids.map((id) => portraits.get(id))), signal); sources.server++; return r; } catch (e) { if (e?.name === 'AbortError') throw e; console.warn(e); }
     }
     try {

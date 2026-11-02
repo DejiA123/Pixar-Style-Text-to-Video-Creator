@@ -127,3 +127,36 @@ test('church story: setting, pastor, prayer, godrays', () => {
   assert.equal(love.lines.find((l) => l.speaker !== 'narrator').speaker, pastor.id);
   assert.ok(byName(plan, 'Grace'));
 });
+
+test('app samples: only the people who are really there, and the right speaker', async () => {
+  const { SAMPLES: APP } = await import('../src/story/samples.js');
+  const story = (id) => parseStory(APP.find((s) => s.id === id).text);
+  const who = (plan, name) => plan.cast.find((c) => c.name === name || c.noun === name)?.id;
+  const sceneOf = (plan, words) => plan.scenes.find((s) => s.text.includes(words));
+  const speakerOf = (sc) => sc.lines.find((l) => l.speaker !== 'narrator')?.speaker;
+
+  // the father stays on the farm while his son is in the city
+  const prodigal = story('prodigal');
+  const father = who(prodigal, 'father'), samuel = who(prodigal, 'Samuel');
+  for (const w of ['In the city', 'Hungry and alone', 'ask my father']) assert.ok(!sceneOf(prodigal, w).characters.includes(father), w);
+  assert.equal(speakerOf(sceneOf(prodigal, 'ask my father')), samuel, '"…ask my father…," he whispered: Samuel says it');
+
+  // "Let's pray for Daddy": Daddy is in hospital, not in the room
+  const grandma = story('grandma');
+  const daddy = who(grandma, 'Daddy');
+  assert.ok(!sceneOf(grandma, 'pray for Daddy').characters.includes(daddy));
+  assert.ok(!sceneOf(grandma, 'Dear God').characters.includes(daddy));
+
+  // "He is alive!" Mary shouted to the disciples. "Jesus is alive!": still Mary; the angel stays at the tomb
+  const easter = story('easter');
+  const mary = who(easter, 'Mary'), angel = who(easter, 'angel');
+  assert.equal(speakerOf(sceneOf(easter, '"Jesus is alive!"')), mary);
+  assert.ok(!sceneOf(easter, 'ran back down').characters.includes(angel));
+  assert.ok(who(easter, 'disciple'), 'the disciples are a crowd');
+
+  // the shepherds are people in the film
+  const xmas = story('christmas');
+  const shepherds = xmas.cast.find((c) => c.noun === 'shepherd');
+  assert.ok(shepherds?.crowd);
+  assert.ok(sceneOf(xmas, 'hurried to the stable').characters.includes(shepherds.id));
+});

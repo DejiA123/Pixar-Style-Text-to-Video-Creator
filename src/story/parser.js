@@ -105,6 +105,8 @@ function settingMatchers() {
 const SETTING_MATCHERS = settingMatchers();
 
 const PLACE_NOUNS = /^(?:Church|Chapel|Cathedral|Temple|Mosque|School|Academy|College|University|Park|Street|Road|Avenue|Lane|Square|Hospital|Hotel|Restaurant|Cafe|Café|Mall|Center|Centre|Station|Airport|Museum|Library|Stadium|Arena|Bridge|Tower|Castle|Palace|Lake|River|Mountain|Mountains|Beach|Forest|City|Town|Village|Island|Bay|Valley|Hall|Theater|Theatre|Market|Farm|Zoo|Studio|Club|Gym|Office|Building|House|Garden|Gardens)$/;
+// people who often come as a crowd: "the shepherds", "the disciples"
+const CROWD_NOUNS = new Set(['shepherd', 'disciple', 'angel', 'soldier', 'guard', 'villager', 'farmer', 'fisherman', 'sailor', 'pirate', 'knight', 'monk', 'nun', 'nurse', 'doctor', 'musician', 'singer', 'dancer', 'neighbor', 'neighbour', 'stranger', 'believer', 'pastor', 'priest']);
 const TITLE_WORDS = 'Pastor|Father|Reverend|Bishop|Deacon|Prophet|Doctor|Professor|Teacher|Coach|Captain|Officer|Detective|Uncle|Aunt|Auntie|Grandma|Grandpa|Granny|King|Queen|Prince|Princess|Sister|Brother|Nurse|Chef|Judge|Mama|Papa';
 const PLACE_WORDS = new Set(['in', 'to', 'at', 'from', 'of', 'visit', 'visited', 'visits', 'visiting', 'near', 'through', 'into', 'across', 'around',
   'toward', 'towards', 'inside', 'outside', 'reached', 'reach', 'entered', 'enter', 'explored', 'explore', 'left', 'arrived', 'above', 'over', 'beyond']);
@@ -464,6 +466,22 @@ function detectCast(sentences) {
     }
   });
 
+  // 4b) Crowds named by a plural: "the shepherds", "his disciples": one cast member stands for the group.
+  const crowdAlt = [...CROWD_NOUNS].filter((n) => CHARACTER_NOUNS[n]).map(escapeRe).join('|');
+  sentences.forEach((s, si) => {
+    const lower = s.replace(/"[^"]*"/g, (q) => ' '.repeat(q.length)).toLowerCase();
+    const re = new RegExp(`\\b(?:the|his|her|their|our|some|many|two|three|four|five|several)\\s+((?:[a-z-]+\\s+){0,2})(${crowdAlt})s\\b`, 'g');
+    let m;
+    while ((m = re.exec(lower))) {
+      const noun = m[2];
+      if (byNoun.has(noun) || cast.some((c) => c.noun === noun)) continue;
+      const bare = new RegExp(`\\b${escapeRe(noun)}s\\b`, 'i');
+      const first = sentences.findIndex((x) => bare.test(x.replace(/"[^"]*"/g, ' ')));
+      const mem = addMember({ noun, ...nounInfo(noun), firstSentence: first >= 0 ? first : si, crowd: true });
+      applyAdjectives(mem, m[1].trim().split(/\s+/).filter(Boolean));
+    }
+  });
+
   // 5) Groups and plurals: "two kids", "the children", "a family", "a couple", "the girls".
   const NUM = { two: 2, three: 3, four: 4, five: 5, 2: 2, 3: 3, 4: 4, 5: 5, both: 2, some: 3, several: 3, many: 4 };
   sentences.forEach((s, si) => {
@@ -578,6 +596,10 @@ function detectCast(sentences) {
 }
 
 function mentionIndex(sentence, c) {
+  if (c.crowd && c.noun) {
+    const i = sentence.search(new RegExp(`\\b${escapeRe(c.noun)}s\\b`, 'i'));
+    if (i >= 0) return i;
+  }
   if (c.name) {
     const i = sentence.search(new RegExp(`\\b${escapeRe(c.name)}\\b`));
     if (i >= 0) return i;
@@ -671,6 +693,8 @@ export function parseStory(rawText, opts = {}) {
   const normalized = normalizeText(promptToStory(rawText || ''));
   const { title: explicitTitle, body } = extractTitle(normalized);
   const sentences = splitSentences(body).flatMap(splitBeats);
+  // the first sentence of each paragraph: a quote there may be a new speaker, elsewhere it continues the last one
+  const paraStarts = new Set(body.split(/\n/).map((p) => p.trim()).filter(Boolean).map((p) => splitSentences(p).flatMap(splitBeats)[0]).filter(Boolean));
   const cast = detectCast(sentences);
 
   const scenes = [];
@@ -683,6 +707,8 @@ export function parseStory(rawText, opts = {}) {
   let lastSpeakers = [];
   const heldProps = new Map(); // holder id → prop type, persists until another
   let prevNarrationSubject = null;
+  let prevQuoteSpeaker = null;
+  let prevLeft = false;
 
   // Pre-scan for an initial setting so scene 1 isn't generic.
   for (const s of sentences) {
@@ -732,17 +758,23 @@ export function parseStory(rawText, opts = {}) {
     if (setting === 'snow' && weather === 'clear' && si % 2 === 0) weather = 'snow';
     if (setting === 'space') time = 'night';
 
-    // --- characters mentioned
+    // --- characters mentioned, outside quotes: someone only talked about ("Let's pray for Daddy",
+    // "ask my father") isn't there. Positions are in the sentence with its quotes blanked out.
+    const blank = sentence.replace(/"[^"]*"/g, (q) => ' '.repeat(q.length));
     const mentions = [];
     for (const c of cast) {
-      const idx = mentionIndex(sentence, c);
+      const idx = mentionIndex(blank, c);
       if (idx >= 0) mentions.push({ c, idx });
     }
-    // pronouns (outside quotes)
+    // pronouns (outside quotes). A subject pronoun stands where it is; "his", "her", "him", "them" come
+    // after the people named ("He took his father's money": he, then the father; "His father ran to him": the father first)
     const pronounHits = [];
     const pr = /\b(he|him|his|she|her|hers|it|its|they|them|their|everyone|together|both|friends)\b/gi;
     let pm;
-    while ((pm = pr.exec(noQuotes))) pronounHits.push({ p: pm[1].toLowerCase(), idx: pm.index });
+    while ((pm = pr.exec(blank))) {
+      const p = pm[1].toLowerCase();
+      pronounHits.push({ p, idx: pm.index + (['him', 'his', 'her', 'hers', 'its', 'them', 'their'].includes(p) ? 500 : 0) });
+    }
     const resolved = new Map(mentions.map((m) => [m.c.id, m.idx]));
     for (const { p, idx } of pronounHits) {
       let targets = [];
@@ -750,7 +782,13 @@ export function parseStory(rawText, opts = {}) {
       else if (['she', 'her', 'hers'].includes(p)) targets = [lastByGender.f || lastMentioned.find((c) => c.gender !== 'm')];
       else if (['it', 'its'].includes(p)) targets = [lastMentioned.find((c) => c.kind !== 'human')];
       else targets = (lastMentioned.length > 1 ? lastMentioned : onStage.map((id) => cast.find((c) => c.id === id)));
-      for (const t of targets) if (t && !resolved.has(t.id)) resolved.set(t.id, idx + 1000); // pronoun positions (in no-quote text)
+      for (const t of targets) if (t && !resolved.has(t.id)) resolved.set(t.id, idx);
+    }
+    // inside a quote, only someone spoken to by name is there ("Mia, look!", "Thank you, Daddy!")
+    for (const c of cast) {
+      if (!c.name || resolved.has(c.id)) continue;
+      const voc = new RegExp(`(?:^|[,.!?]\\s*)(?:dear\\s+|oh\\s+)?${escapeRe(c.name)}\\s*(?:[,.!?]|$)`);
+      if (quotes.some((q) => voc.test(q.text))) resolved.set(c.id, 5000);
     }
     // Map mention positions into no-quote space roughly: use order only.
     const mentionedIds = [...resolved.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
@@ -765,7 +803,7 @@ export function parseStory(rawText, opts = {}) {
       if (mentions.length === 1) speaker = mentions[0].c;
       else if (mentions.length > 1) {
         // the character nearest a speech verb
-        const verbIdx = sentence.search(SPEECH_VERBS);
+        const verbIdx = blank.search(SPEECH_VERBS);
         if (verbIdx >= 0) {
           speaker = mentions.slice().sort((a, b) => Math.abs(a.idx - verbIdx) - Math.abs(b.idx - verbIdx))[0].c;
         } else speaker = mentions[0].c;
@@ -773,6 +811,8 @@ export function parseStory(rawText, opts = {}) {
         speaker = mentionedCast[0];
       } else if (prevNarrationSubject && quotes[0].index < 2) {
         speaker = prevNarrationSubject;
+      } else if (prevQuoteSpeaker && quotes[0].index < 2 && !paraStarts.has(sentence)) {
+        speaker = prevQuoteSpeaker;  // '"He is alive!" Mary shouted. "Jesus is alive!"': still Mary
       } else if (lastSpeakers.length >= 2) {
         speaker = lastSpeakers[lastSpeakers.length - 2]; // conversational turn-taking
       } else {
@@ -792,6 +832,7 @@ export function parseStory(rawText, opts = {}) {
       if (narration && !quoteFirst) lines.push({ speaker: 'narrator', text: narration }, ...qLines);
       else { lines.push(...qLines); if (narration) lines.push({ speaker: 'narrator', text: narration }); }
       if (speaker) { lastSpeakers = lastSpeakers.filter((x) => x !== speaker); lastSpeakers.push(speaker); }
+      prevQuoteSpeaker = speaker;
     } else {
       lines.push({ speaker: 'narrator', text: sentence });
     }
@@ -802,8 +843,9 @@ export function parseStory(rawText, opts = {}) {
     if (characters.length === 0) {
       characters = isNewSetting && prevSetting !== null ? onStage.slice(0, 1) : onStage.slice();
       if (characters.length === 0 && cast.length) characters = [cast[0].id];
-    } else if (!isNewSetting) {
+    } else if (!isNewSetting && !prevLeft && !/\b(alone|by (?:him|her|them)sel(?:f|ves)|on (?:his|her|their) own|(?:ran|walked|went) (?:off|away|back))\b/.test(lowerNQ)) {
       // characters who were just here stay in the background unless the story moved on
+      // (someone is alone, walks away, or just left home for somewhere else)
       for (const id of onStage) if (!characters.includes(id) && characters.length < 4) characters.push(id);
     }
     characters = characters.slice(0, 5);
@@ -971,6 +1013,8 @@ export function parseStory(rawText, opts = {}) {
     onStage = characters;
     prevSetting = setting;
     prevNarrationSubject = !quotes.length && mentions.length === 1 ? mentions[0].c : null;
+    if (!quotes.length) prevQuoteSpeaker = null;
+    prevLeft = /\b(?:left|leaves|leaving) (?:the|his|her|their|home|for|town)\b/.test(lowerNQ);
   });
 
   // Mark the opening scene as establishing even if setting was pre-scanned.
@@ -1013,5 +1057,6 @@ export function parseStory(rawText, opts = {}) {
 export function displayName(c) {
   if (!c) return 'Narrator';
   if (c.name) return c.name;
+  if (c.crowd && c.noun) return `The ${c.noun}s`;
   return `The ${c.noun || c.kind}`;
 }

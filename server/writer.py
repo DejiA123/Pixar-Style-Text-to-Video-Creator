@@ -26,17 +26,24 @@ Looks (the CAST section):
 - One line per character: Name: their look, which stays exactly the same in every shot.
 - Give age, gender, skin tone, face shape, eye colour, hair (colour, length, style), facial hair if any, and clothes with colours. At most 35 words.
 - Follow everything the story says about them; invent the rest so it is specific.
+- Clothes and hair fit the story's time and place. Bible stories (Mary and Joseph, baby Jesus, shepherds, disciples, the empty tomb) happen in ancient Israel: simple robes, tunics, head scarves, cloaks and sandals in earthy colours, never modern clothes.
+- An angel is a kind, beautiful person in shining white robes with large soft feathered wings and warm, normal eyes.
+- A group (The shepherds): describe them as a group: how many, their ages and clothes.
 - If a listed character is not really a person or creature in the story (a place, a word read by mistake), write: Name: none
 
 Shots (a SHOT line in every scene):
 - What the camera sees, as a picture description: who is in it (by name), where exactly, what each person is doing, their facial expression, the important objects, the light. At most 40 words.
 - Follow the story exactly: the right people, the right place, the right action and objects (if someone plays the drums, show them at a drum kit).
+- Only the people who are really there at that moment. "In the story here" lists who the story mentions around the scene, and some of them are elsewhere: someone only talked about, prayed for, remembered, or far away (in hospital, back home, left behind) is not in the shot. Someone who left a place is no longer there.
+- Name every person in the shot (never just he or she). Each person appears once.
+- Places and objects fit the story's time: in Bible times, stone houses, oil lamps, a wooden stable with a manger, a tomb cut into a rocky hillside with a large round stone; nothing modern.
 - Do not describe the characters' looks again: those come from CAST.
 
 Dialogue rules:
-- For every scene, write 1 or 2 lines that the characters on screen in that scene say out loud in that moment.
-- Only characters listed as on screen in a scene may speak in it.
-- If a scene already has dialogue, keep those lines word for word, and add at most one more line.
+- For every scene, write 1 or 2 lines that the characters in that scene's SHOT say out loud in that moment.
+- Only people in the SHOT speak. A baby or an animal never talks (unless the story makes it talk).
+- If a scene already has dialogue, keep those lines word for word, and add at most one more line. If the story shows that someone else says a line than the one given, give it to the person who really says it.
+- Never turn the storyteller's sentences into dialogue: nobody says "Nearby, shepherds were watching their sheep".
 - Natural, warm, spoken English in the present moment, like a Pixar film. Short: at most 14 words per line.
 - Someone who only hears the words must understand the scene: name the concrete things that happen, the place, the objects and the people
   (say "Look at these drums!" or "This church is so big..." rather than "I feel the rhythm"). Show how the characters feel.
@@ -81,10 +88,10 @@ def describe(req):
     for sc in req.get('scenes', []):
         on = ', '.join(names.get(i, i) for i in sc.get('characters', [])) or 'nobody'
         out.append(f"SCENE {sc['index'] + 1}: {sc.get('text', '').strip()}")
-        out.append(f"  On screen: {on}" + (f"; mood: {sc['mood']}" if sc.get('mood') else ''))
+        out.append(f"  In the story here: {on}" + (f"; mood: {sc['mood']}" if sc.get('mood') else ''))
         for q in sc.get('quotes', []):
             out.append(f"  Already says: {names.get(q['speaker'], q['speaker'])}: {q['text']}")
-    out += ['', 'Write the dialogue for every scene, from SCENE 1 to SCENE %d.' % len(req.get('scenes', []))]
+    out += ['', 'Write the CAST, then the SHOT and the dialogue for every scene, from SCENE 1 to SCENE %d.' % len(req.get('scenes', []))]
     return '\n'.join(out)
 
 
@@ -94,8 +101,9 @@ def parse(text, req):
     by_name = {}
     for c in req.get('cast', []):
         n = c['name'].lower()
-        by_name[n] = c['id']
-        by_name[re.sub(r'^the\s+', '', n)] = c['id']
+        bare = re.sub(r'^the\s+', '', n)
+        for k in (n, bare, bare[:-1] if bare.endswith('s') else bare + 's'):  # "The shepherds" / "Shepherd"
+            by_name.setdefault(k, c['id'])
     scenes = {sc['index']: set(sc.get('characters', [])) for sc in req.get('scenes', [])}
     out, shots, looks, cur = {}, {}, {}, None
     for raw in text.splitlines():
