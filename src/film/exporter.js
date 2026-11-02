@@ -6,6 +6,14 @@ import {
   getFirstEncodableVideoCodec, getFirstEncodableAudioCodec,
 } from '../../vendor/mediabunny/mediabunny.min.mjs';
 
+// iPhone, iPad and Safari: Photos and QuickTime take MP4, not WebM
+function needsMp4() {
+  const ua = navigator.userAgent || '';
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const safari = /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|Edg|OPR|Android/.test(ua);
+  return ios || safari;
+}
+
 export function webCodecsSupported() {
   return typeof VideoEncoder !== 'undefined' && typeof AudioEncoder !== 'undefined';
 }
@@ -14,9 +22,12 @@ export function webCodecsSupported() {
 // audioContext: one made during the tap on Download, for browsers that record in real time (iPhone
 // Safari only lets sound start from a tap; a context made later records silence).
 // realtime: record the film as it plays (for devices that can't decode the clips frame by frame).
-export async function exportVideo({ canvas, duration, fps = 30, soundtrack, renderFrame, onProgress = () => {}, signal, audioContext = null, realtime = false }) {
+// renderFrame(t, live): live is true when the film is recorded as it plays (draw what is playing now).
+// onLive(): called just before recording as it plays, so moving clips can start playing.
+export async function exportVideo({ canvas, duration, fps = 30, soundtrack, renderFrame, onProgress = () => {}, signal, audioContext = null, realtime = false, onLive = () => {} }) {
   const W = canvas.width, H = canvas.height;
-  if (realtime || !webCodecsSupported()) return recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, onProgress, signal, audioContext });
+  const live = () => { onLive(); return recordRealtime({ canvas, duration, fps, soundtrack, renderFrame: (t) => renderFrame(t, true), onProgress, signal, audioContext }); };
+  if (realtime || !webCodecsSupported()) return live();
 
   let format = new Mp4OutputFormat({ fastStart: 'in-memory' });
   let vcodec = await getFirstEncodableVideoCodec(['avc', 'hevc', 'vp9', 'av1'], { width: W, height: H, frameRate: fps });
@@ -28,7 +39,8 @@ export async function exportVideo({ canvas, duration, fps = 30, soundtrack, rend
     const a2 = soundtrack ? await getFirstEncodableAudioCodec(['opus', 'vorbis'], { numberOfChannels: 2, sampleRate: soundtrack.sampleRate }) : null;
     if (v2 && (!soundtrack || a2)) { format = new WebMOutputFormat(); vcodec = v2; acodec = a2; ext = 'webm'; mime = 'video/webm'; }
   }
-  if (!vcodec) return recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, onProgress, signal, audioContext });
+  // never a film without its sound, and never a WebM an iPhone can't save: record it as it plays instead
+  if (!vcodec || (soundtrack && !acodec) || (ext === 'webm' && needsMp4())) return live();
 
   const output = new Output({ format, target: new BufferTarget() });
   const video = new CanvasSource(canvas, { codec: vcodec, bitrate: new Quality('very-high'), keyFrameInterval: 2 });
@@ -45,7 +57,7 @@ export async function exportVideo({ canvas, duration, fps = 30, soundtrack, rend
   for (let i = 0; i < frames; i++) {
     if (signal?.aborted) { await output.cancel(); throw new DOMException('Export cancelled', 'AbortError'); }
     const t = i / fps;
-    await renderFrame(t);
+    await renderFrame(t, false);
     await video.add(t, 1 / fps);
     if (i % 3 === 0) {
       const el = (performance.now() - t0) / 1000;
@@ -72,7 +84,7 @@ async function recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, 
     src.connect(dest);
     for (const tr of dest.stream.getAudioTracks()) stream.addTrack(tr);
   }
-  const mime = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/webm;codecs=vp9,opus', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m)) || '';
+  const mime = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m)) || '';
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
   const chunks = [];
   rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
@@ -94,6 +106,6 @@ async function recordRealtime({ canvas, duration, fps, soundtrack, renderFrame, 
   await done;
   src?.stop(); ac?.close();
   if (signal?.aborted) throw new DOMException('Export cancelled', 'AbortError');
-  const type = mime.split(';')[0] || 'video/webm';
+  const type = (rec.mimeType || mime).split(';')[0] || (needsMp4() ? 'video/mp4' : 'video/webm');  // what was really recorded
   return { blob: new Blob(chunks, { type }), ext: type.includes('mp4') ? 'mp4' : 'webm', codec: mime || 'default' };
 }

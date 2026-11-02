@@ -100,7 +100,7 @@ function init() {
   state.glCanvas = document.createElement('canvas');
   setAspect($('aspect').value);
 
-  $('make').addEventListener('click', () => makeMovie().catch(fail));
+  $('make').addEventListener('click', () => { unlockAudio(); makeMovie().catch(fail); });
   // once you edit the enhanced story yourself, it's yours: the Undo goes away
   $('story').addEventListener('input', (e) => { if (e.isTrusted && enhanceUndo != null) { enhanceUndo = null; clearTimeout(enhanceTimer); enhanceDone(); } });
   $('enhance').addEventListener('click', () => enhanceStory().catch((e) => { console.warn(e); toast('Couldn’t enhance your story right now. Please try again in a moment.', true); enhanceDone(); }));
@@ -161,7 +161,7 @@ function reviewShots({ shots, blobs, repaint }) {
       grid.append(card);
     });
     const close = () => { panel.hidden = true; go.onclick = $('review-cancel').onclick = null; setTimeout(() => urls.forEach((u) => URL.revokeObjectURL(u)), 1000); };
-    go.onclick = () => { close(); resolve(); };
+    go.onclick = () => { unlockAudio(); close(); resolve(); };  // a fresh tap: sound ready again after a locked phone
     $('review-cancel').onclick = () => { close(); reject(new DOMException('Stopped', 'AbortError')); };
     sync();
     panel.hidden = false;
@@ -447,6 +447,21 @@ function fail(e) {
 // ---------------------------------------------------------------------------
 // make a movie
 // ---------------------------------------------------------------------------
+// iPhone: sound may only start from a tap. The tap on Generate silently starts the sound the film will
+// play through, so the finished film starts by itself with its voices (and is heard with the silent switch on).
+function unlockAudio() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+  try {
+    if (!state.audioCtx || state.audioCtx.state === 'closed') state.audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
+    const ac = state.audioCtx;
+    ac.resume().catch(() => {});
+    const src = ac.createBufferSource();
+    src.buffer = ac.createBuffer(1, 1, 22050);
+    src.connect(ac.destination);
+    src.start(0);
+  } catch (e) { console.warn('sound unlock', e); }
+}
+
 async function makeMovie() {
   if (state.busy) return;
   const text = $('story').value.trim();
@@ -647,7 +662,7 @@ async function makeMovie() {
   state.player = new Player({
     film, compositor: state.compositor, glCanvas: film.canvas || state.glCanvas, soundtrack: state.soundtrack,
     liveSpeech: !usedNeural && WebSpeechEngine.supported(), voices,
-    onTime: (t, ended) => onTime(t, ended),
+    onTime: (t, ended) => onTime(t, ended), audioContext: state.audioCtx || null,
   });
   resizePreview();
   buildBoard(tl);
@@ -658,7 +673,7 @@ async function makeMovie() {
   $('make').textContent = 'Generate again';
   await captureThumbs(tl);
   state.player.seek(0);
-  state.player.play();
+  await state.player.autoplay();
 }
 
 // A frame from the middle of every shot, shown on its card.
@@ -819,18 +834,18 @@ async function doExport() {
   state.exportAbort = ac;
   try {
     const run = (realtime) => {
-      if (realtime && state.ai) state.film.setPlaying?.(true);  // the clips play while they're recorded
       return exportVideo({
         canvas: exportCanvas, duration: state.timeline.duration, fps: 30, soundtrack: state.soundtrack, signal: ac.signal, audioContext, realtime,
-        renderFrame: async (t) => {
-          if (state.ai && !realtime) await state.film.renderAtExact(t); else state.film.renderAt(t);
+        onLive: () => { if (state.ai) state.film.setPlaying?.(true); },  // the clips play while they're recorded
+        renderFrame: async (t, live) => {
+          if (state.ai && !live) await state.film.renderAtExact(t); else state.film.renderAt(t);
           comp.draw(state.film.canvas || state.glCanvas, state.film, t);
         },
         onProgress: (f, eta) => {
           $('busy-bar').style.width = `${(f * 100).toFixed(1)}%`;
           $('busy-sub').textContent = `${Math.round(f * 100)}% · about ${formatTime(eta)} left`;
         },
-      }).finally(() => { if (realtime && state.ai) state.film.setPlaying?.(false); });
+      }).finally(() => { if (state.ai) state.film.setPlaying?.(false); });
     };
     let out;
     try { out = await run(state.ai && !exact); } catch (e) {

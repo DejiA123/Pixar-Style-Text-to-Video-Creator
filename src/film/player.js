@@ -3,7 +3,8 @@
 import { WebSpeechEngine } from '../audio/tts.js';
 
 export class Player {
-  constructor({ film, compositor, glCanvas, soundtrack, liveSpeech, voices, onTime }) {
+  // audioContext: one unlocked during a tap (iPhone plays sound only from a context started by a tap)
+  constructor({ film, compositor, glCanvas, soundtrack, liveSpeech, voices, onTime, audioContext = null }) {
     this.film = film;
     this.compositor = compositor;
     this.glCanvas = glCanvas;
@@ -13,7 +14,8 @@ export class Player {
     this.onTime = onTime || (() => {});
     this.t = 0;
     this.playing = false;
-    this.ac = null;
+    this.ac = audioContext;
+    this.ownsAc = !audioContext;
     this.src = null;
     this.spoken = new Set();
     this.speakingId = null;
@@ -33,8 +35,29 @@ export class Player {
   ensureAudio() {
     // iPhone: play like a video (heard even with the silent switch on), not like a ringtone
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
-    if (!this.ac) this.ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
-    if (this.ac.state === 'suspended') this.ac.resume();
+    if (!this.ac) { this.ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' }); this.ownsAc = true; }
+    if (!this.watching) {
+      // a phone call, the lock button or another app stops the sound (iPhone: "interrupted"): the film
+      // pauses with it (its clock is the sound), and the next tap on play carries on
+      this.watching = true;
+      let was = this.ac.state;
+      this.ac.addEventListener('statechange', () => {
+        const now = this.ac.state;
+        if (this.playing && was === 'running' && now !== 'running') this.pause();
+        was = now;
+      });
+    }
+    if (this.ac.state !== 'running') this.ac.resume().catch(() => {});
+  }
+
+  // Starts playing by itself when the sound is allowed to start; otherwise waits on the first frame
+  // with the play button showing (an iPhone that was locked or switched apps while the film was made).
+  async autoplay() {
+    this.ensureAudio();
+    if (this.ac.state !== 'running') {
+      await Promise.race([this.ac.resume().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
+    }
+    if (this.ac.state === 'running') this.play(); else this.render();
   }
 
   play() {
@@ -111,7 +134,7 @@ export class Player {
 
   dispose() {
     this.pause();
-    if (this.ac) this.ac.close();
+    if (this.ac && this.ownsAc) this.ac.close();
     this.film.talkOverride = null;
   }
 }
