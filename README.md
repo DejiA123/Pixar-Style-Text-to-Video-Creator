@@ -1,5 +1,7 @@
 # TakeOne — type a story, get an AI film
 
+**Live: [takeoneai.pages.dev](https://takeoneai.pages.dev)**
+
 Everything runs in the browser, built in code: no paid AI services needed.
 
 - **Story → film:** the parser finds characters, settings, actions, emotions and dialogue, and a director turns them into shots.
@@ -12,10 +14,10 @@ Everything runs in the browser, built in code: no paid AI services needed.
 
 ## Try it
 
-### On your phone / any browser (GitHub Pages)
-1. In the GitHub repo: **Settings → Pages → Source: GitHub Actions**.
-2. Push. The included workflow deploys the site.
-3. Open `https://<your-user>.github.io/Pixar-Style-Text-to-Video-Creator/`.
+### On your phone / any browser
+Open **[takeoneai.pages.dev](https://takeoneai.pages.dev)**. It's hosted free on Cloudflare Pages, which
+deploys this branch automatically on every push (no build step, output directory `/`). The old
+GitHub Pages address forwards there.
 
 Desktop Chrome or Edge gives the fastest renders and MP4 export. Phones work, but rendering is slower.
 
