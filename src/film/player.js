@@ -40,9 +40,11 @@ export class Player {
       // a phone call, the lock button or another app stops the sound (iPhone: "interrupted"): the film
       // pauses with it (its clock is the sound), and the next tap on play carries on
       this.watching = true;
-      let was = this.ac.state;
-      this.ac.addEventListener('statechange', () => {
-        const now = this.ac.state;
+      const ac = this.ac;
+      let was = ac.state;
+      ac.addEventListener('statechange', () => {
+        if (ac !== this.ac) return;  // an old sound that was replaced
+        const now = ac.state;
         if (this.playing && was === 'running' && now !== 'running') this.pause();
         was = now;
       });
@@ -50,19 +52,37 @@ export class Player {
     if (this.ac.state !== 'running') this.ac.resume().catch(() => {});
   }
 
-  // Starts playing by itself when the sound is allowed to start; otherwise waits on the first frame
-  // with the play button showing (an iPhone that was locked or switched apps while the film was made).
-  async autoplay() {
+  // Is the sound's clock really moving? (An iPhone can report "running" while its sound is asleep,
+  // e.g. minutes after the tap that started it: then its clock stands still.)
+  async soundMoves(ms = 350) {
+    if (!this.ac || this.ac.state !== 'running') return false;
+    const a = this.ac.currentTime;
+    await new Promise((r) => setTimeout(r, ms));
+    return this.ac.currentTime > a;
+  }
+
+  // Starts playing by itself when the sound can start; otherwise waits on the first picture with the
+  // play button showing, and onNeedTap() tells the viewer to tap ▶ (a tap can always start the sound).
+  async autoplay(onNeedTap = () => {}) {
     this.ensureAudio();
     if (this.ac.state !== 'running') {
       await Promise.race([this.ac.resume().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
     }
-    if (this.ac.state === 'running') this.play(); else this.render();
+    if (await this.soundMoves()) { this.play(); return; }
+    this.stalled = true;  // the next tap starts fresh sound
+    this.t = 0; this.render();
+    onNeedTap();
   }
 
-  play() {
+  // gesture: called from a tap on play (a fresh sound can start only then on an iPhone)
+  play(gesture = false) {
     if (this.playing) return;
     if (this.t >= this.duration - 0.05) this.t = 0;
+    if (gesture && this.stalled) {
+      // the old sound is stuck: start a new one, inside the tap
+      try { if (this.ownsAc) this.ac.close(); } catch {}
+      this.ac = null; this.watching = false; this.stalled = false;
+    }
     this.ensureAudio();
     this.playing = true;
     this.spoken = new Set([...this.spoken].filter((k) => this.lineStart(k) < this.t - 0.05));
@@ -77,9 +97,19 @@ export class Player {
     }
     if (this.liveSpeech) this.liveSpeech.resume();
     this.film.setPlaying?.(true);
+    // The clock is the sound while it moves; if it stands still, a plain timer keeps the film going,
+    // so the picture never freezes (and the next tap on play tries fresh sound).
+    let lastAudio = this.ac.currentTime, lastAudioWall = performance.now(), lastWall = performance.now();
     const loop = () => {
       if (!this.playing) return;
-      this.t = Math.min(this.duration, this.ac.currentTime - this.startedAt);
+      const now = performance.now(), at = this.ac.currentTime;
+      if (at !== lastAudio) { lastAudio = at; lastAudioWall = now; }
+      const soundOk = this.ac.state === 'running' && now - lastAudioWall < 400;
+      if (!soundOk && now - lastAudioWall > 700) this.stalled = true;
+      const next = soundOk ? at - this.startedAt : this.t + (now - lastWall) / 1000;
+      lastWall = now;
+      this.t = Math.max(0, this.t - 0.02, Math.min(this.duration, next));  // never runs backwards while playing
+      if (!soundOk) this.startedAt = at - this.t;  // when the sound comes back, it carries on from here
       this.liveLines();
       this.render();
       if (this.t >= this.duration) { this.pause(); this.onTime(this.t, true); return; }
@@ -115,7 +145,7 @@ export class Player {
     this.render();
   }
 
-  toggle() { this.playing ? this.pause() : this.play(); }
+  toggle() { this.playing ? this.pause() : this.play(true); }
 
   seek(t) {
     const was = this.playing;
@@ -123,7 +153,7 @@ export class Player {
     this.t = Math.max(0, Math.min(this.duration, t));
     this.spoken.clear();
     this.render();
-    if (was) this.play();
+    if (was) this.play(true);
   }
 
   render() {

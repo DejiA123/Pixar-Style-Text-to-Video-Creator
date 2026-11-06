@@ -688,7 +688,7 @@ async function makeMovie() {
   $('make').textContent = 'Generate again';
   await captureThumbs(tl);
   state.player.seek(0);
-  await state.player.autoplay();
+  await state.player.autoplay(() => toast('Your film is ready. Tap ▶ to watch it with sound.', false, 8000));
 }
 
 // A frame from the middle of every shot, shown on its card.
