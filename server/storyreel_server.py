@@ -89,7 +89,8 @@ state = {'image': None, 'video': None, 'video_kind': None, 'tts': None, 'device'
 stats = {'images': 0, 'videos': 0, 'video_seconds': 0.0, 'lines': 0, 'lipsyncs': 0, 'busy_seconds': 0.0, 'since': time.time(),
          # GPU seconds by kind of work, to see where a film's time (and cost) goes
          'seconds_by': {'image': 0.0, 'video': 0.0, 'voice': 0.0, 'lipsync': 0.0, 'writer': 0.0},
-         'video_parts': {'model': 0.0, 'save': 0.0, 'other': 0.0}}  # where a clip's time goes
+         'video_parts': {'model': 0.0, 'save': 0.0, 'other': 0.0},  # where a clip's time goes
+         'errors': []}  # the last few things that failed, and why
 
 
 def spent(kind, took):
@@ -336,9 +337,11 @@ def lipsync_ready():
         return True
     if time.time() - _lipsync['t'] > 15:
         try:
-            _lipsync['ok'] = json.load(urllib.request.urlopen(LIPSYNC_URL + '/health', timeout=2)).get('ok', False)
-        except Exception:
-            _lipsync['ok'] = False
+            _lipsync['ok'] = json.load(urllib.request.urlopen(LIPSYNC_URL + '/health', timeout=3)).get('ok', False)
+        except Exception as e:
+            # a worker that was up and is just slow to answer (busy with a clip) is still up
+            if not (_lipsync['ok'] and 'timed out' in str(e).lower()):
+                _lipsync['ok'] = False
         _lipsync['t'] = time.time()
     return _lipsync['ok']
 
@@ -511,6 +514,7 @@ def run_job(jid, fn, req):
     except Exception as e:
         print(f'[storyreel] {fn.__name__} job error', e, flush=True)
         jobs[jid]['status'], jobs[jid]['error'] = 'error', str(e)
+        stats['errors'] = (stats['errors'] + [f"{time.strftime('%H:%M:%S')} {fn.__name__.replace('_from_request', '')}: {str(e)[:160]}"])[-8:]
     finally:
         state['last_use'] = time.time()
     for k in [k for k, j in jobs.items() if time.time() - j['t'] > 3600]:  # forget hour-old jobs

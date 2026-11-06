@@ -10,11 +10,12 @@ localhost only. The main server sends it one job at a time:
 
 server/runpod/start.sh sets it up and starts it.
 """
-import argparse, json, os, sys, tempfile, time, traceback
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import argparse, json, os, sys, tempfile, threading, time, traceback
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.getcwd())  # the LatentSync repository
 pipe = {}
+busy = threading.Lock()  # one lip sync at a time; /health still answers while one runs
 
 
 def load(config_path, ckpt, steps, guidance, deepcache):
@@ -72,7 +73,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             req = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)))
             t = time.time()
-            sync(req['video'], req['audio'], req['out'])
+            with busy:
+                sync(req['video'], req['audio'], req['out'])
             print(f'[lipsync] done in {time.time() - t:.1f}s', flush=True)
             self._json(200, {'ok': True})
         except Exception as e:  # e.g. "Face not detected" on a frame: the caller keeps the original clip
@@ -96,7 +98,7 @@ def main():
     t = time.time()
     load(a.config, a.ckpt, a.steps, a.guidance, not a.no_deepcache)
     print(f'[lipsync] ready in {time.time() - t:.0f}s', flush=True)
-    HTTPServer(('127.0.0.1', a.port), Handler).serve_forever()
+    ThreadingHTTPServer(('127.0.0.1', a.port), Handler).serve_forever()
 
 
 if __name__ == '__main__':

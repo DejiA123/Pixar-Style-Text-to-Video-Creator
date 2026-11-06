@@ -183,8 +183,10 @@ def generate(msgs, max_new, gpu_lock, what):
     with gpu_lock:
         # borrow the GPU when there's room (the video model stays put); otherwise write on the CPU
         dev = 'cpu'
-        if torch.cuda.is_available() and torch.cuda.mem_get_info()[0] > 11 * 2**30:
-            model.to('cuda'); dev = 'cuda'
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()  # memory the last clips left cached counts as free for the writer
+            if torch.cuda.mem_get_info()[0] > 9 * 2**30:  # ~8 GB of weights and a little room to write
+                model.to('cuda'); dev = 'cuda'
         try:
             with torch.no_grad():
                 out = model.generate(ids.to(dev), max_new_tokens=max_new, do_sample=True,

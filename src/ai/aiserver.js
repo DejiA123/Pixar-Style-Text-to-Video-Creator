@@ -43,7 +43,7 @@ function linkedServer(url) {
         continue;  // a dropped poll is fine, the job keeps running
       }
       if (res.status === 202) continue;
-      if (!res.ok) throw new Error(`AI server ${kind} failed (${res.status})`);
+      if (!res.ok) { const why = await res.json().then((j) => j.error).catch(() => ''); throw new Error(`AI server ${kind} failed (${res.status})${why ? `: ${why}` : ''}`); }
       return res.blob();
     }
   };

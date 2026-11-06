@@ -30,7 +30,9 @@ GPU = os.environ.get('STORYREEL_MODAL_GPU', 'H100')
 PRICE = {'L40S': 1.95, 'A100-80GB': 2.50, 'H100': 3.95, 'H200': 4.54, 'B200': 6.25}.get(GPU, 3.95)  # $ per hour
 
 
-@app.function(image=image, gpu=GPU, volumes={'/data': models},
+# 8 CPU cores: the voices, lip sync's face tracking, the writer's word-by-word loop and saving each
+# clip all lean on the CPU too (Modal's default is a fraction of a core)
+@app.function(image=image, gpu=GPU, cpu=8.0, volumes={'/data': models},
               timeout=24 * 3600, scaledown_window=120, max_containers=1)  # one container: jobs live in its memory
 @modal.concurrent(max_inputs=64)  # the app polls jobs while others run
 @modal.web_server(7860, startup_timeout=600)
