@@ -250,7 +250,7 @@ def load_models(want_video=True):
                 vid.enable_model_cpu_offload()
             else:
                 vid.to(dev)
-            if dev == 'cuda' and small:  # decoding in tiles saves memory on smaller cards; an 80 GB card decodes in one go, faster
+            if dev == 'cuda':  # decoding in tiles keeps memory low, so lip sync fits beside it on an 80 GB card
                 vid.vae.enable_tiling()
             state['video'], state['video_kind'] = vid, kind
             free_memory()
@@ -353,16 +353,26 @@ def make_lipsync(video, audio):
     d = tempfile.mkdtemp()
     vin, ain, out = os.path.join(d, 'in.mp4'), os.path.join(d, 'in.wav'), os.path.join(d, 'out.mp4')
     open(vin, 'wb').write(video); open(ain, 'wb').write(audio)
+    def ask():
+        req = urllib.request.Request(LIPSYNC_URL + '/sync', json.dumps({'video': vin, 'audio': ain, 'out': out}).encode(),
+                                     {'Content-Type': 'application/json'})
+        try:
+            return json.load(urllib.request.urlopen(req, timeout=900))
+        except urllib.error.HTTPError as e:
+            return json.load(e)
     try:
-        # an 80 GB card has room for lip sync next to the video model: the next clips are made while it
-        # works (one lip sync at a time); a smaller card takes turns with everything else
-        with (lipsync_lock if state.get('vram', 0) >= 70 else gpu_lock):
-            req = urllib.request.Request(LIPSYNC_URL + '/sync', json.dumps({'video': vin, 'audio': ain, 'out': out}).encode(),
-                                         {'Content-Type': 'application/json'})
-            try:
-                res = json.load(urllib.request.urlopen(req, timeout=900))
-            except urllib.error.HTTPError as e:
-                res = json.load(e)
+        if state.get('vram', 0) >= 70:
+            # an 80 GB card has room for lip sync next to the video model: the next clips are made while
+            # it works (one lip sync at a time); if memory runs short all the same, it goes again with the
+            # GPU to itself
+            with lipsync_lock:
+                res = ask()
+            if not res.get('ok') and 'out of memory' in str(res.get('error', '')).lower():
+                with gpu_lock, lipsync_lock:
+                    res = ask()
+        else:
+            with gpu_lock:  # a smaller card takes turns with everything else
+                res = ask()
         if not res.get('ok'):
             raise RuntimeError(res.get('error', 'lip sync failed'))
         return open(out, 'rb').read()
@@ -467,7 +477,10 @@ def video_from_request(req):
     took = time.time() - t0
     gpu = held()
     if state.get('vram', 0) < 70:
-        free_memory()  # smaller cards: hand the memory back between clips (an 80 GB card doesn't need the pause)
+        free_memory()  # smaller cards: hand the memory back between clips
+    else:
+        import torch
+        torch.cuda.empty_cache()  # a moment's work: what the clip left cached goes back for lip sync to use
     stats['videos'] += 1; stats['video_seconds'] += seconds; spent('video', gpu)
     cost = f' (≈${gpu / 3600 * PRICE:.4f})' if PRICE else ''
     print(f'[storyreel] video {seconds:.0f}s clip in {gpu:.1f}s on the GPU ({took:.1f}s with waiting){cost}', flush=True)

@@ -24,6 +24,7 @@ def load(config_path, ckpt, steps, guidance, deepcache):
     from diffusers import AutoencoderKL, DDIMScheduler
     from latentsync.models.unet import UNet3DConditionModel
     from latentsync.pipelines.lipsync_pipeline import LipsyncPipeline
+    tolerate_lost_faces(LipsyncPipeline)
     from latentsync.whisper.audio2feature import Audio2Feature
     config = OmegaConf.load(config_path)
     dtype = torch.float16 if torch.cuda.get_device_capability()[0] > 7 else torch.float32
@@ -42,6 +43,59 @@ def load(config_path, ckpt, steps, guidance, deepcache):
         helper.set_params(cache_interval=3, cache_branch_id=0)
         helper.enable()
     pipe.update(p=p, config=config, dtype=dtype, steps=steps, guidance=guidance)
+
+
+def tolerate_lost_faces(P):
+    """LatentSync gives up on a whole clip when one frame has no face it can find (a head turning,
+    a hand in front). Here such frames borrow the nearest found face, so the model keeps its rhythm,
+    and are then put back exactly as they were. A clip with no face in most frames is still refused."""
+    import math
+    import torch
+    if getattr(P, '_storyreel_tolerant', False):
+        return
+    P._storyreel_tolerant = True
+    orig_loop, orig_restore = P.loop_video, P.restore_video
+
+    def affine_transform_video(self, video_frames):
+        faces, boxes, mats, ok = [], [], [], []
+        for frame in video_frames:
+            try:
+                face, box, m = self.image_processor.affine_transform(frame)
+                faces.append(face); boxes.append(box); mats.append(m); ok.append(True)
+            except RuntimeError as e:
+                if 'Face not detected' not in str(e):
+                    raise
+                faces.append(None); boxes.append(None); mats.append(None); ok.append(False)
+        found = [i for i, g in enumerate(ok) if g]
+        if len(found) < 0.6 * len(ok):
+            raise RuntimeError('Face not detected')
+        for i, g in enumerate(ok):
+            if not g:
+                j = min(found, key=lambda k: abs(k - i))
+                faces[i], boxes[i], mats[i] = faces[j], boxes[j], mats[j]
+        self._face_ok = ok
+        return torch.stack(faces), boxes, mats
+
+    def loop_video(self, whisper_chunks, video_frames):
+        n, L = len(video_frames), len(whisper_chunks)
+        res = orig_loop(self, whisper_chunks, video_frames)
+        ok = self._face_ok
+        if L > n:  # LatentSync plays the clip forwards, backwards, forwards… to fit longer speech
+            seq = []
+            for k in range(math.ceil(L / n)):
+                seq += ok if k % 2 == 0 else ok[::-1]
+            ok = seq
+        self._face_ok = ok[:L]
+        return res
+
+    def restore_video(self, faces, video_frames, boxes, affine_matrices):
+        out = orig_restore(self, faces, video_frames, boxes, affine_matrices)
+        for i, g in enumerate(getattr(self, '_face_ok', [])[:len(out)]):
+            if not g:
+                out[i] = video_frames[i]  # no face here: the frame as it was
+        return out
+
+    P.affine_transform_video, P.loop_video, P.restore_video = affine_transform_video, loop_video, restore_video
 
 
 def sync(video, audio, out):
