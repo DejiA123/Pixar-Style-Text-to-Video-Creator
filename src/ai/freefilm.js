@@ -5,7 +5,7 @@
 // slow camera drift. Playback/export reuse AiFilm from the cinematic renderer.
 import { LivingFilm } from './living.js';
 import { shotSpeech, lipsyncClip, blobToDataUrl } from './servervoice.js';
-import { waitForServer, wakeServer } from './aiserver.js';
+import { waitForServer, waitForModel, wakeServer } from './aiserver.js';
 
 const IMG = 'https://image.pollinations.ai/prompt/';
 const GRADIO = 'https://cdn.jsdelivr.net/npm/@gradio/client@2.5.0/dist/browser.js';
@@ -248,11 +248,12 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
   const srv = server;
   let health = srv ? await srv.health() : null;
   if (health?.ok === false) health = null;  // e.g. a serverless endpoint without its API key
-  if (health) health = await waitForServer(srv, health, onProgress, signal);
+  // painting starts as soon as the picture model is ready; the video model finishes loading meanwhile
+  if (health) health = await waitForModel(srv, health, 'image', onProgress, signal);
   const useSrv = !!(health && health.image);
   const usedBefore = useSrv ? await srv.usage() : null;
   console.log('[storyreel] AI server', srv?.label || '(none)', health ? 'connected' : 'not reachable');
-  const srvVideo = !!(health && health.video);
+  let srvVideo = !!(health && health.video);
   const seedOf = (s) => 1000 + ([...(s.scene.text || '')].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % 90000);
   const blobs = [];
   const sources = { server: 0, online: 0, flux: 0, device: 0 };
@@ -277,14 +278,15 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
     for (const s of shots) if (s.kind !== 'title') for (const id of s.ids || s.scene.characters || []) if (castById.has(id)) seen.set(id, (seen.get(id) || 0) + 1);
     // one portrait per person: a crowd ("the shepherds") isn't one face
     const main = [...seen].filter(([id]) => !castById.get(id).crowd).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => castById.get(id));
-    for (const c of main) {
-      onProgress(done / total, `Creating ${nameOf(c)}'s look`);
+    // all asked for at once: the server paints them back to back, with no waiting in between
+    onProgress(done / total, `Creating ${main.map(nameOf).join(', ')}'s look`);
+    await Promise.all(main.map(async (c) => {
       try {
         const p = `portrait of ${person(c, look)}, head and shoulders, facing the camera, natural expression, plain soft background, ${era ? `${era}, ` : ''}${LOOK_TAG[look] || LOOK_TAG.pixar}, ${STYLE[look] || STYLE.pixar}`;
         const blob = await tries(() => srv.image({ prompt: p.slice(0, 900), width: 768, height: 768, seed: 4242 }, signal), signal, 3, srv);
         portraits.set(c.id, await blobToDataUrl(blob));
       } catch (e) { if (e?.name === 'AbortError') throw e; console.warn('portrait skipped', e); }
-    }
+    }));
   }
   const castRefs = (shot) => (shot.kind === 'title' ? [] : (shot.ids || shot.scene.characters || [])).filter((id) => portraits.has(id)).slice(0, 3);
   const paintShot = async (i, waitMs, seed = seedOf(shots[i])) => {
@@ -310,8 +312,13 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
     return null;
   };
   const place = async (i, r) => { media[i].still = await toImage(r.img); blobs[i] = r.blob; onShot(i, r.blob, 'painted'); };
+  // with your server, the next two pictures are already being painted while one comes back
+  const ahead = useSrv ? 2 : 0;
+  const painting = [];
+  const paintJob = (i) => { if (!painting[i]) { painting[i] = paintShot(i, 75000); painting[i].catch(() => {}); } return painting[i]; };
   for (let i = 0; i < shots.length; i++) {
-    const r = await paintShot(i, 75000);
+    for (let k = 1; k <= ahead && i + k < shots.length; k++) paintJob(i + k);
+    const r = await paintJob(i);
     if (r) await place(i, r);
     onProgress(++done / total, `Painting shot ${i + 1} of ${shots.length}`);
   }
@@ -358,6 +365,10 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
   // lip sync starts a few minutes after the rest of the server: ask again before each shot until it's ready
   let lipsReady = !!health?.lipsync;
   const lipsNow = async () => lipsReady || (lipsReady = !!(await srv.health().catch(() => null))?.lipsync);
+  if (animate && useSrv && !srvVideo && health?.loading) {  // the video model was still loading: wait for it now
+    health = await waitForModel(srv, health, 'video', onProgress, signal);
+    srvVideo = !!health?.video;
+  }
   if (animate) {
     let client = null, handle_file = null, quotaLeft = !srvVideo;
     if (!srvVideo) {
@@ -367,13 +378,21 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
         client = await mod.Client.connect(LTX_SPACE, hfToken ? { hf_token: hfToken } : {});
       } catch (e) { quotaLeft = false; reason = 'the free video server is unavailable'; console.warn(e); }
     }
+    const motionOf = (i) => [notes[i], `${motionPrompt(shots[i], castById, look)}. ${freeShotPrompt(shots[i], castById, look, era)}`].filter(Boolean).join('. ').slice(0, 1400);
+    // with your server, the next two clips are already being made while one comes back
+    const clips = [];
+    const clipJob = (i) => {
+      if (!clips[i]) { clips[i] = tries(() => serverVideo(srv, blobs[i], motionOf(i), shots[i], size, signal, speed), signal, 3, srv); clips[i].catch(() => {}); }
+      return clips[i];
+    };
     for (let i = 0; i < shots.length; i++) {
+      if (srvVideo) for (let k = 1; k <= 2 && i + k < shots.length; k++) if (blobs[i + k]) clipJob(i + k);
       // with your own server every shot is animated, the opening title too
       if (blobs[i] && (srvVideo || shots[i].kind !== 'title')) {
-        const mp = [notes[i], `${motionPrompt(shots[i], castById, look)}. ${freeShotPrompt(shots[i], castById, look, era)}`].filter(Boolean).join('. ').slice(0, 1400);
+        const mp = motionOf(i);
         try {
           if (srvVideo) {
-            const blob = await tries(() => serverVideo(srv, blobs[i], mp, shots[i], size, signal, speed), signal, 3, srv);
+            const blob = await clipJob(i);
             media[i].clip = { blob };
             onShot(i, null, 'animated');
             // lip sync: the on-screen speakers' words, on the clip's clock as the player will show it

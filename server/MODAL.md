@@ -2,10 +2,10 @@
 
 [Modal](https://modal.com) gives every account **$30 of GPU time each month on its free
 plan** and bills per second, only while your films are being made: no starting or
-stopping pods, no paying for idle time, and one link that never changes. A film uses
-about 15–25 cents of Modal GPU time (an L40S at about $1.95 an hour), so the free
-credit covers roughly **120–180 films a month for $0**. Check modal.com/pricing for
-current rates; the credit doesn't roll over.
+stopping pods, no paying for idle time, and one link that never changes. Films run on an
+H100 (80 GB, about $3.95 an hour), which keeps every model loaded, so they are made
+several times faster than on a 48 GB L40S. Check modal.com/pricing for current rates;
+the credit doesn't roll over.
 
 The first film after a quiet spell waits a few minutes while the GPU starts and loads
 the models. The very first start also downloads them (about 15 minutes, once).
@@ -35,4 +35,5 @@ After that, every server change in this repository redeploys automatically.
 - **More films than the credit covers:** use a RunPod Community Cloud Spot pod for the
   rest (server/RUNPOD.md), about 3–5 cents a film when you make several in a row.
 - The GPU type can be changed with the `STORYREEL_MODAL_GPU` environment variable at
-  deploy time (`L40S` by default; `A100-80GB` is faster and pricier).
+  deploy time (`H100` by default; `A100-80GB` is a little slower and cheaper; `L40S`
+  is the cheapest per hour but much slower, as it can't keep all the models loaded).

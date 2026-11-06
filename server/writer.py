@@ -137,7 +137,7 @@ def parse(text, req):
 
 
 def load():
-    """Load into RAM (in the background, after the other models)."""
+    """Load into RAM (in the background, while the other models load)."""
     state['status'] = 'loading'
     try:
         import torch

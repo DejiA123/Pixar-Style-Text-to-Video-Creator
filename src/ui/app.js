@@ -15,7 +15,7 @@ import { exportVideo, webCodecsSupported } from '../film/exporter.js';
 import { castVoices, KOKORO_NARRATORS } from '../audio/voices.js';
 import { Painter, PaintedFilm, painterSize } from '../ai/painter.js';
 import { renderFreeFilm } from '../ai/freefilm.js';
-import { aiServer, serverlessId, waitForServer, startupProgress, wakeServer } from '../ai/aiserver.js';
+import { aiServer, serverlessId, waitForServer, waitForModel, startupProgress, wakeServer } from '../ai/aiserver.js';
 import { serverVoices } from '../ai/servervoice.js';
 import { KokoroEngine, WebSpeechEngine } from '../audio/tts.js';
 import { renderSoundtrack, lipEnvelope, clipDuration } from '../audio/mixer.js';
@@ -52,6 +52,7 @@ function init() {
       store.set('draft', box.value);
       pressOnly();
       if (unpick) box.focus();  // the keyboard comes up, ready to write
+      else wakeWhileTyping();   // an example picked: a film is likely next
     });
     chips.appendChild(b);
   }
@@ -59,7 +60,7 @@ function init() {
   const draft = store.get('draft', '');
   box.value = SAMPLES.some((x) => x.text === draft) ? '' : draft || '';
   pressOnly();
-  box.addEventListener('input', () => { store.set('draft', box.value); pressOnly(); });
+  box.addEventListener('input', (e) => { store.set('draft', box.value); pressOnly(); if (e.isTrusted) wakeWhileTyping(); });
 
   const nar = $('narrator');
   for (const n of KOKORO_NARRATORS) { const o = document.createElement('option'); o.value = n.id; o.textContent = n.label; nar.appendChild(o); }
@@ -179,6 +180,17 @@ const currentServer = () => aiServer($('ai-server').value, $('runpod-key').value
 const backupServer = () => aiServer($('ai-server-2').value, $('runpod-key').value);
 const sleepy = (v) => /\.modal\.run/.test(v || '');  // a Modal server sleeps when idle and wakes on the first request
 
+// While you write a story, a sleeping AI studio is woken up in the background, so its 2–4 minute
+// start is mostly over by the time you press Generate. At most one call every 90 s, and only while
+// you're typing: when you stop, it falls asleep again two minutes later.
+let lastWake = 0;
+function wakeWhileTyping() {
+  if (state.busy || !sleepy($('ai-server').value) || $('story').value.trim().length < 15) return;
+  if (Date.now() - lastWake < 90000) return;
+  lastWake = Date.now();
+  currentServer()?.health(60000).catch?.(() => {});
+}
+
 // ✨ Enhance: the AI writer on your server turns a short idea into a fuller story (names, looks,
 // places, a few spoken lines) that the director then understands fully. One tap to undo.
 let enhanceUndo = null, enhanceTimer = 0;
@@ -211,12 +223,7 @@ async function enhanceStory() {
   if (!server) { enhanceDone(); toast('Enhance needs the AI studio, which isn’t set up here.', true); return; }
   let h = await wakeServer(server, { maxMs: sleepy($('ai-server').value) ? 6 * 60000 : 15000, onWait: waking });
   if (!h) { enhanceDone(); toast('Your AI studio isn’t answering right now. Please try again in a minute.', true); return; }
-  h = await waitForServer(server, h, (p) => say(`Warming up ${Math.round(p * 100)}%`));
-  for (const t0 = Date.now(); h && !h.writer && h.writer_state === 'loading' && Date.now() - t0 < 5 * 60000;) {
-    say('Warming up…');
-    await new Promise((r) => setTimeout(r, 4000));
-    h = (await server.health()) || h;
-  }
+  h = await waitForModel(server, h, 'writer', () => say('Warming up…'));  // only the writer: it loads first
   if (!h?.writer) { enhanceDone(); toast('The AI writer isn’t available right now. Please try again in a minute.', true); return; }
   say('Enhancing…');
   const { story } = await server.enhance({ story: idea });
@@ -544,7 +551,7 @@ async function makeMovie() {
   if (neural && server) {
     let health = await server.health();
     if (health?.ok === false) health = null;
-    if (health) health = await waitForServer(server, health, (p, msg) => steps.label('voices', msg));
+    if (health) health = await waitForModel(server, health, 'tts', (p, msg) => steps.label('voices', msg));  // just the voice model
     if (health?.tts) {
       steps.label('voices', 'Recording realistic voices');
       try {

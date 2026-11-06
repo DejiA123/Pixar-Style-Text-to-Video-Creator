@@ -24,12 +24,18 @@ models = modal.Volume.from_name('storyreel-models', create_if_missing=True)  # d
 app = modal.App('storyreel')
 
 
-@app.function(image=image, gpu=os.environ.get('STORYREEL_MODAL_GPU', 'L40S'), volumes={'/data': models},
+# An 80 GB card keeps every model on it (no copying the picture model in and out for each picture,
+# the video model in full precision): films are made several times faster than on a 48 GB L40S.
+GPU = os.environ.get('STORYREEL_MODAL_GPU', 'H100')
+PRICE = {'L40S': 1.95, 'A100-80GB': 2.50, 'H100': 3.95, 'H200': 4.54, 'B200': 6.25}.get(GPU, 3.95)  # $ per hour
+
+
+@app.function(image=image, gpu=GPU, volumes={'/data': models},
               timeout=24 * 3600, scaledown_window=120, max_containers=1)  # one container: jobs live in its memory
 @modal.concurrent(max_inputs=64)  # the app polls jobs while others run
 @modal.web_server(7860, startup_timeout=600)
 def serve():
-    env = {**os.environ, 'STORYREEL_DATA': '/data', 'HF_HOME': '/data/hf', 'STORYREEL_GPU_PRICE': '1.95'}
+    env = {**os.environ, 'STORYREEL_DATA': '/data', 'HF_HOME': '/data/hf', 'STORYREEL_GPU_PRICE': str(PRICE)}
 
     def run():
         # the server's output goes to the Modal log as before; its last lines are kept, so that if it ever

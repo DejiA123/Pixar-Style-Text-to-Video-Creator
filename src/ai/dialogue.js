@@ -3,7 +3,7 @@
 // ("A young guy goes to church" → "Wow… I've never been inside a church before.").
 // Scenes it doesn't cover keep their rule-based first-person lines (firstperson.js).
 import { displayName } from '../story/parser.js';
-import { waitForServer } from './aiserver.js';
+import { waitForModel } from './aiserver.js';
 
 const sleep = (ms, signal) => new Promise((r, j) => {
   const t = setTimeout(r, ms);
@@ -105,13 +105,8 @@ export function applyDialogue(plan, result) {
 export async function writeDialogue(server, plan, story, { onStatus = () => {}, signal } = {}) {
   let health = await server.health();
   if (!health || health.ok === false) return false;
-  health = await waitForServer(server, health, (p, msg) => onStatus(msg), signal);
-  const t0 = Date.now();
-  while (health && !health.writer && health.writer_state === 'loading' && Date.now() - t0 < 5 * 60000) {
-    onStatus('The AI writer is starting on your server…');
-    await sleep(5000, signal);
-    health = (await server.health()) || health;
-  }
+  // only the writer is needed here: it starts first, while the picture and video models still load
+  health = await waitForModel(server, health, 'writer', (p, msg) => onStatus(msg), signal);
   if (!health?.writer) return false;
   onStatus('Writing what your characters say');
   try {

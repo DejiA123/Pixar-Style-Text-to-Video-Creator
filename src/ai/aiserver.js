@@ -35,11 +35,11 @@ function linkedServer(url) {
     const start = await post(`/${kind}/start`, body, signal);
     if (!start.ok) throw new Error(`AI server ${kind} failed (${start.status})`);
     const { id } = await start.json();
-    for (let misses = 0; ;) {
-      await sleep(3000, signal);
+    for (let misses = 0, k = 0; ; k++) {
+      await sleep(k < 30 ? 1000 : 3000, signal);  // every second at first: clips take only a few seconds
       let res;
       try { res = await fetch(`${url}/${kind}/result?id=${id}`, { signal }); } catch (e) {
-        if (e?.name === 'AbortError' || ++misses > 10) throw e;
+        if (e?.name === 'AbortError' || ++misses > 25) throw e;
         continue;  // a dropped poll is fine, the job keeps running
       }
       if (res.status === 202) continue;
@@ -180,6 +180,22 @@ export async function wakeServer(server, { maxMs = 6 * 60000, onWait = () => {},
     onWait(secs);
     await sleep(4000, signal);
   }
+}
+
+// Waits only until one model is ready (key: 'writer', 'tts', 'image' or 'video'), so a starting
+// server writes the script and the voices while its bigger models are still loading.
+export async function waitForModel(server, health, key, onProgress = () => {}, signal, maxMs = 15 * 60000) {
+  const t0 = Date.now();
+  const loadingIt = (h) => h && !h[key] && (h.loading || (key === 'writer' && h.writer_state === 'loading'));
+  while (loadingIt(health) && Date.now() - t0 < maxMs) {
+    if (health.loading) {
+      const p = startupProgress(health.loading);
+      onProgress(p.pct / 100, `${p.label}: ${p.pct}% · ${p.elapsed} · ${p.tip}…`);
+    } else onProgress(0, 'The AI writer is starting…');
+    await sleep(2000, signal);
+    health = (await server.health()) || health;
+  }
+  return health;
 }
 
 // Waits while a linked server downloads and loads its models (first start).

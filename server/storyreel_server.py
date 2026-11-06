@@ -168,6 +168,11 @@ def load_models(want_video=True):
     offload_video = dev == 'cuda' and vram < 40
     offload = dev == 'cuda' and vram < 70  # the image model waits in RAM until it paints
     dtype = torch.float16 if dev != 'cpu' else torch.float32
+    # the first things a film needs come first: the writer (in RAM, alongside everything else) and the
+    # voices, so the script and the voices are being made while the big picture and video models load
+    if os.environ.get('STORYREEL_WRITER', '1') != '0':
+        threading.Thread(target=writer.load, daemon=True).start()
+    load_tts(dev)
     state['loading'] = 'downloading the image model'
     img = None
     if 'flux' in IMAGE_MODEL.lower():
@@ -222,11 +227,8 @@ def load_models(want_video=True):
         except Exception as e:  # image-only servers still help a lot
             print(f'[storyreel] video model unavailable ({e}); serving images only', flush=True)
             state['error'] = f'video model failed to load: {e}'
-    load_tts(dev)
     state['loading'] = None
     print('[storyreel] ready', flush=True)
-    if os.environ.get('STORYREEL_WRITER', '1') != '0':
-        writer.load()  # the dialogue writer last: films can start while it loads
 
 
 def load_tts(dev):
@@ -523,9 +525,9 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get('Content-Length') or 0)
             req = json.loads(self.rfile.read(n) or b'{}')
             path = urlparse(self.path).path
-            if state['loading'] and not state['mock']:
-                return self._json(503, {'error': f'server is starting: {state["loading"]}'})
             if path == '/image':
+                if not (state['image'] or state['mock']):
+                    return self._json(503, {'error': f'server is starting: {state["loading"]}'})
                 t0 = time.time()
                 im = make_image(str(req.get('prompt', ''))[:1500], int(req.get('width', 1024)), int(req.get('height', 576)), int(req.get('seed', 1)) % (2 ** 31), decode_refs(req))
                 buf = io.BytesIO(); im.save(buf, 'PNG')
