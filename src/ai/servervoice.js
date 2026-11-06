@@ -110,9 +110,9 @@ export async function serverVoices(server, plan, clips, voices, { stored = false
     refs.set(sp, { key: hash, data: await blobToDataUrl(b), sent: false });
   }
   const out = new Map();
-  let seed = 7;
   onProgress(0, `0/${uniq.length}`);
-  for (const l of uniq) {
+  const oneLine = async (l, idx) => {
+    const seed = 7 + idx;
     const emotion = l.speaker === 'narrator' ? 0.35 : Math.min(1, (EMOTION_LEVEL[l.emo] ?? 0.4) + (/!/.test(l.text) ? 0.1 : 0));
     const ref = refs.get(l.speaker);
     const say = (withClip) => server.tts({ text: l.text, ...(withClip ? { ref: ref.data } : { ref_key: ref.key }), emotion, seed }, signal);
@@ -135,10 +135,14 @@ export async function serverVoices(server, plan, clips, voices, { stored = false
       }
     }
     ref.sent = true;
-    seed++;
     out.set(lineKey(l.speaker, l.text), await wavClip(wav));
     onProgress(out.size / uniq.length, `${out.size}/${uniq.length}`);
-  }
+  };
+  // your server voices one line at a time, but up to three are asked for at once, so it never waits
+  // for the next line to arrive (a serverless endpoint gets them one by one: each would start a worker)
+  let next = 0;
+  const lane = async () => { while (next < uniq.length) { const idx = next++; await oneLine(uniq[idx], idx); } };
+  await Promise.all(Array.from({ length: server.kind === 'link' ? 3 : 1 }, lane));
   for (const [k, c] of out) clips.set(k, c);
   return true;
 }

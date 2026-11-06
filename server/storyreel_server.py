@@ -56,12 +56,40 @@ DISTILLED_TIMESTEPS = [1000, 993, 987, 981, 975, 909, 725, 0.03]
 PRICE = float(os.environ.get('STORYREEL_GPU_PRICE', '0') or 0)  # your GPU's $/hour, for cost reports
 LIPSYNC_URL = os.environ.get('STORYREEL_LIPSYNC_URL', 'http://127.0.0.1:7862')  # lipsync_worker.py
 
-gpu_lock = threading.Lock()  # one generation at a time on the GPU
+class TimedLock:
+    """A lock that also adds up, per thread, how long it was held: each request's own GPU time, without
+    the time it waited for others (the app asks for the next pictures and clips before they're needed)."""
+    held = threading.local()
+
+    def __init__(self):
+        self._lock = threading.Lock()
+
+    def __enter__(self):
+        self._lock.acquire()
+        self._t = time.time()
+        return self
+
+    def __exit__(self, *exc):
+        TimedLock.held.s = getattr(TimedLock.held, 's', 0.0) + time.time() - self._t
+        self._lock.release()
+
+
+def held_start():
+    TimedLock.held.s = 0.0
+
+
+def held():
+    """Seconds this thread held the GPU since held_start()."""
+    return getattr(TimedLock.held, 's', 0.0)
+
+
+gpu_lock = TimedLock()  # one generation at a time on the GPU
 state = {'image': None, 'video': None, 'video_kind': None, 'tts': None, 'device': 'cpu', 'gpu': '', 'mock': False,
          'loading': 'starting', 'error': None, 'last_use': time.time()}
 stats = {'images': 0, 'videos': 0, 'video_seconds': 0.0, 'lines': 0, 'lipsyncs': 0, 'busy_seconds': 0.0, 'since': time.time(),
          # GPU seconds by kind of work, to see where a film's time (and cost) goes
-         'seconds_by': {'image': 0.0, 'video': 0.0, 'voice': 0.0, 'lipsync': 0.0, 'writer': 0.0}}
+         'seconds_by': {'image': 0.0, 'video': 0.0, 'voice': 0.0, 'lipsync': 0.0, 'writer': 0.0},
+         'video_parts': {'model': 0.0, 'save': 0.0, 'other': 0.0}}  # where a clip's time goes
 
 
 def spent(kind, took):
@@ -157,6 +185,7 @@ def load_models(want_video=True):
     dev = 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu')
     state['device'] = dev
     vram = torch.cuda.get_device_properties(0).total_memory / 2**30 if dev == 'cuda' else 0
+    state['vram'] = vram
     if dev == 'cuda':
         state['gpu'] = f'{torch.cuda.get_device_name(0)} {vram:.0f} GB'
     ram = memory_gb()
@@ -220,7 +249,7 @@ def load_models(want_video=True):
                 vid.enable_model_cpu_offload()
             else:
                 vid.to(dev)
-            if dev == 'cuda':
+            if dev == 'cuda' and small:  # decoding in tiles saves memory on smaller cards; an 80 GB card decodes in one go, faster
                 vid.vae.enable_tiling()
             state['video'], state['video_kind'] = vid, kind
             free_memory()
@@ -298,6 +327,7 @@ def make_speech(text, ref, ref_key, emotion, seed):
 
 
 _lipsync = {'ok': False, 't': 0}
+lipsync_lock = TimedLock()
 
 
 def lipsync_ready():
@@ -321,7 +351,9 @@ def make_lipsync(video, audio):
     vin, ain, out = os.path.join(d, 'in.mp4'), os.path.join(d, 'in.wav'), os.path.join(d, 'out.mp4')
     open(vin, 'wb').write(video); open(ain, 'wb').write(audio)
     try:
-        with gpu_lock:
+        # an 80 GB card has room for lip sync next to the video model: the next clips are made while it
+        # works (one lip sync at a time); a smaller card takes turns with everything else
+        with (lipsync_lock if state.get('vram', 0) >= 70 else gpu_lock):
             req = urllib.request.Request(LIPSYNC_URL + '/sync', json.dumps({'video': vin, 'audio': ain, 'out': out}).encode(),
                                          {'Content-Type': 'application/json'})
             try:
@@ -392,7 +424,9 @@ def make_video(prompt, image, width, height, seconds, seed):
     from diffusers.utils import export_to_video
     g = torch.Generator(device='cpu').manual_seed(int(seed))
     image = image.resize((w, h))
+    t_in = time.time()
     with gpu_lock:
+        t_model = time.time()
         if state['video_kind'] == 'LTXConditionPipeline':
             from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
             from diffusers.utils import load_video
@@ -408,7 +442,11 @@ def make_video(prompt, image, width, height, seconds, seed):
         else:
             res = state['video'](image=image, prompt=prompt, negative_prompt=NEGATIVE, width=w, height=h,
                                  num_frames=frames, num_inference_steps=30, guidance_scale=3.0, generator=g)
+        t_save = time.time()
     export_to_video(res.frames[0], out, fps=24)
+    vp = stats['video_parts']
+    vp['model'] = round(vp['model'] + t_save - t_model, 1); vp['save'] = round(vp['save'] + time.time() - t_save, 1)
+    vp['other'] = round(vp['other'] + t_model - t_in, 1)  # waiting for the GPU (another clip or picture first)
     return out
 
 
@@ -417,42 +455,45 @@ def video_from_request(req):
     data = re.sub(r'^data:[^,]+,', '', req.get('image', ''))
     im = Image.open(io.BytesIO(base64.b64decode(data))).convert('RGB')
     seconds = float(req.get('seconds', 4))
-    t0 = time.time()
+    t0 = time.time(); held_start()
     path = make_video(str(req.get('prompt', ''))[:1500], im, int(req.get('width', 768)), int(req.get('height', 448)),
                       seconds, int(req.get('seed', 1)) % (2 ** 31))
     with open(path, 'rb') as f:
         body = f.read()
     os.unlink(path)
     took = time.time() - t0
-    free_memory()
-    stats['videos'] += 1; stats['video_seconds'] += seconds; spent('video', took)
-    cost = f' (≈${took / 3600 * PRICE:.4f})' if PRICE else ''
-    print(f'[storyreel] video {seconds:.0f}s clip in {took:.1f}s{cost}', flush=True)
+    gpu = held()
+    if state.get('vram', 0) < 70:
+        free_memory()  # smaller cards: hand the memory back between clips (an 80 GB card doesn't need the pause)
+    stats['videos'] += 1; stats['video_seconds'] += seconds; spent('video', gpu)
+    cost = f' (≈${gpu / 3600 * PRICE:.4f})' if PRICE else ''
+    print(f'[storyreel] video {seconds:.0f}s clip in {gpu:.1f}s on the GPU ({took:.1f}s with waiting){cost}', flush=True)
     return body
 
 
 def lipsync_from_request(req):
-    t0 = time.time()
+    t0 = time.time(); held_start()
     body = make_lipsync(base64.b64decode(re.sub(r'^data:[^,]+,', '', req.get('video', ''))),
                         base64.b64decode(re.sub(r'^data:[^,]+,', '', req.get('audio', ''))))
     took = time.time() - t0
-    free_memory()
-    stats['lipsyncs'] += 1; spent('lipsync', took)
+    if state.get('vram', 0) < 70:
+        free_memory()
+    stats['lipsyncs'] += 1; spent('lipsync', held())
     print(f'[storyreel] lip sync in {took:.1f}s', flush=True)
     return body
 
 
 def script_from_request(req):
-    t0 = time.time()
+    held_start()
     body = json.dumps(writer.write(req, gpu_lock, mock=state['mock'])).encode()
-    spent('writer', time.time() - t0)
+    spent('writer', held())
     return body
 
 
 def enhance_from_request(req):
-    t0 = time.time()
+    held_start()
     body = json.dumps(writer.enhance(req, gpu_lock, mock=state['mock'])).encode()
-    spent('writer', time.time() - t0)
+    spent('writer', held())
     return body
 
 
@@ -528,12 +569,12 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/image':
                 if not (state['image'] or state['mock']):
                     return self._json(503, {'error': f'server is starting: {state["loading"]}'})
-                t0 = time.time()
+                t0 = time.time(); held_start()
                 im = make_image(str(req.get('prompt', ''))[:1500], int(req.get('width', 1024)), int(req.get('height', 576)), int(req.get('seed', 1)) % (2 ** 31), decode_refs(req))
                 buf = io.BytesIO(); im.save(buf, 'PNG')
                 took = time.time() - t0
-                stats['images'] += 1; spent('image', took)
-                print(f'[storyreel] image {took:.1f}s', flush=True)
+                stats['images'] += 1; spent('image', held())
+                print(f'[storyreel] image {held():.1f}s on the GPU ({took:.1f}s with waiting)', flush=True)
                 return self._send(200, buf.getvalue(), 'image/png')
             if path in ('/video', '/video/start'):
                 if not (state['video'] or state['mock']) or (state['mock'] and state.get('novideo')):
@@ -544,14 +585,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/tts':
                 if not (state['tts'] or state['mock']):
                     return self._json(503, {'error': 'voice model not loaded'})
-                t0 = time.time()
+                held_start()
                 ref = base64.b64decode(re.sub(r'^data:[^,]+,', '', req['ref'])) if req.get('ref') else None
                 try:
                     body = make_speech(str(req.get('text', '')), ref, req.get('ref_key'), float(req.get('emotion', 0.3)), int(req.get('seed', 1)) % (2 ** 31))
                 except KeyError:  # the server restarted and forgot this voice: send the clip again
                     return self._json(409, {'error': 'unknown ref_key'})
-                took = time.time() - t0
-                stats['lines'] += 1; spent('voice', took)
+                stats['lines'] += 1; spent('voice', held())
                 return self._send(200, body, 'audio/wav')
             if path == '/enhance/start':
                 if not (writer.state['status'] == 'ready' or state['mock']):
