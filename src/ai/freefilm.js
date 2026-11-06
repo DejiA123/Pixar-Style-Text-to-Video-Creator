@@ -381,6 +381,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
     const motionOf = (i) => [notes[i], `${motionPrompt(shots[i], castById, look)}. ${freeShotPrompt(shots[i], castById, look, era)}`].filter(Boolean).join('. ').slice(0, 1400);
     // with your server, the next two clips are already being made while one comes back
     const clips = [];
+    const syncing = [];  // lip sync of finished clips, running alongside
     const clipJob = (i) => {
       if (!clips[i]) { clips[i] = tries(() => serverVideo(srv, blobs[i], motionOf(i), shots[i], size, signal, speed), signal, 3, srv); clips[i].catch(() => {}); }
       return clips[i];
@@ -403,9 +404,10 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
               const clipDur = (Math.floor(Math.max(2, Math.min(10, len)) * 24 / 8) * 8 + 1) / 24;  // as the server makes it
               const wav = shotSpeech(shots[i], voice.clips, voice.voices, clipDur, Math.min(1.5, Math.max(0.65, clipDur / len)));
               if (wav) {
-                onProgress(done / total, `Syncing lips in shot ${i + 1} of ${shots.length}`);
-                const synced = await lipsyncClip(srv, blob, wav, signal).catch((e) => { if (e?.name === 'AbortError') throw e; return null; });
-                if (synced) { media[i].clip = { blob: synced }; lipsynced++; onShot(i, null, 'synced'); }
+                // lip sync runs in its own process: it works on this shot while the next clips are made
+                syncing.push(lipsyncClip(srv, blob, wav, signal)
+                  .then((synced) => { if (synced) { media[i].clip = { blob: synced }; lipsynced++; onShot(i, null, 'synced'); } })
+                  .catch((e) => { if (e?.name === 'AbortError') throw e; }));
               }
             }
           }
@@ -417,6 +419,11 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
         }
       }
       onProgress(++done / total, srvVideo ? `Animating shot ${i + 1} of ${shots.length} on your AI server` : quotaLeft ? `Animating shot ${i + 1} of ${shots.length} with free AI video` : `Finishing shots as moving paintings`);
+    }
+    if (syncing.length) {
+      let left = syncing.length;
+      onProgress(Math.min(0.999, done / total), `Syncing lips (${left} shot${left > 1 ? 's' : ''} left)`);
+      await Promise.all(syncing.map((p) => p.then(() => { left--; if (left) onProgress(Math.min(0.999, done / total), `Syncing lips (${left} shot${left > 1 ? 's' : ''} left)`); })));
     }
   }
   const film = new LivingFilm(tl, media, aspect);
