@@ -44,6 +44,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import writer
+import anatomy
 
 IMAGE_MODEL = os.environ.get('STORYREEL_IMAGE_MODEL', 'black-forest-labs/FLUX.2-klein-4B')
 FALLBACK_IMAGE_MODEL = 'stabilityai/sdxl-turbo'
@@ -90,7 +91,8 @@ stats = {'images': 0, 'videos': 0, 'video_seconds': 0.0, 'lines': 0, 'lipsyncs':
          # GPU seconds by kind of work, to see where a film's time (and cost) goes
          'seconds_by': {'image': 0.0, 'video': 0.0, 'voice': 0.0, 'lipsync': 0.0, 'writer': 0.0},
          'video_parts': {'model': 0.0, 'save': 0.0, 'other': 0.0},  # where a clip's time goes
-         'errors': []}  # the last few things that failed, and why
+         'errors': [],  # the last few things that failed, and why
+         'repaints': 0, 'reclips': 0, 'glitches_left': 0}  # pictures / clips redone for extra hands, and ones that kept a glitch
 
 
 def spent(kind, took):
@@ -203,6 +205,8 @@ def load_models(want_video=True):
     if os.environ.get('STORYREEL_WRITER', '1') != '0':
         threading.Thread(target=writer.load, daemon=True).start()
     load_tts(dev)
+    if dev == 'cuda' and os.environ.get('STORYREEL_ANATOMY', '1') != '0':
+        threading.Thread(target=anatomy.load, args=(dev,), daemon=True).start()  # small: ready long before the first picture
     state['loading'] = 'downloading the image model'
     img = None
     if 'flux' in IMAGE_MODEL.lower():
@@ -346,7 +350,7 @@ def lipsync_ready():
     return _lipsync['ok']
 
 
-def make_lipsync(video, audio):
+def make_lipsync(video, audio, steps=None):
     """Re-render the speaking face's mouth in an MP4 to match a WAV. Raises if no face is found."""
     if state['mock']:
         return video
@@ -354,7 +358,7 @@ def make_lipsync(video, audio):
     vin, ain, out = os.path.join(d, 'in.mp4'), os.path.join(d, 'in.wav'), os.path.join(d, 'out.mp4')
     open(vin, 'wb').write(video); open(ain, 'wb').write(audio)
     def ask():
-        req = urllib.request.Request(LIPSYNC_URL + '/sync', json.dumps({'video': vin, 'audio': ain, 'out': out}).encode(),
+        req = urllib.request.Request(LIPSYNC_URL + '/sync', json.dumps({'video': vin, 'audio': ain, 'out': out, **({'steps': int(steps)} if steps else {})}).encode(),
                                      {'Content-Type': 'application/json'})
         try:
             return json.load(urllib.request.urlopen(req, timeout=900))
@@ -404,8 +408,9 @@ def make_image(prompt, width, height, seed, refs=None):
         ImageDraw.Draw(im).text((20, 20), prompt[:120], fill=(255, 255, 255))
         return im
     import torch
-    g = torch.Generator(device='cpu').manual_seed(int(seed))
-    with gpu_lock:
+
+    def paint(sd):
+        g = torch.Generator(device='cpu').manual_seed(int(sd))
         if state.get('image_kind') == 'flux2':
             # FLUX.2 paints from reference pictures too: a character's portrait keeps their face the same in every shot
             extra = {'image': refs} if refs else {}
@@ -418,9 +423,26 @@ def make_image(prompt, width, height, seed, refs=None):
                 return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=1.0, generator=g, **extra).images[0]
         return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=0.0, generator=g).images[0]
 
+    # a picture where someone has a hand too many is painted again (up to 3 more times); the cleanest one is kept
+    best, best_extra = None, None
+    for k in range(4):
+        with gpu_lock:
+            im = paint(int(seed) + 7919 * k)
+        extra = anatomy.extra_hands([im])
+        if best is None or extra < best_extra:
+            best, best_extra = im, extra
+        if not extra:
+            break
+        stats['repaints'] += 1
+        print(f'[storyreel] image: {extra} hand(s) too many, painting it again ({k + 1})', flush=True)
+    if best_extra:
+        stats['glitches_left'] += 1
+    return best
+
 
 def make_video(prompt, image, width, height, seconds, seed):
-    w, h = snap(width, 32, 256, 960), snap(height, 32, 256, 960)
+    top = 1280 if state.get('vram', 0) >= 70 else 960  # an 80 GB card animates at the picture's full size
+    w, h = snap(width, 32, 256, top), snap(height, 32, 256, top)
     frames = int(max(2, min(10, seconds)) * 24) // 8 * 8 + 1  # LTX wants 8k+1 frames
     out = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False).name
     if state['mock']:
@@ -435,31 +457,55 @@ def make_video(prompt, image, width, height, seconds, seed):
         return out
     import torch
     from diffusers.utils import export_to_video
-    g = torch.Generator(device='cpu').manual_seed(int(seed))
     image = image.resize((w, h))
-    t_in = time.time()
-    with gpu_lock:
-        t_model = time.time()
-        if state['video_kind'] == 'LTXConditionPipeline':
-            from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
-            from diffusers.utils import load_video
-            # the model was trained on video: give it the picture as a 1-frame compressed clip
-            first = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False).name
-            export_to_video([image], first, fps=24)
-            cond = LTXVideoCondition(video=load_video(first), frame_index=0)
-            os.unlink(first)
-            res = state['video'](conditions=[cond], prompt=prompt, negative_prompt=NEGATIVE, width=w, height=h,
-                                 num_frames=frames, frame_rate=24, timesteps=DISTILLED_TIMESTEPS, guidance_scale=1.0,
-                                 guidance_rescale=0.7, decode_timestep=0.05, decode_noise_scale=0.025,
-                                 image_cond_noise_scale=0.0, generator=g)
-        else:
-            res = state['video'](image=image, prompt=prompt, negative_prompt=NEGATIVE, width=w, height=h,
-                                 num_frames=frames, num_inference_steps=30, guidance_scale=3.0, generator=g)
-        t_save = time.time()
-    export_to_video(res.frames[0], out, fps=24)
+    waited = made = 0.0
+
+    def animate(sd):
+        nonlocal waited, made
+        g = torch.Generator(device='cpu').manual_seed(int(sd))
+        t_ask = time.time()
+        with gpu_lock:
+            t_model = time.time()
+            if state['video_kind'] == 'LTXConditionPipeline':
+                from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
+                from diffusers.utils import load_video
+                # the model was trained on video: give it the picture as a 1-frame compressed clip
+                first = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False).name
+                export_to_video([image], first, fps=24)
+                cond = LTXVideoCondition(video=load_video(first), frame_index=0)
+                os.unlink(first)
+                res = state['video'](conditions=[cond], prompt=prompt, negative_prompt=NEGATIVE, width=w, height=h,
+                                     num_frames=frames, frame_rate=24, timesteps=DISTILLED_TIMESTEPS, guidance_scale=1.0,
+                                     guidance_rescale=0.7, decode_timestep=0.05, decode_noise_scale=0.025,
+                                     image_cond_noise_scale=0.0, generator=g)
+            else:
+                res = state['video'](image=image, prompt=prompt, negative_prompt=NEGATIVE, width=w, height=h,
+                                     num_frames=frames, num_inference_steps=30, guidance_scale=3.0, generator=g)
+            waited += t_model - t_ask; made += time.time() - t_model
+        return res.frames[0]
+
+    # A clip where someone grows a hand the picture didn't have is animated again (up to 2 more
+    # times); the cleanest one is kept. Six frames spread over the clip are looked at.
+    start_extra = anatomy.extra_hands([image])
+    best, best_extra = None, None
+    for k in range(3):
+        fr = animate(int(seed) + k)
+        n = len(fr)
+        look = [fr[min(n - 1, round(n * q))] for q in (0.15, 0.32, 0.5, 0.67, 0.84, 1.0)] if n > 6 else list(fr)
+        extra = max(0, anatomy.extra_hands(look) - start_extra)
+        if best is None or extra < best_extra:
+            best, best_extra = fr, extra
+        if not extra:
+            break
+        stats['reclips'] += 1
+        print(f'[storyreel] video: {extra} hand(s) too many appeared, animating it again ({k + 1})', flush=True)
+    if best_extra:
+        stats['glitches_left'] += 1
+    t_save = time.time()
+    export_to_video(best, out, fps=24)
     vp = stats['video_parts']
-    vp['model'] = round(vp['model'] + t_save - t_model, 1); vp['save'] = round(vp['save'] + time.time() - t_save, 1)
-    vp['other'] = round(vp['other'] + t_model - t_in, 1)  # waiting for the GPU (another clip or picture first)
+    vp['model'] = round(vp['model'] + made, 1); vp['save'] = round(vp['save'] + time.time() - t_save, 1)
+    vp['other'] = round(vp['other'] + waited, 1)  # waiting for the GPU (another clip or picture first)
     return out
 
 
@@ -490,7 +536,8 @@ def video_from_request(req):
 def lipsync_from_request(req):
     t0 = time.time(); held_start()
     body = make_lipsync(base64.b64decode(re.sub(r'^data:[^,]+,', '', req.get('video', ''))),
-                        base64.b64decode(re.sub(r'^data:[^,]+,', '', req.get('audio', ''))))
+                        base64.b64decode(re.sub(r'^data:[^,]+,', '', req.get('audio', ''))),
+                        max(8, min(30, int(req['steps']))) if req.get('steps') else None)
     took = time.time() - t0
     if state.get('vram', 0) < 70:
         free_memory()
@@ -561,6 +608,7 @@ class Handler(BaseHTTPRequestHandler):
                                     'tts': bool(state['tts']) or mock, 'lipsync': not state['loading'] and lipsync_ready(),
                                     'lipsync_state': 'ready' if (not state['loading'] and lipsync_ready()) else ('setting up' if os.environ.get('STORYREEL_LIPSYNC_ON') == '1' else 'off'),
                                     'writer': writer.state['status'] == 'ready' or mock, 'writer_state': 'ready' if mock else writer.state['status'],
+                                    'anatomy_check': anatomy.state['status'],
                                     'jobs': True, 'device': state['device'], 'gpu': state['gpu'], 'mock': mock, 'name': 'storyreel-server',
                                     'stats': {**stats, 'busy_seconds': round(stats['busy_seconds'], 1)}, 'memory': memory_use(), 'price_per_hour': PRICE,
                                     'last_crash': last_crash()})

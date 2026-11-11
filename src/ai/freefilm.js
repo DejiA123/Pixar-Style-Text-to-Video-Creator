@@ -97,8 +97,8 @@ export function freeShotPrompt(shot, castById, look = 'pixar', era = '') {
 const MOTION = {
   walk: 'walks forward with natural strides, arms swinging, hair and clothes moving with each step',
   run: 'runs fast, arms pumping, hair flying', dance: 'dances with full body movement, spinning and swaying',
-  wave: 'raises an arm and waves happily', talk: 'talks with lively expressions, mouth moving, hands gesturing',
-  sit: 'sits, leans forward and gestures while talking', hug: 'steps forward and hugs warmly',
+  wave: 'raises one arm and waves happily', talk: 'talks with lively expressions, mouth moving naturally',
+  sit: 'sits, leaning forward a little while talking', hug: 'steps forward and hugs warmly',
   pray: 'bows the head in prayer, then slowly looks up', groom: 'brushes her hair with long strokes, turning her head',
   cry: 'sobs, shoulders shaking, wiping tears', laugh: 'laughs, head tilting back, shoulders shaking',
   sing: 'sings with feeling, mouth moving, swaying to the music', cook: 'stirs a pot and moves around the kitchen',
@@ -126,7 +126,7 @@ export function motionPrompt(shot, castById, look = 'pixar') {
     const c = castById.get(id);
     if (!c) return '';
     const a = sc.actions?.[id];
-    const act = isBaby(c) ? 'lies wrapped in a blanket, tiny hands moving gently' : MOTION[a] || (speaking.has(id) ? MOTION.talk : 'moves naturally, turning the head and gesturing with the hands');
+    const act = isBaby(c) ? 'lies wrapped in a blanket, tiny hands moving gently' : MOTION[a] || (speaking.has(id) ? MOTION.talk : 'moves naturally, turning the head, arms relaxed');
     // "Samuel, young man in a leather jacket, walks…" / "the grandmother walks…" / "the dog runs…"
     const who = c.lookText || c.crowd || isBaby(c) ? person(c, look) : `the ${c.kind === 'human' ? person(c, look) : c.noun || c.kind}`;
     return `${who} ${act}`;
@@ -134,7 +134,9 @@ export function motionPrompt(shot, castById, look = 'pixar') {
   const bg = SCENE_MOTION[sc.setting] || 'the background is alive with movement';
   const cam = CAMERA[shot.kind === 'title' ? 'title' : shot.type] || CAMERA.medium;
   const story = shot.kind === 'title' ? '' : storyWords(sc);
-  return [story, people.join(', while '), bg, cam, look === 'real' ? 'live-action cinematic footage, natural human motion, everything moves, not a still image' : 'smooth realistic motion, everything moves, not a still image'].filter(Boolean).join('; ');
+  return [story, people.join(', while '), bg, cam, look === 'real' ? 'live-action cinematic footage, natural human motion, everything moves, not a still image' : 'smooth realistic motion, everything moves, not a still image',
+    // video models like to grow things: say what must stay as it is in the picture
+    people.length ? 'the same people from start to finish, each with two arms and two hands, hands keep their shape' : ''].filter(Boolean).join('; ');
 }
 
 // A note is read by the picture model, which follows descriptions, not questions:
@@ -211,9 +213,9 @@ async function serverImage(server, prompt, { w, h, seed }, signal, refs = []) {
   const blob = await server.image({ prompt, width: w, height: h, seed, ...(refs.length ? { refs } : {}) }, signal);
   return { img: await createImageBitmap(blob), blob };
 }
-// Best: clips at 3/4 of the picture size, as long as the shot (up to 10 s).
+// Best: clips at the picture's full size (sharper faces and hands, better lip sync), as long as the shot (up to 10 s).
 // Fast & cheap: 0.6 of the size and at most 6 s (the player stretches longer shots): about half the GPU time.
-const VIDEO = { best: { scale: 0.75, max: 10 }, fast: { scale: 0.6, max: 6 } };
+const VIDEO = { best: { scale: 1, max: 10 }, fast: { scale: 0.6, max: 6 } };
 async function serverVideo(server, blob, prompt, shot, size, signal, speed = 'best') {
   const v = VIDEO[speed] || VIDEO.best;
   return server.video({ prompt, image: await blobToDataUrl(blob), width: Math.round(size.w * v.scale), height: Math.round(size.h * v.scale),
@@ -405,7 +407,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
               const wav = shotSpeech(shots[i], voice.clips, voice.voices, clipDur, Math.min(1.5, Math.max(0.65, clipDur / len)));
               if (wav) {
                 // lip sync runs in its own process: it works on this shot while the next clips are made
-                syncing.push(lipsyncClip(srv, blob, wav, signal)
+                syncing.push(lipsyncClip(srv, blob, wav, signal, 20)
                   .then((synced) => { if (synced) { media[i].clip = { blob: synced }; lipsynced++; onShot(i, null, 'synced'); } })
                   .catch((e) => { if (e?.name === 'AbortError') throw e; }));
               }

@@ -172,9 +172,10 @@ export function shotSpeech(shot, clips, voices, clipDur, rate) {
 
 // Lip-sync one AI clip on the server; resolves to the new MP4 blob, or null if the
 // server couldn't (no clear face in the shot, for example).
-export async function lipsyncClip(server, video, audio, signal) {
+// steps: how carefully the mouth is redrawn (20 is the lip-sync model's full quality; the server's default is 10)
+export async function lipsyncClip(server, video, audio, signal, steps = 0) {
   try {
-    return await server.lipsync({ video: await blobToDataUrl(video), audio: await blobToDataUrl(audio) }, signal);
+    return await server.lipsync({ video: await blobToDataUrl(video), audio: await blobToDataUrl(audio), ...(steps ? { steps } : {}) }, signal);
   } catch (e) {
     if (e?.name === 'AbortError') throw e;
     console.warn('lip sync skipped:', e?.message || e);

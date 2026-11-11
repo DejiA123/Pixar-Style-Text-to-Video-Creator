@@ -98,14 +98,14 @@ def tolerate_lost_faces(P):
     P.affine_transform_video, P.loop_video, P.restore_video = affine_transform_video, loop_video, restore_video
 
 
-def sync(video, audio, out):
+def sync(video, audio, out, steps=None):
     import torch
     c = pipe['config']
     tmp = tempfile.mkdtemp()
     try:
         torch.manual_seed(1247)
         pipe['p'](video_path=video, audio_path=audio, video_out_path=out, num_frames=c.data.num_frames,
-                  num_inference_steps=pipe['steps'], guidance_scale=pipe['guidance'], weight_dtype=pipe['dtype'],
+                  num_inference_steps=int(steps or pipe['steps']), guidance_scale=pipe['guidance'], weight_dtype=pipe['dtype'],
                   width=c.data.resolution, height=c.data.resolution, mask_image_path=c.data.mask_image_path, temp_dir=tmp)
     finally:
         torch.cuda.empty_cache()
@@ -128,7 +128,7 @@ class Handler(BaseHTTPRequestHandler):
             req = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)))
             t = time.time()
             with busy:
-                sync(req['video'], req['audio'], req['out'])
+                sync(req['video'], req['audio'], req['out'], req.get('steps'))
             print(f'[lipsync] done in {time.time() - t:.1f}s', flush=True)
             self._json(200, {'ok': True})
         except Exception as e:  # e.g. "Face not detected" on a frame: the caller keeps the original clip
