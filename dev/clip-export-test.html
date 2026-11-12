@@ -1,0 +1,140 @@
+<!doctype html><html><head><meta charset="utf-8">
+<script type="importmap">{"imports":{"three":"../vendor/three/build/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+</head><body>
+<script type="module">
+// Frame-exact export of an AI film (clips decoded with WebCodecs), driven by dev/clip-export.mjs:
+//   ?mode=compare  every frame drawn by the old per-frame lookup and by the new in-order decoding
+//   ?mode=export   a whole download (MP4) with the new code; ?mode=export&old=1 with the old one
+// Counts the video decoders made and the most open at once.
+import { AiFilm } from '../src/ai/cinematic.js';
+import { exportVideo } from '../src/film/exporter.js';
+import { Input, ALL_FORMATS, BlobSource, CanvasSink } from '../vendor/mediabunny/mediabunny.min.mjs';
+
+const q = new URLSearchParams(location.search);
+const stats = { made: 0, open: 0, peak: 0 };
+const VD = window.VideoDecoder;
+window.VideoDecoder = class extends VD {
+  constructor(init) { super(init); stats.made++; stats.open++; stats.peak = Math.max(stats.peak, stats.open); this._counted = true; }
+  close() { if (this._counted) { this._counted = false; stats.open--; } return super.close(); }
+};
+
+// the export before this change: every clip open, and each frame looked up on its own
+class OldFilm extends AiFilm {
+  async prepareExport(W, H) {
+    this.canvas.width = W; this.canvas.height = H;
+    this.sinks = await Promise.all(this.media.map(async (m) => {
+      if (!m.clip) return null;
+      const input = new Input({ source: new BlobSource(m.clip.blob), formats: ALL_FORMATS });
+      const track = await input.getPrimaryVideoTrack();
+      if (!track) return null;
+      const dur = await input.computeDuration();
+      return { sink: new CanvasSink(track, { poolSize: 2 }), dur };
+    }));
+  }
+  async finishExport() {}
+  async renderAtExact(t) {
+    const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+    t = clamp(t, 0, this.tl.duration);
+    const { shot, index } = this.shotAt(Math.min(t, this.tl.endCard.start - 1e-3));
+    const local = t - shot.start;
+    this.ctx.fillStyle = '#000';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    const s = this.sinks && this.sinks[index];
+    const m = this.media[index];
+    let drawn = false;
+    if (s) {
+      const wc = await s.sink.getCanvas(this.clipTime(shot, local, s.dur));
+      if (wc) { this.drawCover(wc.canvas, wc.canvas.width, wc.canvas.height); drawn = true; }
+    }
+    if (!drawn && m.still) {
+      const u = clamp(local / (shot.end - shot.start));
+      this.drawCover(m.still, m.still.naturalWidth, m.still.naturalHeight, 1 + 0.07 * u);
+    }
+    this.applyFade(this.fade(t, shot, index));
+  }
+}
+
+function stillImage(label) {
+  const c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 1280, 720); gr.addColorStop(0, '#264'); gr.addColorStop(1, '#a62'); g.fillStyle = gr; g.fillRect(0, 0, 1280, 720);
+  g.fillStyle = '#fff'; g.font = '80px sans-serif'; g.fillText(label, 100, 200);
+  return new Promise((r) => { const img = new Image(); img.onload = () => r(img); img.src = c.toDataURL('image/png'); });
+}
+
+// ten shots: eight clips (24 and 30 fps, 5–10 s, few keyframes), a shot with only a still, a clip used twice;
+// shot lengths differ from clip lengths so clips are stretched and squeezed, and scene changes fade
+async function makeFilm(Cls) {
+  const names = ['c0', 'c1', 'c2', null, 'c3', 'c4', 'c5', 'c6', 'c7', 'c0'];
+  const lens = [4.2, 5.6, 9.1, 3.4, 4.0, 6.9, 7.2, 5.3, 4.4, 3.8];
+  const blobs = {};
+  for (const n of names) if (n && !blobs[n]) blobs[n] = await (await fetch(`clips/${n}.mp4`)).blob();
+  let t = 0;
+  const shots = lens.map((len, i) => { const s = { start: t, end: t + len, kind: 'shot', type: 'medium', ids: [], lines: [], scene: { setting: i % 3 ? 'park' : 'kitchen' } }; t += len; return s; });
+  const tl = { title: 'Test', cast: [], shots, duration: t + 0.8, endCard: { start: t, end: t + 0.8 } };
+  const still = await stillImage('still');
+  const media = names.map((n) => ({ still, clip: n ? { blob: blobs[n] } : null }));
+  return new Cls(tl, media, '16:9');
+}
+
+const hash = (data) => { let h = 2166136261 >>> 0; for (let i = 0; i < data.length; i += 7) h = Math.imul(h ^ data[i], 16777619) >>> 0; return h; };
+
+try {
+  const fps = 30, W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
+  if (q.get('mode') === 'compare') {
+    const run = async (Cls, order) => {
+      const film = await makeFilm(Cls);
+      await film.prepareExport(W, H, fps);
+      const frames = Math.ceil(film.tl.duration * fps);
+      const out = new Array(frames);
+      const g = film.canvas.getContext('2d');
+      for (const i of order(frames)) { await film.renderAtExact(i / fps); out[i] = hash(g.getImageData(0, 0, W, H).data); }
+      await film.finishExport();
+      return { frames, hashes: out };
+    };
+    const inOrder = (n) => Array.from({ length: n }, (_, i) => i);
+    // decoders close in the background once reading stops: give them a moment before counting
+    const settle = () => new Promise((r) => setTimeout(r, 1000));
+    const measure = async (Cls, order) => {
+      stats.peak = stats.open;
+      const made = stats.made, t0 = performance.now();
+      const r = await run(Cls, order);
+      const ms = Math.round(performance.now() - t0), openRightAfter = stats.open;
+      await settle();
+      return { r, stats: { made: stats.made - made, peak: stats.peak, openRightAfter, openAfter: stats.open, ms } };
+    };
+    // ?noold=1 skips the (slow) old export; the new one is then checked against itself out of order
+    const oldM = q.get('noold') ? null : await measure(OldFilm, inOrder);
+    const newM = await measure(AiFilm, inOrder);
+    // out of order (a jump back, skipped frames): the new code reopens the clip and still draws the same frames
+    const jumbled = (n) => { const a = inOrder(n); const b = [...a.slice(200, 260), ...a.slice(0, 200), ...a.filter((i) => i >= 260 && i % 16 !== 1), ...a.filter((i) => i >= 260 && i % 16 === 1)]; return b; };
+    const jumM = await measure(AiFilm, jumbled);
+    const diff = (a, b) => a.hashes.reduce((n, h, i) => n + (h !== b.hashes[i]), 0);
+    const ref = (oldM || newM).r;
+    window.__result = { frames: ref.frames, distinct: new Set(newM.r.hashes).size, oldVsNew: oldM ? diff(oldM.r, newM.r) : null, vsJumbled: diff(ref, jumM.r),
+      old: oldM?.stats, new: newM.stats, jumbled: jumM.stats, openAtEnd: stats.open };
+  } else {
+    const film = await makeFilm(q.get('old') ? OldFilm : AiFilm);
+    const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+    const ac = new OfflineAudioContext(2, 48000 * Math.ceil(film.tl.duration), 48000);
+    const o = ac.createOscillator(); o.connect(ac.destination); o.start();
+    const soundtrack = await ac.startRendering();
+    await film.prepareExport(W, H, fps);
+    const g = canvas.getContext('2d');
+    const ctl = new AbortController();
+    const stopAt = +(q.get('stopAt') || 0);
+    const t0 = performance.now();
+    let out = null, err = null;
+    try {
+      out = await exportVideo({ canvas, duration: film.tl.duration, fps, soundtrack, signal: ctl.signal,
+        renderFrame: async (t) => { await film.renderAtExact(t); g.drawImage(film.canvas, 0, 0); },
+        onProgress: (f) => { if (stopAt && f >= stopAt) ctl.abort(); } });
+    } catch (e) { err = e.name; } finally { await film.finishExport(); }
+    const openRightAfter = stats.open;
+    await new Promise((r) => setTimeout(r, 1000));  // decoders close in the background
+    window.__result = { ms: Math.round(performance.now() - t0), made: stats.made, peak: stats.peak, openRightAfter, openAfter: stats.open, err, readerAfter: film.reader ?? null,
+      ...(out ? { size: out.blob.size, ext: out.ext, codec: out.codec, b64: await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result.split(',')[1]); fr.readAsDataURL(out.blob); }) } : {}) };
+  }
+} catch (e) { window.__result = { error: String(e), stack: e.stack }; }
+window.__ready = true;
+</script></body></html>

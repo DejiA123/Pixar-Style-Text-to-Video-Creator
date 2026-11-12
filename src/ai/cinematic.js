@@ -230,7 +230,8 @@ export class AiFilm {
       v.load();
       return v;
     });
-    this.sinks = null;
+    this.clipDurs = null;  // export: each clip's length (prepareExport)
+    this.reader = null;    // export: the clip being decoded
     this.current = -1;
   }
 
@@ -305,16 +306,60 @@ export class AiFilm {
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  async prepareExport(W, H) {
+  // Frame-exact export decodes each clip once, start to finish, with one decoder, and only the clip
+  // being exported is open. (Looking up every frame on its own started a new decoder per frame, with
+  // every clip open at once, and an iPhone ran out of memory part-way and reloaded the page.)
+  // fps: the frame rate the film is exported at, so each shot's frames can be decoded in one go.
+  async prepareExport(W, H, fps = 30) {
+    await this.finishExport();
     this.canvas.width = W; this.canvas.height = H;
-    this.sinks = await Promise.all(this.media.map(async (m) => {
-      if (!m.clip) return null;
+    this.exportFps = fps;
+    // each clip's length, one clip at a time
+    const durs = [];
+    for (const m of this.media) {
+      if (!m.clip) { durs.push(null); continue; }
       const input = new Input({ source: new BlobSource(m.clip.blob), formats: ALL_FORMATS });
-      const track = await input.getPrimaryVideoTrack();
-      if (!track) return null;
-      const dur = await input.computeDuration();
-      return { sink: new CanvasSink(track, { poolSize: 2 }), dur };
-    }));
+      try {
+        const track = await input.getPrimaryVideoTrack();
+        durs.push(track ? await input.computeDuration() : null);
+      } finally { input.dispose(); }
+    }
+    this.clipDurs = durs;
+  }
+
+  // Closes the clip being exported (after a download, or when it stops).
+  async finishExport() {
+    const r = this.reader;
+    this.reader = null;
+    if (!r) return;
+    await r.frames.return().catch(() => {});
+    r.input.dispose();
+  }
+
+  // The clip frame for film time t, read in order from the open clip. A new shot (or a time out of
+  // order) closes the last clip and opens this one at t, with the times of the rest of its frames.
+  async clipFrame(index, t) {
+    let r = this.reader;
+    if (!r || r.index !== index || r.times[r.next] !== t) {
+      await this.finishExport();
+      const shot = this.tl.shots[index], dur = this.clipDurs[index], fps = this.exportFps || 30;
+      const times = [t];
+      for (let i = Math.round(t * fps) + 1; ; i++) {
+        const ti = clamp(i / fps, 0, this.tl.duration);
+        if (ti <= t || i / fps > this.tl.duration + 1e-9 || this.shotAt(Math.min(ti, this.tl.endCard.start - 1e-3)).index !== index) break;
+        times.push(ti);
+      }
+      const input = new Input({ source: new BlobSource(this.media[index].clip.blob), formats: ALL_FORMATS });
+      let frames;
+      try {
+        const sink = new CanvasSink(await input.getPrimaryVideoTrack(), { poolSize: 1 });
+        frames = sink.canvasesAtTimestamps(times.map((ti) => this.clipTime(shot, ti - shot.start, dur)));
+      } catch (e) { input.dispose(); throw e; }
+      r = this.reader = { index, times, next: 0, input, frames };
+    }
+    r.next++;
+    const { value, done } = await r.frames.next();
+    return done ? null : value;
   }
 
   // Frame-accurate drawing for export (decodes the exact frame).
@@ -324,11 +369,10 @@ export class AiFilm {
     const local = t - shot.start;
     this.ctx.fillStyle = '#000';
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    const s = this.sinks && this.sinks[index];
     const m = this.media[index];
     let drawn = false;
-    if (s) {
-      const wc = await s.sink.getCanvas(this.clipTime(shot, local, s.dur));
+    if (m.clip && this.clipDurs?.[index]) {
+      const wc = await this.clipFrame(index, t);
       if (wc) { this.drawCover(wc.canvas, wc.canvas.width, wc.canvas.height); drawn = true; }
     }
     if (!drawn && m.still) {

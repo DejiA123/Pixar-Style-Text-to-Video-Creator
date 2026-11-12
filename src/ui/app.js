@@ -848,9 +848,10 @@ async function doExport() {
   else if (!state.ai) { state.fr.setQuality('export'); state.fr.setSize(W, H, 1); }
   // frame-exact export decodes the AI clips (WebCodecs); where that isn't available (some phones),
   // the film is recorded as it plays instead
+  const fps = 30;
   let exact = !!state.ai;
   if (state.ai) {
-    try { await state.film.prepareExport?.(W, H); } catch (e) { console.warn('Frame-exact export unavailable here; recording as it plays', e); exact = false; }
+    try { await state.film.prepareExport?.(W, H, fps); } catch (e) { console.warn('Frame-exact export unavailable here; recording as it plays', e); exact = false; }
   }
   await document.fonts.ready;
   $('busy').hidden = false;
@@ -860,7 +861,7 @@ async function doExport() {
   try {
     const run = (realtime) => {
       return exportVideo({
-        canvas: exportCanvas, duration: state.timeline.duration, fps: 30, soundtrack: state.soundtrack, signal: ac.signal, audioContext, realtime,
+        canvas: exportCanvas, duration: state.timeline.duration, fps, soundtrack: state.soundtrack, signal: ac.signal, audioContext, realtime,
         onLive: () => { if (state.ai) state.film.setPlaying?.(true); },  // the clips play while they're recorded
         renderFrame: async (t, live) => {
           if (state.ai && !live) await state.film.renderAtExact(t); else state.film.renderAt(t);
@@ -870,7 +871,11 @@ async function doExport() {
           $('busy-bar').style.width = `${(f * 100).toFixed(1)}%`;
           $('busy-sub').textContent = `${Math.round(f * 100)}% · about ${formatTime(eta)} left`;
         },
-      }).finally(() => { if (state.ai) state.film.setPlaying?.(false); });
+      }).finally(async () => {
+        if (!state.ai) return;
+        state.film.setPlaying?.(false);
+        await state.film.finishExport?.();  // close the clip being decoded (also when it stopped part-way)
+      });
     };
     let out;
     try { out = await run(state.ai && !exact); } catch (e) {

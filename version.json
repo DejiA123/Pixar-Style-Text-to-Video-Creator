@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
-  "build": 1794441496,
-  "notes": "Version number in Settings, and a pop-up when an update is ready"
+  "version": "1.1.1",
+  "build": 1794446879,
+  "notes": "Downloading an AI film no longer runs out of memory on iPhone"
 }
