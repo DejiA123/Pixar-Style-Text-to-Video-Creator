@@ -7,7 +7,7 @@ H100 (80 GB, about $3.95 an hour), which keeps every model loaded, so they are m
 several times faster than on a 48 GB L40S. Check modal.com/pricing for current rates;
 the credit doesn't roll over.
 
-The first film after a quiet spell waits a few minutes while the GPU starts and loads
+The first film after a break waits a few minutes while the GPU starts and loads
 the models. The very first start also downloads them (about 15 minutes, once).
 
 ## One-time setup (about 10 minutes, all in the browser)

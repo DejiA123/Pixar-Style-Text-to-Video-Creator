@@ -241,7 +241,7 @@ async function enhanceStory() {
   let told = false;
   const waking = (s) => {
     say(`Waking up… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
-    if (!told) { told = true; toast('Waking up the AI studio (2–4 minutes after a quiet spell). Your story is enhanced right after.', false, 9000); }
+    if (!told) { told = true; toast('Waking up the AI studio (usually 2–4 minutes). Your story is enhanced right after.', false, 9000); }
   };
   const server = await pickServer((msg) => { const m = /(\d+):(\d\d)/.exec(msg); waking(m ? +m[1] * 60 + +m[2] : 0); });
   if (!server) { enhanceDone(); toast('Enhance needs the AI studio, which isn’t set up here.', true); return; }
@@ -265,7 +265,7 @@ async function pickServer(onMsg = () => {}) {
   const main = currentServer(), backup = backupServer();
   if (!main) return backup;
   const h = sleepy($('ai-server').value)
-    ? await wakeServer(main, { onWait: (s) => onMsg(`Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (2–4 minutes after a quiet spell)`) })
+    ? await wakeServer(main, { onWait: (s) => onMsg(`Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (usually 2–4 minutes)`) })
     : await main.health(15000);
   if (!backup) return main;
   if (h && h.ok !== false) return main;

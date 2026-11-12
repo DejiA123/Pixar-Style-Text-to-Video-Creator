@@ -283,7 +283,7 @@ export async function redoShot(data, i, { repaint = false, note = '', server, si
   onProgress('Connecting to your AI studio…');
   let health = await server.health(8000);
   if (!health || health.ok === false) {
-    health = await wakeServer(server, { signal, onWait: (s) => onProgress(`Waking up your AI studio… ${clock(s)} (2–4 minutes after a quiet spell)`) });
+    health = await wakeServer(server, { signal, onWait: (s) => onProgress(`Waking up your AI studio… ${clock(s)} (usually 2–4 minutes)`) });
   }
   if (!health) throw new Error('Your AI studio isn’t answering right now. Please try again in a minute.');
   health = await waitForModel(server, health, 'video', (p, msg) => onProgress(msg), signal);
@@ -441,7 +441,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
     if (useSrv && animate) {
       let h = await srv.health(8000).catch(() => null);
       if (!h || h.ok === false) {
-        h = await wakeServer(srv, { signal, onWait: (s) => onProgress(done / total, `Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (2–4 minutes after a quiet spell)`) });
+        h = await wakeServer(srv, { signal, onWait: (s) => onProgress(done / total, `Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (usually 2–4 minutes)`) });
       }
       if (h) health = await waitForServer(srv, h, onProgress, signal);
     }

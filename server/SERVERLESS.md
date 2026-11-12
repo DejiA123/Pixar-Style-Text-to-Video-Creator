@@ -8,7 +8,7 @@ forget to terminate anything. Storyreel just works whenever you press
 **Cost:** you pay per second only while a GPU is working: about **$1.22 an
 hour** for a 48 GB card (twice the pod rate, but nothing when idle). On top of
 that, the network volume that keeps the models costs about **$5.60 a month**
-(80 GB). The first film after a quiet spell waits **2–3 minutes** while a GPU
+(80 GB). The first film after a break waits **2–3 minutes** while a GPU
 starts and loads the models; films right after it start straight away.
 
 ## One-time setup (about 15 minutes, from your phone)
