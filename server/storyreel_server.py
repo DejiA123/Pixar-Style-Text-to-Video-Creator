@@ -92,7 +92,7 @@ stats = {'images': 0, 'videos': 0, 'video_seconds': 0.0, 'lines': 0, 'lipsyncs':
          'seconds_by': {'image': 0.0, 'video': 0.0, 'voice': 0.0, 'lipsync': 0.0, 'writer': 0.0},
          'video_parts': {'model': 0.0, 'save': 0.0, 'other': 0.0},  # where a clip's time goes
          'errors': [],  # the last few things that failed, and why
-         'repaints': 0, 'reclips': 0, 'glitches_left': 0}  # pictures / clips redone for extra hands, and ones that kept a glitch
+         'repaints': 0, 'reclips': 0, 'glitches_left': 0}  # pictures / clips redone for an extra hand or arm, and ones that kept a glitch
 
 
 def spent(kind, took):
@@ -423,18 +423,18 @@ def make_image(prompt, width, height, seed, refs=None):
                 return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=1.0, generator=g, **extra).images[0]
         return state['image'](prompt=prompt, width=w, height=h, num_inference_steps=4, guidance_scale=0.0, generator=g).images[0]
 
-    # a picture where someone has a hand too many is painted again (up to 3 more times); the cleanest one is kept
+    # a picture where someone has a hand or an arm too many is painted again (up to 3 more times); the cleanest one is kept
     best, best_extra = None, None
     for k in range(4):
         with gpu_lock:
             im = paint(int(seed) + 7919 * k)
-        extra = anatomy.extra_hands([im])
+        extra = anatomy.extra_limbs([im])
         if best is None or extra < best_extra:
             best, best_extra = im, extra
         if not extra:
             break
         stats['repaints'] += 1
-        print(f'[storyreel] image: {extra} hand(s) too many, painting it again ({k + 1})', flush=True)
+        print(f'[storyreel] image: {extra} hand(s) or arm(s) too many, painting it again ({k + 1})', flush=True)
     if best_extra:
         stats['glitches_left'] += 1
     return best
@@ -484,21 +484,22 @@ def make_video(prompt, image, width, height, seconds, seed):
             waited += t_model - t_ask; made += time.time() - t_model
         return res.frames[0]
 
-    # A clip where someone grows a hand the picture didn't have is animated again (up to 2 more
-    # times); the cleanest one is kept. Six frames spread over the clip are looked at.
-    start_extra = anatomy.extra_hands([image])
+    # A clip where someone grows a hand or an arm the picture didn't have is animated again (up to 2
+    # more times); the cleanest one is kept. Ten frames spread over the clip are looked at (an arm
+    # can come and go within a second).
+    start_extra = anatomy.extra_limbs([image])
     best, best_extra = None, None
     for k in range(3):
         fr = animate(int(seed) + k)
         n = len(fr)
-        look = [fr[min(n - 1, round(n * q))] for q in (0.15, 0.32, 0.5, 0.67, 0.84, 1.0)] if n > 6 else list(fr)
-        extra = max(0, anatomy.extra_hands(look) - start_extra)
+        look = [fr[min(n - 1, round(n * q / 10))] for q in range(1, 11)] if n > 10 else list(fr)
+        extra = max(0, anatomy.extra_limbs(look) - start_extra)
         if best is None or extra < best_extra:
             best, best_extra = fr, extra
         if not extra:
             break
         stats['reclips'] += 1
-        print(f'[storyreel] video: {extra} hand(s) too many appeared, animating it again ({k + 1})', flush=True)
+        print(f'[storyreel] video: {extra} hand(s) or arm(s) too many appeared, animating it again ({k + 1})', flush=True)
     if best_extra:
         stats['glitches_left'] += 1
     t_save = time.time()
@@ -608,7 +609,7 @@ class Handler(BaseHTTPRequestHandler):
                                     'tts': bool(state['tts']) or mock, 'lipsync': not state['loading'] and lipsync_ready(),
                                     'lipsync_state': 'ready' if (not state['loading'] and lipsync_ready()) else ('setting up' if os.environ.get('STORYREEL_LIPSYNC_ON') == '1' else 'off'),
                                     'writer': writer.state['status'] == 'ready' or mock, 'writer_state': 'ready' if mock else writer.state['status'],
-                                    'anatomy_check': anatomy.state['status'],
+                                    'anatomy_check': anatomy.state['status'], 'anatomy_flags': anatomy.state['flags'],
                                     'jobs': True, 'device': state['device'], 'gpu': state['gpu'], 'mock': mock, 'name': 'storyreel-server',
                                     'stats': {**stats, 'busy_seconds': round(stats['busy_seconds'], 1)}, 'memory': memory_use(), 'price_per_hour': PRICE,
                                     'last_crash': last_crash()})

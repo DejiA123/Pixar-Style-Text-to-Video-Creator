@@ -93,17 +93,20 @@ export function freeShotPrompt(shot, castById, look = 'pixar', era = '') {
 }
 
 // What moves in an AI video shot: each character's whole-body action, the
-// background and the camera. Video models move as much as the prompt asks.
+// background and the camera. Video models move as much as the prompt asks, and they
+// grow a new arm to do an arm movement the picture's arms aren't in place for
+// ("raises one arm", "arms pumping"): actions are told by the body, the face and the
+// clothes instead (the picture model already drew the arms where they belong).
 const MOTION = {
-  walk: 'walks forward with natural strides, arms swinging, hair and clothes moving with each step',
-  run: 'runs fast, arms pumping, hair flying', dance: 'dances with full body movement, spinning and swaying',
-  wave: 'raises one arm and waves happily', talk: 'talks with lively expressions, mouth moving naturally',
-  sit: 'sits, leaning forward a little while talking', hug: 'steps forward and hugs warmly',
+  walk: 'walks forward with natural strides, hair and clothes moving with each step',
+  run: 'runs fast, hair flying', dance: 'dances, swaying and turning to the music',
+  wave: 'waves hello with a big smile', talk: 'talks with lively expressions, mouth moving naturally',
+  sit: 'sits, leaning forward a little while talking', hug: 'they hold each other in a warm hug, swaying gently',
   pray: 'bows the head in prayer, then slowly looks up', groom: 'brushes her hair with long strokes, turning her head',
-  cry: 'sobs, shoulders shaking, wiping tears', laugh: 'laughs, head tilting back, shoulders shaking',
-  sing: 'sings with feeling, mouth moving, swaying to the music', cook: 'stirs a pot and moves around the kitchen',
-  eat: 'eats and chews, reaching for food', read: 'reads, turning a page, eyes moving', play: 'plays energetically, moving around',
-  cheer: 'cheers, jumping with arms raised', jump: 'jumps up and lands', fly: 'flies through the air', sleep: 'sleeps, chest rising and falling',
+  cry: 'sobs, shoulders shaking, tears running down', laugh: 'laughs, head tilting back, shoulders shaking',
+  sing: 'sings with feeling, mouth moving, swaying to the music', cook: 'stirs a pot, looking into it',
+  eat: 'eats and chews happily', read: 'reads, eyes moving along the page', play: 'plays happily, moving around',
+  cheer: 'cheers with joy, bouncing on the spot', jump: 'jumps up and lands', fly: 'flies through the air', sleep: 'sleeps, chest rising and falling',
 };
 const SCENE_MOTION = {
   city: 'cars and people pass in the background, lights flicker', forest: 'leaves and branches sway in the wind, sunlight flickers',
@@ -136,7 +139,7 @@ export function motionPrompt(shot, castById, look = 'pixar') {
   const story = shot.kind === 'title' ? '' : storyWords(sc);
   return [story, people.join(', while '), bg, cam, look === 'real' ? 'live-action cinematic footage, natural human motion, everything moves, not a still image' : 'smooth realistic motion, everything moves, not a still image',
     // video models like to grow things: say what must stay as it is in the picture
-    people.length ? 'the same people from start to finish, each with two arms and two hands, hands keep their shape' : ''].filter(Boolean).join('; ');
+    people.length ? 'the same people from start to finish, each with two arms and two hands all the way through, arms and hands keep their shape' : ''].filter(Boolean).join('; ');
 }
 
 // A note is read by the picture model, which follows descriptions, not questions:
