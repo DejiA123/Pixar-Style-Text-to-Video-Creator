@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "TakeOne",
+  "short_name": "TakeOne",
+  "description": "Type a story, get an AI film: every shot animated, with characters who speak in realistic voices.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0c0f",
+  "theme_color": "#0b0c0f",
+  "categories": ["entertainment", "photo", "video"],
+  "icons": [
+    { "src": "assets/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "assets/brand/takeone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

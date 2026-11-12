@@ -266,6 +266,7 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .share-title { margin: 0 0 10px; font-weight: 600; }
 .update-sheet { z-index: 70; }
 .update-notes { margin: -4px 0 10px; font-size: 13px; color: var(--text-2); }
+.install-app { align-self: flex-start; height: 38px; }
 .app-version { align-self: flex-start; margin-top: 4px; padding: 6px 0; border: none; background: none; color: var(--text-3); font-size: 12px; cursor: pointer; }
 .app-version:hover { color: var(--text-2); }
 .app-version.has-update { color: #8ab4ff; }

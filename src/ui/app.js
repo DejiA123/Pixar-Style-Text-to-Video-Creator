@@ -24,6 +24,7 @@ import { setupVersion } from './version.js';
 import { saveFilm, loadFilm } from './library.js';
 import { account } from './account.js';
 import { setupMyFilms } from './myfilms.js';
+import { registerServiceWorker, setupInstall } from './pwa.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -73,8 +74,11 @@ function init() {
   for (const n of KOKORO_NARRATORS) { const o = document.createElement('option'); o.value = n.id; o.textContent = n.label; nar.appendChild(o); }
   // AI film with AI voices only: their old saved choices are no longer restored
   for (const id of ['narrator', 'aspect', 'length', 'quality', 'export-res', 'ai-video', 'look', 'speed']) {
-    const key = id === 'aspect' ? 'aspect-v2' : id;  // phone-shaped 9:16 is the default now: earlier saved frames don't count
+    // phone-shaped 9:16 is the default now: earlier saved frames don't count; nor do earlier export sizes (phones start at 720p)
+    const key = id === 'aspect' ? 'aspect-v2' : id === 'export-res' ? 'export-res-v2' : id;
     const el = $(id); const v = store.get(key, null);
+    // phones and tablets download at 720p unless you choose more: the clips are no bigger, and 1080p can run them out of memory
+    if (id === 'export-res' && v == null && matchMedia('(pointer: coarse)').matches) el.value = '720';
     if (v != null && [...el.options].some((o) => o.value === v)) el.value = v;
     el.addEventListener('change', () => { store.set(key, el.value); onSettings(id); });
   }
@@ -107,6 +111,8 @@ function init() {
     onDeleted: (id) => { if (state.filmData?.id === id) { state.filmData = null; $('board').querySelectorAll('.card-redo').forEach((b) => b.remove()); } },
   });
   account.sync();  // anything not backed up yet (a film made just before the phone went offline)
+  registerServiceWorker();
+  setupInstall({ toast });
   $('hf-token').value = store.get('hf-token', '');
   $('hf-token').addEventListener('change', () => store.set('hf-token', $('hf-token').value.trim()));
   $('free-animate').checked = true;  // every shot is AI video (the box is hidden; an old saved "off" doesn't count)
@@ -506,6 +512,7 @@ async function makeMovie() {
   if (state.busy) return;
   const text = $('story').value.trim();
   if (!text) { toast('Write a story first, or pick one of the examples.'); return; }
+  if (navigator.onLine === false) { toast('You’re offline. TakeOne needs the internet to make a film: it will work again when you’re back online.', true, 8000); return; }
   state.busy = true;
   $('make').disabled = true;
   $('make').textContent = 'Generating…';
