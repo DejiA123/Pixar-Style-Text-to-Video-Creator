@@ -23,19 +23,20 @@
 <link rel="apple-touch-icon" href="assets/brand/takeone.svg">
 <title>TakeOne</title>
 <!-- this copy's version: scripts/bump-version.mjs sets these and version.json together -->
-<meta name="app-version" content="1.1.1">
-<meta name="app-build" content="1794446879">
+<meta name="app-version" content="1.2.0">
+<meta name="app-build" content="1794450071">
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Type a story and get a Pixar-style 3D animated film with voice-over, music and subtitles — rendered in your browser and downloadable as MP4.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1794446879">
+<link rel="stylesheet" href="src/ui/styles.css?v=1794450071">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
 <header class="bar">
   <div class="brand"><img class="logo" src="assets/brand/takeone.svg" alt="" aria-hidden="true"><span class="name">TakeOne</span><span class="badge">AI Studio</span></div>
+  <button class="bar-btn" id="my-films" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 9h18M7.5 5l2 4M12.5 5l2 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M10.5 12.2v4.1l3.4-2z" fill="currentColor"/></svg><span>My films</span></button>
 </header>
 
 <main class="app">
@@ -202,6 +203,35 @@
   </div>
 </div>
 
+<div class="films" id="films" role="dialog" aria-modal="true" aria-labelledby="films-title" hidden>
+  <div class="films-panel">
+    <div class="films-head">
+      <h2 id="films-title">My films</h2>
+      <button class="btn-ghost films-close" id="films-close" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="films-body">
+      <div class="account-card" id="account-card" hidden></div>
+      <div class="films-grid" id="films-grid" role="list"></div>
+      <p class="films-empty" id="films-empty" hidden>Every film you make is kept here, ready to watch again, download or redo a shot.</p>
+    </div>
+  </div>
+</div>
+
+<div class="share-sheet redo-sheet" id="redo" role="dialog" aria-labelledby="redo-title" hidden>
+  <div class="redo-top">
+    <img id="redo-pic" alt="">
+    <div class="redo-text"><p class="share-title" id="redo-title">Redo this shot</p><p class="redo-line" id="redo-line"></p></div>
+  </div>
+  <input id="redo-note" type="text" maxlength="200" autocomplete="off" placeholder="What should change? (optional)" aria-label="What should change? (optional)">
+  <div class="share-row">
+    <button class="btn-primary" id="redo-take" type="button">🎬 New take</button>
+    <button class="btn-ghost" id="redo-paint" type="button">🎨 Repaint</button>
+    <button class="btn-ghost" id="redo-close" type="button" aria-label="Close">✕</button>
+  </div>
+  <p class="redo-hint" id="redo-hint"><b>New take</b> moves the same picture again (fixes an arm or a hand that went wrong). <b>Repaint</b> makes a new picture that follows your note.</p>
+  <p class="redo-status" id="redo-status" role="status" hidden></p>
+</div>
+
 <div class="toast" id="toast" role="status" hidden></div>
 <script>
   // app-like: block pinch and double-tap zoom (iOS ignores user-scalable=no)
@@ -210,6 +240,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1794446879"></script>
+<script type="module" src="src/ui/app.js?v=1794450071"></script>
 </body>
 </html>

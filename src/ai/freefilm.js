@@ -218,11 +218,97 @@ async function serverImage(server, prompt, { w, h, seed }, signal, refs = []) {
 }
 // Best: clips at the picture's full size (sharper faces and hands, better lip sync), as long as the shot (up to 10 s).
 // Fast & cheap: 0.6 of the size and at most 6 s (the player stretches longer shots): about half the GPU time.
+// seed: the same picture with another seed moves differently (a new take).
 const VIDEO = { best: { scale: 1, max: 10 }, fast: { scale: 0.6, max: 6 } };
-async function serverVideo(server, blob, prompt, shot, size, signal, speed = 'best') {
+async function serverVideo(server, blob, prompt, shot, size, signal, speed = 'best', seed = 7) {
   const v = VIDEO[speed] || VIDEO.best;
   return server.video({ prompt, image: await blobToDataUrl(blob), width: Math.round(size.w * v.scale), height: Math.round(size.h * v.scale),
-    seconds: Math.max(2, Math.min(v.max, shot.end - shot.start)), seed: 7 }, signal);
+    seconds: Math.max(2, Math.min(v.max, shot.end - shot.start)), seed }, signal);
+}
+
+// ---- one shot, from words to a moving picture: shared by a new film and a redone shot ----
+const nameOf = (c) => c.name || `the ${c.noun || c.kind}`;
+const filmEra = (tl) => (BIBLE.test(tl.shots.map((s) => s.scene.text || '').join(' ')) ? ERA : '');
+// your changes (a note from the review or a redo) come first, so they win
+const picturePrompt = (shot, castById, look, era, note) => [note, freeShotPrompt(shot, castById, look, era)].filter(Boolean).join(', ').slice(0, 1000);
+const shotMotion = (shot, castById, look, era, note) => [note, `${motionPrompt(shot, castById, look)}. ${freeShotPrompt(shot, castById, look, era)}`].filter(Boolean).join('. ').slice(0, 1400);
+// the portraits of the people in a shot (up to 3), so their faces stay the same
+const refIds = (shot, portraits) => (shot.kind === 'title' ? [] : (shot.ids || shot.scene.characters || [])).filter((id) => portraits.has(id)).slice(0, 3);
+// e.g. "Daniel is the person in image 1. Keep exactly the same face, hair and clothes. New picture: …"
+const refLead = (ids, castById) => (ids.length ? `${ids.map((id, k) => `${nameOf(castById.get(id))} is the person in image ${k + 1}`).join(', ')}. Keep exactly the same face, hair and clothes. Each person appears only once. New picture: ` : '');
+function paintOnServer(srv, shot, castById, portraits, prompt, opts, signal) {
+  const ids = refIds(shot, portraits);
+  return tries(() => serverImage(srv, (refLead(ids, castById) + prompt).slice(0, 1400), opts, signal, ids.map((id) => portraits.get(id))), signal, 3, srv);
+}
+// Lip sync only where the face is big enough to see the mouth (wide shots aren't worth the GPU time),
+// in Best quality, for shots the server can make in one clip.
+const FACE_SHOTS = ['closeup', 'medium', 'over-shoulder', 'two-shot', 'lowangle'];
+export const wantsLipsync = (shot, speed, voice) => speed !== 'fast' && !!voice && shot.end - shot.start <= 11 && FACE_SHOTS.includes(shot.type);
+// the on-screen speakers' words, on the clip's clock as the player will show it (null: nobody on screen speaks)
+function shotWav(shot, voice) {
+  const len = shot.end - shot.start;
+  const clipDur = (Math.floor(Math.max(2, Math.min(10, len)) * 24 / 8) * 8 + 1) / 24;  // as the server makes it
+  return shotSpeech(shot, voice.clips, voice.voices, clipDur, Math.min(1.5, Math.max(0.65, clipDur / len)));
+}
+
+// The film itself: shots without an AI video clip come to life on the device (depth parallax,
+// talking mouths, blinking eyes, breathing); the frame is drawn at the film's size.
+async function finishFilm(tl, media, aspect, onProgress = () => {}) {
+  const film = new LivingFilm(tl, media, aspect);
+  if (media.some((m) => m.still && !m.clip)) {
+    try { await film.bringToLife(onProgress); } catch (e) { console.warn('motion AI unavailable', e); }
+  }
+  const W = aspect === '9:16' ? 720 : aspect === '1:1' ? 1024 : 1280, H = aspect === '9:16' ? 1280 : aspect === '1:1' ? 1024 : 720;
+  film.canvas.width = W; film.canvas.height = H;
+  return film;
+}
+
+// A film from its saved pictures and clips (My films): media is [{stillBlob, clipBlob}].
+export async function filmFromBlobs(tl, media, aspect, onProgress = () => {}) {
+  const decoded = new Map();  // shots that share a picture share it here too
+  const still = (b) => { if (!decoded.has(b)) decoded.set(b, createImageBitmap(b).then(toImage)); return decoded.get(b); };
+  const m = await Promise.all(media.map(async (x) => ({ still: x.stillBlob ? await still(x.stillBlob) : null, clip: x.clipBlob ? { blob: x.clipBlob } : null })));
+  return finishFilm(tl, m, aspect, onProgress);
+}
+
+// Redo one shot of a finished film on your AI server. A new take keeps the picture and moves it
+// again (another seed: an arm or a hand that grew while it moved is gone); repaint paints a new
+// picture first, following your note. Either way the shot gets its lip sync again where it had one.
+// data: the film as My films keeps it (src/ui/library.js); data.media[i] and data.notes[i] are updated.
+export async function redoShot(data, i, { repaint = false, note = '', server, signal, onProgress = () => {} } = {}) {
+  const tl = data.tl, shot = tl.shots[i];
+  const castById = new Map(tl.cast.map((c) => [c.id, c]));
+  const look = data.look || 'pixar', era = filmEra(tl), size = sizeFor(data.aspect);
+  const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  onProgress('Connecting to your AI studio…');
+  let health = await server.health(8000);
+  if (!health || health.ok === false) {
+    health = await wakeServer(server, { signal, onWait: (s) => onProgress(`Waking up your AI studio… ${clock(s)} (2–4 minutes after a quiet spell)`) });
+  }
+  if (!health) throw new Error('Your AI studio isn’t answering right now. Please try again in a minute.');
+  health = await waitForModel(server, health, 'video', (p, msg) => onProgress(msg), signal);
+  if (!health?.video) throw new Error('The video AI isn’t ready yet. Please try again in a minute.');
+  if (note.trim()) data.notes[i] = noteToPrompt(note);
+  const nt = data.notes[i] || '';
+  let still = data.media[i].stillBlob;
+  if (repaint || !still) {
+    onProgress('Painting a new picture…');
+    const r = await paintOnServer(server, shot, castById, data.portraits, picturePrompt(shot, castById, look, era, nt), { ...size, seed: 1 + Math.floor(Math.random() * 999999) }, signal);
+    still = r.blob;
+  }
+  onProgress('Bringing it to life…');
+  let clip = await tries(() => serverVideo(server, still, shotMotion(shot, castById, look, era, nt), shot, size, signal, data.speed, 8 + Math.floor(Math.random() * 999990)), signal, 3, server);
+  const voice = data.clips?.size ? { clips: data.clips, voices: data.voices } : null;
+  if (wantsLipsync(shot, data.speed, voice)) {
+    const wav = shotWav(shot, voice);
+    const lips = wav && (health.lipsync || (await server.health().catch(() => null))?.lipsync);
+    if (lips) {
+      onProgress('Syncing lips…');
+      clip = (await lipsyncClip(server, clip, wav, signal, 20)) || clip;
+    }
+  }
+  data.media[i] = { ...data.media[i], stillBlob: still, clipBlob: clip };
+  return data.media[i];
 }
 
 // Second free image source: the public FLUX.1-schnell Space (Hugging Face free GPU quota).
@@ -244,7 +330,7 @@ async function fluxImage(gr, prompt, { w, h, seed }) {
 // anything is animated; the film continues when it resolves (repaint(i, note) redraws a shot).
 export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspect = '16:9', hfToken = '', animate = true, server = null, fallbackStill = null, voice = null, review = null, onShot = () => {}, onProgress = () => {}, signal } = {}) {
   const castById = new Map(tl.cast.map((c) => [c.id, c]));
-  const era = BIBLE.test(tl.shots.map((s) => s.scene.text || '').join(' ')) ? ERA : '';
+  const era = filmEra(tl);
   const size = sizeFor(aspect);
   const shots = tl.shots;
   const media = shots.map(() => ({ still: null, clip: null }));
@@ -277,7 +363,6 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
   // Same faces in every shot: your server first paints a portrait of each main character (up to 3),
   // then paints every shot from the portraits of the people in it.
   const portraits = new Map();
-  const nameOf = (c) => c.name || `the ${c.noun || c.kind}`;
   if (useSrv) {
     const seen = new Map();
     for (const s of shots) if (s.kind !== 'title') for (const id of s.ids || s.scene.characters || []) if (castById.has(id)) seen.set(id, (seen.get(id) || 0) + 1);
@@ -293,15 +378,11 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
       } catch (e) { if (e?.name === 'AbortError') throw e; console.warn('portrait skipped', e); }
     }));
   }
-  const castRefs = (shot) => (shot.kind === 'title' ? [] : (shot.ids || shot.scene.characters || [])).filter((id) => portraits.has(id)).slice(0, 3);
   const paintShot = async (i, waitMs, seed = seedOf(shots[i])) => {
-    const prompt = [notes[i], freeShotPrompt(shots[i], castById, look, era)].filter(Boolean).join(', ').slice(0, 1000);
+    const prompt = picturePrompt(shots[i], castById, look, era, notes[i]);
     const opts = { ...size, seed };
     if (useSrv) {
-      const ids = castRefs(shots[i]);
-      // e.g. "Daniel is the person in image 1. Keep exactly the same face, hair and clothes. New picture: …"
-      const lead = ids.length ? `${ids.map((id, k) => `${nameOf(castById.get(id))} is the person in image ${k + 1}`).join(', ')}. Keep exactly the same face, hair and clothes. Each person appears only once. New picture: ` : '';
-      try { const r = await tries(() => serverImage(srv, (lead + prompt).slice(0, 1400), opts, signal, ids.map((id) => portraits.get(id))), signal, 3, srv); sources.server++; return r; } catch (e) { if (e?.name === 'AbortError') throw e; console.warn(e); }
+      try { const r = await paintOnServer(srv, shots[i], castById, portraits, prompt, opts, signal); sources.server++; return r; } catch (e) { if (e?.name === 'AbortError') throw e; console.warn(e); }
     }
     try {
       const r = await paintFree(prompt, opts, signal, (n) => onProgress(done / total, `Painting shot ${i + 1} of ${shots.length} — free AI is busy, waiting (${n})…`), waitMs);
@@ -383,7 +464,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
         client = await mod.Client.connect(LTX_SPACE, hfToken ? { hf_token: hfToken } : {});
       } catch (e) { quotaLeft = false; reason = 'the free video server is unavailable'; console.warn(e); }
     }
-    const motionOf = (i) => [notes[i], `${motionPrompt(shots[i], castById, look)}. ${freeShotPrompt(shots[i], castById, look, era)}`].filter(Boolean).join('. ').slice(0, 1400);
+    const motionOf = (i) => shotMotion(shots[i], castById, look, era, notes[i]);
     // with your server, the next two clips are already being made while one comes back
     const clips = [];
     const syncing = [];  // lip sync of finished clips, running alongside
@@ -402,12 +483,8 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
             media[i].clip = { blob };
             onShot(i, null, 'animated');
             // lip sync: the on-screen speakers' words, on the clip's clock as the player will show it
-            const len = shots[i].end - shots[i].start;
-            // only where the face is big enough to see the mouth: wide shots aren't worth the GPU time
-            const faceShot = ['closeup', 'medium', 'over-shoulder', 'two-shot', 'lowangle'].includes(shots[i].type);
-            if (speed !== 'fast' && voice && len <= 11 && faceShot && await lipsNow()) {
-              const clipDur = (Math.floor(Math.max(2, Math.min(10, len)) * 24 / 8) * 8 + 1) / 24;  // as the server makes it
-              const wav = shotSpeech(shots[i], voice.clips, voice.voices, clipDur, Math.min(1.5, Math.max(0.65, clipDur / len)));
+            if (wantsLipsync(shots[i], speed, voice) && await lipsNow()) {
+              const wav = shotWav(shots[i], voice);
               if (wav) {
                 // lip sync runs in its own process: it works on this shot while the next clips are made
                 syncing.push(lipsyncClip(srv, blob, wav, signal, 20)
@@ -431,14 +508,12 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
       await Promise.all(syncing.map((p) => p.then(() => { left--; if (left) onProgress(Math.min(0.999, done / total), `Syncing lips (${left} shot${left > 1 ? 's' : ''} left)`); })));
     }
   }
-  const film = new LivingFilm(tl, media, aspect);
-  // shots without an AI video clip come to life on the device: depth parallax,
-  // talking mouths, blinking eyes, breathing
-  if (media.some((m) => m.still && !m.clip)) {
-    try { await film.bringToLife((p, msg) => onProgress(Math.min(0.999, done / total), msg)); } catch (e) { console.warn('motion AI unavailable', e); }
-  }
-  const W = aspect === '9:16' ? 720 : aspect === '1:1' ? 1024 : 1280, H = aspect === '9:16' ? 1280 : aspect === '1:1' ? 1024 : 720;
-  film.canvas.width = W; film.canvas.height = H;
+  const film = await finishFilm(tl, media, aspect, (p, msg) => onProgress(Math.min(0.999, done / total), msg));
+  // what My films keeps: each shot's own picture (a shot that borrowed a neighbour's has that one),
+  // the character portraits (the same faces when a shot is redone) and your notes
+  film.stillBlobs = media.map((m, i) => blobs[i] || blobs[media.findIndex((x, k) => blobs[k] && x.still === m.still)] || null);
+  film.portraits = portraits;
+  film.notes = notes;
   film.animatedCount = media.filter((m) => m.clip).length;
   film.reason = reason;
   film.sources = sources;

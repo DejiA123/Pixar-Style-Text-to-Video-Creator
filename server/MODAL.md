@@ -29,6 +29,14 @@ After that, every server change in this repository redeploys automatically.
 
 ## Good to know
 
+- **My films and accounts** run in the same Modal app as a second, small web endpoint,
+  `library` (`https://<your-workspace>--storyreel-library.modal.run`): a quarter of a CPU core,
+  never the GPU, so opening your films, signing in and backing up don't wake the H100. It
+  costs about a cent an hour while awake and sleeps two minutes after the last request. It
+  keeps accounts and films on its own volume, `storyreel-films` (at most 5 GB per account and
+  100 GB in all, and 6 new accounts an hour from one address: the numbers are at the top of
+  `server/library_server.py`). It deploys with the server.
+
 - **Spending stays at $0** while you stay within the free credit. In Modal's
   **Settings → Usage & Billing** you can see what's used and set a spending limit of $0
   so nothing beyond the credit is ever charged.

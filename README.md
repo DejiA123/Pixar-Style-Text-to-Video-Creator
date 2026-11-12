@@ -35,12 +35,29 @@ Use `localhost` (a secure context): video export needs WebCodecs.
 4. Press **Export video** and the file downloads.
 5. **Settings** (optional): voice engine, narrator, aspect ratio (16:9 / 9:16 / 1:1), quality, music, effects and subtitles.
 
+### My films, redoing a shot, and your account
+- **My films** (top right) keeps every AI film you make on your device: pictures, clips, voices
+  and all. Open one to watch it again, download it or redo a shot, with no waiting for the AI
+  studio. A film you delete there is deleted from all your devices.
+- **↻ Redo** on any shot of the board makes that shot again on the AI studio, and the film is kept
+  with it. **New take** moves the same picture again (for an arm or a hand that went wrong while
+  it moved); **Repaint** paints a new picture that follows your note ("she wears a red dress").
+- **Create my account** in My films: one tap and Face ID, Touch ID or a fingerprint (a passkey).
+  No password, no email. Your films are backed up and appear on your other devices; on a
+  computer, sign in with your phone (a QR code). The account service is
+  `server/library_server.py`, a small CPU container beside the AI studio on Modal
+  (`server/modal_app.py`, "library"), with its own volume.
+
 Story tips: name your characters and describe them with words like *glasses*, *backpack*, *curly hair*, *beard*, *dress*, *hoodie*, or roles like *pastor*, *chef*, *doctor*. Mention places (*church, city, beach, forest, school, kitchen…*), times (*night, sunset*) and feelings (*happy, sad, surprised*). Put dialogue in quotes.
 
 ## Tests
 ```bash
-npm test                                         # story parser tests
+npm test                                         # story parser, versions, account address tests
+python3 tests/test_anatomy.py                    # the extra hand / arm rules
+python3 tests/test_library_server.py             # accounts (real passkey signatures) and film backup
 node dev/e2e.mjs out neural dev/demo-story.txt   # full app: make + export (needs Playwright)
+node dev/library-e2e.mjs out                     # My films, Redo, account + a second device (mock AI server)
+node dev/clip-export.mjs <clips> out compare     # downloads: every frame against the earlier export
 ```
 Visual labs: `dev/lab.html` (characters) and `dev/film.html` (film frames).
 

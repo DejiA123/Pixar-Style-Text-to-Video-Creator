@@ -83,3 +83,24 @@ def serve():
             except Exception as e:
                 print('[storyreel] volume commit:', e, flush=True)
     threading.Thread(target=keep, daemon=True).start()
+
+
+# My films and accounts (server/library_server.py): a small CPU container of its own, so opening your
+# films, signing in and backing up never wake (or pay for) the GPU. A quarter of a CPU core costs about
+# a cent an hour while awake, and it sleeps two minutes after the last request. Its link is the
+# studio's with "library" for "serve": https://<your-modal-workspace>--storyreel-library.modal.run
+films = modal.Volume.from_name('storyreel-films', create_if_missing=True)  # accounts and films, kept between runs
+library_image = (modal.Image.debian_slim(python_version='3.11')
+                 .pip_install('fastapi[standard]>=0.115', 'webauthn>=2.5,<4')
+                 .add_local_file(os.path.join(ROOT, 'server', 'library_server.py'), '/root/library_server.py'))
+
+
+@app.function(image=library_image, volumes={'/films': films}, cpu=0.25, memory=512, timeout=900,
+              scaledown_window=120, max_containers=1)  # one container: the volume has one writer
+@modal.concurrent(max_inputs=32)
+@modal.asgi_app()
+def library():
+    import sys
+    sys.path.insert(0, '/root')
+    import library_server
+    return library_server.create_app('/films', commit=films.commit)

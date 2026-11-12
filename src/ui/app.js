@@ -14,13 +14,16 @@ import { Player } from '../film/player.js';
 import { exportVideo, webCodecsSupported } from '../film/exporter.js';
 import { castVoices, KOKORO_NARRATORS } from '../audio/voices.js';
 import { Painter, PaintedFilm, painterSize } from '../ai/painter.js';
-import { renderFreeFilm } from '../ai/freefilm.js';
+import { renderFreeFilm, filmFromBlobs, redoShot } from '../ai/freefilm.js';
 import { aiServer, serverlessId, waitForServer, waitForModel, startupProgress, wakeServer } from '../ai/aiserver.js';
 import { serverVoices } from '../ai/servervoice.js';
 import { KokoroEngine, WebSpeechEngine } from '../audio/tts.js';
 import { renderSoundtrack, lipEnvelope, clipDuration } from '../audio/mixer.js';
 import { timecode, formatTime } from '../util.js';
 import { setupVersion } from './version.js';
+import { saveFilm, loadFilm } from './library.js';
+import { account } from './account.js';
+import { setupMyFilms } from './myfilms.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -34,7 +37,10 @@ const DEFAULT_AI_SERVER = 'https://dejiaugustine--storyreel-serve.us-east.modal.
 const state = {
   fr: null, film: null, compositor: null, player: null, soundtrack: null, timeline: null, plan: null,
   busy: false, kokoro: null, aspect: '9:16', exportAbort: null,
+  filmData: null,  // the AI film on screen as My films keeps it (src/ui/library.js), for redoing a shot
+  redoing: null,   // the shot being redone
 };
+let myFilms = null;
 
 // ---------------------------------------------------------------------------
 // setup
@@ -92,6 +98,15 @@ function init() {
   setupServerStatus();
   // the version in Settings, and a pop-up when a newer one is out (never while a film is being made or downloaded)
   setupVersion({ isBusy: () => !!(state.busy || state.exporting), hasFilm: () => !!state.film, toast });
+  // My films, and the account that backs them up (its service sits beside the AI studio)
+  account.init(DEFAULT_AI_SERVER);
+  myFilms = setupMyFilms({
+    openFilm: (id) => openFilm(id), isBusy: () => !!(state.busy || state.exporting), toast,
+    currentId: () => state.filmData?.id || null,
+    // the film on screen was deleted: it can still be watched and downloaded, but no longer redone
+    onDeleted: (id) => { if (state.filmData?.id === id) { state.filmData = null; $('board').querySelectorAll('.card-redo').forEach((b) => b.remove()); } },
+  });
+  account.sync();  // anything not backed up yet (a film made just before the phone went offline)
   $('hf-token').value = store.get('hf-token', '');
   $('hf-token').addEventListener('change', () => store.set('hf-token', $('hf-token').value.trim()));
   $('free-animate').checked = true;  // every shot is AI video (the box is hidden; an old saved "off" doesn't count)
@@ -495,6 +510,7 @@ async function makeMovie() {
   $('make').disabled = true;
   $('make').textContent = 'Generating…';
   if (state.player) { state.player.dispose(); state.player = null; }
+  state.filmData = null;  // a new film: the last one stays in My films
   const ai = $('render-mode').value === 'ai';
   let painted = $('render-mode').value === 'painted';
   let freeAI = $('render-mode').value === 'free' || $('render-mode').value === '3d';
@@ -646,10 +662,7 @@ async function makeMovie() {
     await film.prepare((p) => steps.set('build', 'active', p));
     state.ai = false;
   }
-  for (const [key, clip] of clips) {
-    const sp = key.split('::')[0];
-    film.envelopes.set(key, lipEnvelope(clip, (voices.get(sp) || voices.get('narrator')).rate || 1));
-  }
+  setEnvelopes(film, clips, voices);
   steps.set('build', 'done');
   if (painted && await confirmModelDownload()) {
     steps.set('paint', 'active');
@@ -682,6 +695,33 @@ async function makeMovie() {
   meter.finish();
 
   // 5) player
+  // an AI film is kept in My films, with what it takes to watch it again or redo a shot later
+  state.filmData = film.stillBlobs ? {
+    title: tl.title, story: text, aspect: state.aspect, look: $('look').value, speed: $('speed').value,
+    tl, voices, usedNeural, sfx: $('sfx').checked, seed: plan.title.length, clips,
+    media: tl.shots.map((s, i) => ({ stillBlob: film.stillBlobs[i] || null, clipBlob: film.media[i]?.clip?.blob || null })),
+    portraits: film.portraits || new Map(), notes: film.notes || tl.shots.map(() => ''),
+  } : null;
+  startPlayer(film, tl, voices, usedNeural);
+  state.busy = false;
+  $('make').disabled = false;
+  $('make').textContent = 'Generate again';
+  if (state.filmData) keepFilm(state.filmData);
+  await captureThumbs(tl);
+  state.player.seek(0);
+  await state.player.autoplay(() => toast('Your film is ready. Tap ▶ to watch it with sound.', false, 8000));
+}
+
+// Each voice line's loudness, which moves the mouths of shots that come to life on the device.
+function setEnvelopes(film, clips, voices) {
+  for (const [key, clip] of clips) {
+    const sp = key.split('::')[0];
+    film.envelopes.set(key, lipEnvelope(clip, (voices.get(sp) || voices.get('narrator'))?.rate || 1));
+  }
+}
+
+// The film on screen, ready to play: the player and the shot board.
+function startPlayer(film, tl, voices, usedNeural) {
   $('empty').hidden = true;
   state.compositor.subtitles = $('subs').checked;
   state.player = new Player({
@@ -693,12 +733,139 @@ async function makeMovie() {
   buildBoard(tl);
   $('play').disabled = false; $('scrub').disabled = false; $('export').disabled = false;
   $('dur').textContent = formatTime(tl.duration);
-  state.busy = false;
-  $('make').disabled = false;
-  $('make').textContent = 'Generate again';
-  await captureThumbs(tl);
-  state.player.seek(0);
-  await state.player.autoplay(() => toast('Your film is ready. Tap ▶ to watch it with sound.', false, 8000));
+}
+
+// Keeps the film in My films (and backs it up, with an account); resolves true once it's kept. The
+// film plays meanwhile. A phone that's out of space says so.
+function keepFilm(data) {
+  return saveFilm(data).then(() => {
+    if (state.filmData === data) $('board-meta').textContent = `${data.tl.shots.length} shots · ${formatTime(data.tl.duration)} · kept in My films`;
+    myFilms?.refresh();
+    account.sync();
+    return true;
+  }).catch((e) => {
+    console.warn('My films: not kept', e);
+    toast(/quota/i.test(`${e?.name} ${e?.message}`) ? 'This device is out of space for My films: delete an old film there to keep new ones.' : 'This film couldn’t be kept in My films. You can still download it.', true, 9000);
+    return false;
+  });
+}
+
+// A film from My films, back on screen exactly as it was made (no AI studio needed).
+async function openFilm(id) {
+  if (state.busy || state.exporting) { toast('Wait until the film being made is ready, then open this one.'); return; }
+  unlockAudio();  // the tap that opened it lets it start with sound
+  state.busy = true;
+  $('make').disabled = true;
+  showBusy('Opening your film');
+  try {
+    const data = await loadFilm(id);  // the film on screen stays until this one is ready to take its place
+    if (state.player) { state.player.dispose(); state.player = null; }
+    setAspect(data.aspect || '9:16');
+    const film = await filmFromBlobs(data.tl, data.media, data.aspect, (p, msg) => showBusy('Opening your film', msg, p));
+    setEnvelopes(film, data.clips, data.voices);
+    const playing = await showFilm(film, data);
+    toast(`${data.title || 'Your film'} is back. ${playing ? 'Tap Redo on any shot to make it again.' : 'Tap ▶ to watch it with sound.'}`, false, 7000);
+  } catch (e) {
+    console.warn('could not open the film', e);
+    toast(e?.message || 'That film couldn’t be opened.', true, 8000);
+  } finally {
+    hideBusy();
+    state.busy = false;
+    $('make').disabled = false;
+  }
+}
+
+// Shows a kept or redone film: its sound, the player, the board, the shot thumbnails. Resolves true
+// when it plays by itself (false: it waits for a tap on ▶, which is the only way sound can start then).
+async function showFilm(film, data, { startAt = 0 } = {}) {
+  state.ai = true;
+  state.film = film;
+  state.timeline = data.tl;
+  state.filmData = data;
+  state.soundtrack = await renderSoundtrack(data.tl, data.clips, data.voices, { music: false, sfx: data.sfx !== false, seed: data.seed ?? 0 });
+  state.hasVoiceAudio = !!data.usedNeural;
+  hideBusy();
+  startPlayer(film, data.tl, data.voices, data.usedNeural);
+  $('board-meta').textContent = `${data.tl.shots.length} shots · ${formatTime(data.tl.duration)} · kept in My films`;
+  await captureThumbs(data.tl);
+  state.player.seek(startAt);
+  let needsTap = false;
+  await state.player.autoplay(() => { needsTap = true; });
+  return !needsTap;
+}
+
+// The card on the screen used while a film is downloaded, opened or redone.
+function showBusy(title, sub = '', frac = null) {
+  $('busy').hidden = false;
+  $('busy-title').textContent = title;
+  $('busy-sub').textContent = sub;
+  $('busy-bar').style.width = frac == null ? '0%' : `${Math.round(frac * 100)}%`;
+  $('busy-cancel').hidden = true;
+}
+function hideBusy() { $('busy').hidden = true; $('busy-cancel').hidden = false; }
+
+// ---------------------------------------------------------------------------
+// redo one shot of the film on screen
+// ---------------------------------------------------------------------------
+// New take: the same picture, moving again (a different seed). Repaint: a new picture that follows
+// your note, then moving. Either way it's made on your AI studio, lip-synced again where the film
+// was, and the film is kept with the new shot.
+function openRedo(i) {
+  const data = state.filmData;
+  if (!data || !state.player) return;
+  if (state.busy || state.exporting) { toast(state.redoing != null ? 'One shot at a time: wait until this one is redone.' : 'Wait until the film being made is ready.'); return; }
+  if (!currentServer()) { toast('Redoing a shot needs your AI studio.', true); return; }
+  const box = $('redo'), shot = data.tl.shots[i];
+  const pic = $('redo-pic');
+  if (pic.src.startsWith('blob:')) URL.revokeObjectURL(pic.src);
+  pic.src = data.media[i]?.stillBlob ? URL.createObjectURL(data.media[i].stillBlob) : '';
+  $('redo-title').textContent = 'Redo this shot';
+  $('redo-line').textContent = shot.kind === 'title' ? 'Opening title' : (shot.lines.map((l) => l.text).join(' ') || shot.scene.text || '');
+  $('redo-note').value = '';
+  const status = $('redo-status');
+  status.hidden = true; status.classList.remove('err');
+  box.classList.remove('working');
+  box.hidden = false;
+  let ac = null;
+  const close = () => { box.hidden = true; box.classList.remove('working'); };
+  const go = (repaint) => async () => {
+    unlockAudio();  // a fresh tap: the redone film can start with its sound
+    ac = new AbortController();
+    state.busy = true; state.redoing = i;
+    $('make').disabled = true;
+    box.classList.add('working');
+    status.hidden = false; status.classList.remove('err');
+    const say = (msg) => { status.textContent = msg; };
+    say('Starting…');
+    const card = $('board').children[i]?.querySelector('.card-redo');
+    if (card) { card.textContent = 'Redoing…'; card.classList.add('working'); }
+    try {
+      const server = await pickServer(say);
+      if (!server) throw new Error('Redoing a shot needs your AI studio.');
+      await redoShot(data, i, { repaint, note: $('redo-note').value, server, signal: ac.signal, onProgress: say });
+      say('Putting it in your film…');
+      if (state.player) { state.player.dispose(); state.player = null; }
+      const film = await filmFromBlobs(data.tl, data.media, data.aspect);
+      setEnvelopes(film, data.clips, data.voices);
+      close();
+      const playing = await showFilm(film, data, { startAt: shot.start + 0.01 });
+      if (await keepFilm(data)) toast(`✓ Shot redone and kept in My films. ${playing ? 'It’s playing now.' : 'Tap ▶ to watch it.'}`, false, 7000);
+    } catch (e) {
+      console.warn('redo failed', e);
+      box.classList.remove('working');
+      if (e?.name === 'AbortError') close();
+      else { status.classList.add('err'); say(e?.message || 'That didn’t work. Please try again.'); }
+      if (card) { card.textContent = '↻ Redo'; card.classList.remove('working'); }
+    } finally {
+      state.busy = false; state.redoing = null;
+      $('make').disabled = false;
+      ac = null;
+    }
+  };
+  $('redo-take').onclick = go(false);
+  $('redo-paint').onclick = go(true);
+  $('redo-note').onkeydown = (e) => { if (e.key === 'Enter') $('redo-paint').click(); };
+  $('redo-close').onclick = () => { if (ac) ac.abort(); else close(); };
 }
 
 // A frame from the middle of every shot, shown on its card.
@@ -802,8 +969,10 @@ function buildBoard(tl) {
   const b = $('board');
   b.innerHTML = '';
   tl.shots.forEach((s, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'card-wrap'; wrap.setAttribute('role', 'listitem');
     const card = document.createElement('button');
-    card.type = 'button'; card.className = 'card'; card.setAttribute('role', 'listitem');
+    card.type = 'button'; card.className = 'card';
     const who = (s.ids || []).map((id) => displayName(tl.cast.find((c) => c.id === id))).join(', ');
     const line = s.kind === 'title' ? tl.title : (s.lines[0] ? s.lines[0].text : s.scene.text);
     card.innerHTML = `<span class="thumb"></span><span class="slugline">SC ${String(i).padStart(2, '0')} · ${slugline(s)}</span>
@@ -812,7 +981,15 @@ function buildBoard(tl) {
     card.querySelector('.line').textContent = line;
     if (who) card.querySelector('.who').textContent = who;
     card.addEventListener('click', () => state.player && state.player.seek(s.start + 0.01));
-    b.appendChild(card);
+    wrap.appendChild(card);
+    if (state.filmData) {  // an AI film: any shot can be made again
+      const redo = document.createElement('button');
+      redo.type = 'button'; redo.className = 'card-redo'; redo.textContent = '↻ Redo';
+      redo.setAttribute('aria-label', `Redo shot ${i + 1}`);
+      redo.addEventListener('click', () => openRedo(i));
+      wrap.appendChild(redo);
+    }
+    b.appendChild(wrap);
   });
   $('board-meta').textContent = `${tl.shots.length} shots · ${formatTime(tl.duration)}`;
   const marks = $('marks');
@@ -826,6 +1003,7 @@ function buildBoard(tl) {
 async function doExport() {
   const p = state.player;
   if (!p || state.exporting) return;
+  if (state.redoing != null) { toast('Wait until the shot is redone, then download your film.'); return; }
   // made right away, during the tap: iPhone Safari records its sound only from a context started by one
   // (used when the film is recorded in real time; harmless otherwise)
   const audioContext = state.soundtrack ? new (window.AudioContext || window.webkitAudioContext)() : null;
