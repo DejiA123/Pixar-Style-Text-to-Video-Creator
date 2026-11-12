@@ -1,5 +1,6 @@
 // My films: every film kept on this device and in your account, to watch again, download or redo a
-// shot; and the one-tap account (Face ID) that backs them up and brings them to your other devices.
+// shot; and the account card: films are backed up by themselves, another device joins with a 6-digit
+// code, and Face ID (optional) gets you back in anywhere.
 import { account, lockName } from './account.js';
 import { deleteFilm } from './library.js';
 
@@ -13,16 +14,30 @@ function when(t) {
 }
 const WHERE = { 'backed-up': '☁︎ Backed up', device: 'On this device', cloud: '☁︎ In your account' };
 
+// What to do when a passkey wasn't saved or used. An iPhone offers the passwords app you picked in
+// Settings, and some can't keep passkeys for websites (Microsoft Authenticator keeps only work accounts').
+const apple = () => /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent || '');
+const lockShort = () => { const l = lockName(); return l.startsWith('your device') ? 'a passkey' : l.replace(/^your /, ''); };
+const faceNotAdded = () => (apple()
+  ? `${lockShort()} wasn’t added. Tap Add ${lockShort()} again, then More Options, and choose Passwords.\nMicrosoft Authenticator can’t keep passkeys for websites. No Passwords option? Turn it on in Settings → General → AutoFill & Passwords.`
+  : `${lockShort()} wasn’t added. Tap Add ${lockShort()} again and keep the passkey on this device or in Google Password Manager (some apps can’t keep passkeys for websites).`);
+const notSignedIn = () => (apple()
+  ? 'Not signed in. Tap again and choose your TakeOne passkey (it’s in Passwords), or enter a code from a device that’s signed in.'
+  : 'Not signed in. Tap again and choose your TakeOne passkey, or enter a code from a device that’s signed in.');
+
 // openFilm(id): shows a kept film; isBusy(): a film is being made, redone or downloaded;
 // currentId(): the film on screen; onDeleted(id): a film was deleted.
 export function setupMyFilms({ openFilm, isBusy, toast, currentId = () => null, onDeleted = () => {} }) {
   const sheet = $('films'), grid = $('films-grid'), acct = $('account-card');
   let shown = [], seq = 0;
-  const show = () => {
+  const show = async () => {
     sheet.hidden = false;
     document.body.classList.add('sheet-open');
     render();
+    await account.refresh();  // Face ID may have been added on another device
+    renderAccount();
     account.prepare();  // Face ID needs the passkey request ready the moment you tap
+    account.sync();  // films deleted on another device go from here too; anything not backed up yet goes up
   };
   const hide = () => { sheet.hidden = true; document.body.classList.remove('sheet-open'); };
   $('my-films').addEventListener('click', show);
@@ -38,48 +53,105 @@ export function setupMyFilms({ openFilm, isBusy, toast, currentId = () => null, 
     const list = await account.films();
     if (mine !== seq) return;
     shown = list;
+    const now = currentId();
+    if (now && !list.some((r) => r.id === now)) onDeleted(now);  // the film on screen was deleted on another device
     renderFilms();
   }
 
   // ---- the account card ----
+  // Drawn again only when it changes (signed in or out, Face ID added): a backup in progress just updates
+  // its line, so a code being read or typed stays put.
+  let drawn = '', code = null;  // code: the one shown for another device, while it lasts
   function renderAccount(msg = '') {
     acct.hidden = !account.available;
     if (acct.hidden) return;
-    acct.innerHTML = '';
+    const mode = `${account.signedIn}|${account.user?.passkeys || 0}|${account.off}`;
+    if (mode !== drawn || msg) { drawn = mode; draw(); }
+    status();
+    if (msg) say(msg);
+  }
+  const say = (t, err = false) => { const p = acct.querySelector('.acct-msg'); if (p) { p.textContent = t; p.classList.toggle('err', err); } };
+  const busy = (on) => acct.querySelectorAll('button, input').forEach((b) => { b.disabled = on; });
+  // one account step: says it's working, then what happened (the card is drawn again when it worked)
+  const step = (fn, waiting, done, tip) => async () => {
+    busy(true); say(waiting);
+    try {
+      const r = await fn();
+      if (done) toast(done(r), false, 7000);
+      drawn = ''; render();
+    } catch (e) {
+      busy(false);
+      if (e?.code === 'tap-again') say(e.message);
+      else if (tip && (e?.code === 'cancelled' || e?.code === 'failed')) say(tip());
+      else say(e?.message || 'That didn’t work. Please try again.', true);
+    }
+  };
+  function status() {
+    const icon = acct.querySelector('.acct-icon'), line = acct.querySelector('.acct-text span'), lock = lockShort();
+    if (!icon || !line) return;
+    if (account.signedIn) {
+      icon.textContent = account.syncing ? '⟳' : '✓';
+      line.textContent = account.syncing ? 'Backing up your films…' : account.user?.passkeys
+        ? `They’re in your account. ${lock[0].toUpperCase() + lock.slice(1)} gets you back in on any device.`
+        : 'They’re in your account, ready for your other devices. Nothing to set up.';
+    } else if (account.off) line.textContent = 'Your films stay on this device. Turn backup on to keep them safe and on your other devices.';
+    else line.textContent = account.problem && shown.length ? 'Couldn’t reach your backup just now. It will try again.' : 'Every film you make here is backed up as soon as it’s ready. Nothing to set up.';
+  }
+  function draw() {
+    const lock = lockShort();
+    const entry = `<div class="acct-entry" hidden><input type="text" data-digits inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="6-digit code" aria-label="Code from your other device"><button class="btn-primary" type="button" data-use>Open my films</button></div>`;
     if (account.signedIn) {
       acct.className = 'account-card in';
-      const backing = !!account.syncing;
-      acct.innerHTML = `<span class="acct-icon" aria-hidden="true">${backing ? '⟳' : '✓'}</span><div class="acct-text"><b></b><span></span></div><button class="link" type="button" data-out>Sign out</button>`;
-      acct.querySelector('b').textContent = `Hi ${account.user?.name && account.user.name !== 'TakeOne' ? account.user.name : 'there'}`;
-      acct.querySelector('.acct-text span').textContent = msg || (backing ? 'Backing up your films…' : 'Your films are backed up and on all your devices.');
-      acct.querySelector('[data-out]').onclick = () => { account.signOut(); renderAccount('Signed out. Your films stay on this device.'); render(); };
-      return;
+      acct.innerHTML = `<span class="acct-icon" aria-hidden="true">✓</span><div class="acct-text"><b>Your films are backed up</b><span></span></div>
+        <div class="acct-row"><button class="btn-primary" type="button" data-code>Use on another device</button></div>
+        <div class="acct-codebox" hidden><span class="acct-code"></span><span class="acct-codehint">On your other phone or computer: open TakeOne, tap My films → Enter a code, and type these numbers. Works once, for 10 minutes.</span></div>
+        ${entry}
+        <div class="acct-links"><button class="link" type="button" data-enter>Got a code? Enter it</button>${account.user?.passkeys ? '' : `<button class="link" type="button" data-face>Add ${lock}</button>`}<button class="link" type="button" data-out>Sign out</button></div>
+        <p class="acct-msg" aria-live="polite"></p>`;
+      const showCode = () => {
+        if (!code || code.until < Date.now()) return;
+        const box = acct.querySelector('.acct-codebox');
+        box.hidden = false;
+        box.querySelector('.acct-code').textContent = `${code.code.slice(0, 3)} ${code.code.slice(3)}`;
+      };
+      showCode();
+      acct.querySelector('[data-code]').onclick = async () => {
+        busy(true); say('Getting a code…');
+        try {
+          const r = await account.newCode();
+          code = { code: r.code, until: Date.now() + (r.expires_in || 600) * 1000 };
+          busy(false); say(''); showCode();
+        } catch (e) { busy(false); say(e?.message || 'Couldn’t get a code right now. Please try again.', true); }
+      };
+      acct.querySelector('[data-face]')?.addEventListener('click', step(() => account.addFaceId(), `Waiting for ${lock}…`, () => `✓ ${lock[0].toUpperCase() + lock.slice(1)} added. It gets you back in on any device.`, faceNotAdded));
+      const out = acct.querySelector('[data-out]');
+      out.onclick = () => {
+        if (out.dataset.sure) { account.signOut(); code = null; toast('Signed out. Your films stay on this device, and backup is off here.', false, 6000); render(); return; }
+        out.dataset.sure = '1'; out.textContent = 'Tap again to sign out';
+        if (!account.user?.passkeys) say(`To get back in you’ll need ${lock} or a code from another device. If this is your only device, add ${lock} first.`);
+        setTimeout(() => { if (out.isConnected) { delete out.dataset.sure; out.textContent = 'Sign out'; } }, 8000);
+      };
+    } else {
+      acct.className = 'account-card';
+      acct.innerHTML = `<span class="acct-icon" aria-hidden="true">☁︎</span><div class="acct-text"><b>${account.off ? 'Backup is off on this device' : 'Backed up automatically'}</b><span></span></div>
+        ${account.off ? '<div class="acct-row"><button class="btn-primary" type="button" data-on>Turn backup on</button></div>' : ''}
+        <div class="acct-row"><button class="${account.off ? 'btn-ghost' : 'btn-primary'}" type="button" data-enter>Enter a code from another device</button></div>
+        ${entry}
+        <div class="acct-links"><button class="link" type="button" data-in>Sign in with ${lock}</button></div>
+        <p class="acct-msg" aria-live="polite"></p>`;
+      acct.querySelector('[data-on]')?.addEventListener('click', step(() => account.start(), 'Turning backup on…', () => '✓ Backup is on. Your films are being backed up.'));
+      acct.querySelector('[data-in]').onclick = step(() => account.signIn(), `Waiting for ${lock}…`, () => '✓ Signed in. Your films are coming to this device.', notSignedIn);
     }
-    const lock = lockName();
-    acct.className = 'account-card';
-    acct.innerHTML = `<span class="acct-icon" aria-hidden="true">☁︎</span><div class="acct-text"><b>Keep your films safe</b><span></span></div>
-      <div class="acct-row"><input type="text" data-name placeholder="Your name (optional)" autocomplete="given-name" maxlength="40" aria-label="Your name (optional)"><button class="btn-primary" type="button" data-up>Create my account</button></div>
-      <button class="link" type="button" data-in>I already have an account</button><p class="acct-msg" aria-live="polite"></p>`;
-    acct.querySelector('.acct-text span').textContent = `Back them up and watch them on your other devices. No password: just ${lock}.`;
-    const say = (t, err = false) => { const p = acct.querySelector('.acct-msg'); p.textContent = t; p.classList.toggle('err', err); };
-    if (msg) say(msg);
-    const busy = (on) => acct.querySelectorAll('button, input').forEach((b) => { b.disabled = on; });
-    const go = (fn, waiting) => async () => {
-      busy(true); say(waiting);
-      try {
-        const user = await fn();
-        toast(`✓ Your account is ready${user?.name && user.name !== 'TakeOne' ? `, ${user.name}` : ''}. Your films are being backed up.`, false, 7000);
-        render();
-      } catch (e) {
-        busy(false);
-        if (e?.code === 'cancelled') say('');
-        else if (e?.code === 'tap-again') say(e.message);
-        else say(e?.message || 'That didn’t work. Please try again.', true);
-      }
+    // a code from another device: this device joins that account (its own films go there too)
+    const box = acct.querySelector('.acct-entry'), digits = box.querySelector('[data-digits]');
+    acct.querySelector('[data-enter]').onclick = (e) => {
+      box.hidden = false;
+      const row = e.currentTarget.closest('.acct-row');
+      if (row) row.hidden = true;  // the box takes the button's place
+      digits.focus();
     };
-    acct.querySelector('[data-up]').onclick = go(() => account.signUp(acct.querySelector('[data-name]').value), `Waiting for ${lock}…`);
-    acct.querySelector('[data-in]').onclick = go(() => account.signIn(), `Waiting for ${lock}…`);
-    acct.querySelector('[data-name]').addEventListener('keydown', (e) => { if (e.key === 'Enter') acct.querySelector('[data-up]').click(); });
+    acct.querySelector('[data-use]').onclick = step(() => account.useCode(digits.value), 'Opening your films…', () => '✓ You’re in. Your films are on this device now.');
+    digits.addEventListener('keydown', (e) => { if (e.key === 'Enter') acct.querySelector('[data-use]').click(); });
   }
 
   // ---- the films ----

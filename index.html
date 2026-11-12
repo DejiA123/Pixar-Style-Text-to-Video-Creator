@@ -23,14 +23,14 @@
 <link rel="apple-touch-icon" href="assets/brand/takeone.svg">
 <title>TakeOne</title>
 <!-- this copy's version: scripts/bump-version.mjs sets these and version.json together -->
-<meta name="app-version" content="1.2.0">
-<meta name="app-build" content="1794450071">
+<meta name="app-version" content="1.2.1">
+<meta name="app-build" content="1794475555">
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Type a story and get a Pixar-style 3D animated film with voice-over, music and subtitles — rendered in your browser and downloadable as MP4.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1794450071">
+<link rel="stylesheet" href="src/ui/styles.css?v=1794475555">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
@@ -240,6 +240,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1794450071"></script>
+<script type="module" src="src/ui/app.js?v=1794475555"></script>
 </body>
 </html>

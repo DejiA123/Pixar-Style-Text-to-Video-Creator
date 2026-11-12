@@ -42,11 +42,12 @@ Use `localhost` (a secure context): video export needs WebCodecs.
 - **↻ Redo** on any shot of the board makes that shot again on the AI studio, and the film is kept
   with it. **New take** moves the same picture again (for an arm or a hand that went wrong while
   it moved); **Repaint** paints a new picture that follows your note ("she wears a red dress").
-- **Create my account** in My films: one tap and Face ID, Touch ID or a fingerprint (a passkey).
-  No password, no email. Your films are backed up and appear on your other devices; on a
-  computer, sign in with your phone (a QR code). The account service is
-  `server/library_server.py`, a small CPU container beside the AI studio on Modal
-  (`server/modal_app.py`, "library"), with its own volume.
+- **Backed up by themselves:** films go to your account as soon as they're made, with nothing to
+  set up (no password, no email). To watch them on another phone or computer, tap **Use on another
+  device** in My films and type the 6-digit code there. **Add Face ID** (optional, a passkey) gets
+  you back in on any device, even if you lose your phone. **Sign out** turns backup off on that
+  device. The account service is `server/library_server.py`, a small CPU container beside the AI
+  studio on Modal (`server/modal_app.py`, "library"), with its own volume.
 
 Story tips: name your characters and describe them with words like *glasses*, *backpack*, *curly hair*, *beard*, *dress*, *hoodie*, or roles like *pastor*, *chef*, *doctor*. Mention places (*church, city, beach, forest, school, kitchen…*), times (*night, sunset*) and feelings (*happy, sad, surprised*). Put dialogue in quotes.
 

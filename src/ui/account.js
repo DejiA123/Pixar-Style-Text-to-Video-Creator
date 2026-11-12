@@ -1,11 +1,13 @@
-// Your TakeOne account: one tap and Face ID (a passkey). No password, no email. It backs up My films
-// and brings them to your other devices: the passkey is kept in iCloud Keychain or Google Password
-// Manager, so it's on all of them, and a computer signs in with your phone (a QR code).
+// Your TakeOne account, with nothing to set up: it starts by itself when your first film is backed up.
+// Another phone or computer joins it with a 6-digit code from a device that's in. Face ID (a passkey)
+// is optional: added to the account, it gets you back in on any device, even if this phone is lost.
+// No password, no email.
 // The account service (server/library_server.py) runs beside the AI studio on a small CPU, never
 // the GPU, at the studio's link with "library" for "serve".
 import * as lib from './library.js';
 
 const KEY = 'storyreel:account';            // {session, user, base} on this device
+const OFF_KEY = 'storyreel:backup-off';     // signed out on purpose: no new account by itself
 const SERVICE_KEY = 'storyreel:library-server';  // another account service (your own computer, tests)
 
 const ls = {
@@ -62,13 +64,14 @@ class AccountError extends Error {
 }
 
 export const account = {
-  user: null, session: null, base: null, candidates: [], prepared: {},
+  user: null, session: null, base: null, candidates: [], prepared: {}, off: false, problem: '',
   syncing: null, onChange: () => {},
 
   init(studio) {
     this.candidates = serviceCandidates(studio);
     const saved = ls.get(KEY);
     if (saved?.session) Object.assign(this, { session: saved.session, user: saved.user, base: saved.base || null });
+    this.off = !this.session && !!ls.get(OFF_KEY);
   },
   // the service only answers the app's own addresses (and a computer running it); passkeys need a secure page
   get available() {
@@ -100,7 +103,7 @@ export const account = {
       this.base = null;  // asked again next time (maybe it moved)
       throw new AccountError('Couldn’t reach TakeOne accounts right now. Please try again in a minute.', 'offline');
     }
-    if (res.status === 401 && auth) { this.signOut(); throw new AccountError('Please sign in again.', 'signed-out', 401); }
+    if (res.status === 401 && auth) { this.drop(); throw new AccountError('Please sign in again.', 'signed-out', 401); }
     if (!res.ok) {
       const why = await res.json().then((j) => j.error).catch(() => '');
       throw new AccountError(why || `TakeOne accounts answered ${res.status}`, 'refused', res.status);
@@ -108,24 +111,31 @@ export const account = {
     return blob ? res.blob() : res.json();
   },
 
-  keep() { ls.set(KEY, this.session ? { session: this.session, user: this.user, base: this.base } : null); },
+  keep() {
+    ls.set(KEY, this.session ? { session: this.session, user: this.user, base: this.base } : null);
+    ls.set(OFF_KEY, this.off ? 1 : null);
+  },
 
-  // Fetched before the tap: Safari only shows Face ID when it's asked for right away.
+  // Fetched before the tap: Safari only shows Face ID when it's asked for right away. Signed in: Face ID
+  // for this account (if it has none yet); signed out: signing in with Face ID.
   async prepare() {
-    if (!this.available || this.signedIn) return;
-    const fresh = (p) => p && Date.now() - p.at < 4 * 60000;
+    if (!this.available) return;
+    const fresh = (p) => p && Date.now() - p.at < 4 * 60000 && p.session === this.session;
     const get = async (kind) => {
       if (fresh(this.prepared[kind])) return;
-      try { this.prepared[kind] = { ...(await this.call(`/auth/${kind}/options`, { method: 'POST', json: {}, auth: false })), at: Date.now() }; } catch {}
+      const session = this.session;
+      try { this.prepared[kind] = { ...(await this.call(`/auth/${kind}/options`, { method: 'POST', json: {}, auth: kind === 'register' && !!session })), at: Date.now(), session }; } catch {}
     };
-    await Promise.all([get('register'), get('login')]);
+    if (!this.signedIn) await get('login');
+    else if (!this.user?.passkeys) await get('register');
   },
 
   async ceremony(kind, name) {
+    const auth = kind === 'register' && this.signedIn;  // Face ID added to the account this device is in
     let p = this.prepared[kind];
     this.prepared[kind] = null;
-    const late = !p || Date.now() - p.at > 4 * 60000;
-    if (late) p = await this.call(`/auth/${kind}/options`, { method: 'POST', json: {}, auth: false });
+    const late = !p || Date.now() - p.at > 4 * 60000 || p.session !== this.session;
+    if (late) p = await this.call(`/auth/${kind}/options`, { method: 'POST', json: {}, auth });
     let cred;
     try {
       if (kind === 'register') {
@@ -134,23 +144,53 @@ export const account = {
         cred = await navigator.credentials.create({ publicKey });
       } else cred = await navigator.credentials.get({ publicKey: requestOptions(p.options) });
     } catch (e) {
+      console.warn(`passkey ${kind}:`, e?.name, e?.message);
       this.prepare();  // ready for the next tap
-      if (e?.name === 'NotAllowedError' || e?.name === 'AbortError') {
-        // cancelled, or (after a slow start) the browser wanted a fresh tap
-        throw new AccountError(late ? 'Tap the button once more to finish.' : '', late ? 'tap-again' : 'cancelled');
-      }
-      throw new AccountError(kind === 'register' ? 'This browser couldn’t make a passkey. Try Safari or Chrome.' : 'That didn’t work. Please try again.', 'failed');
+      const refused = e?.name === 'NotAllowedError' || e?.name === 'AbortError';
+      // after a slow start the browser may have wanted a fresh tap
+      if (refused && late) throw new AccountError('Tap the button once more to finish.', 'tap-again');
+      // cancelled, or the app that was to keep the passkey couldn't (Microsoft Authenticator keeps only
+      // passkeys for Microsoft work accounts, and an iPhone offers it for every site all the same)
+      throw new AccountError('', refused ? 'cancelled' : 'failed');
     }
     if (!cred) throw new AccountError('', 'cancelled');
-    const res = await this.call(`/auth/${kind}/verify`, { method: 'POST', json: { state: p.state, credential: credentialJSON(cred), ...(name ? { name } : {}) }, auth: false });
-    this.session = res.session; this.user = res.user; this.keep();
-    this.onChange();
-    this.sync();  // films made before now are backed up straight away
+    const res = await this.call(`/auth/${kind}/verify`, { method: 'POST', json: { state: p.state, credential: credentialJSON(cred), ...(name ? { name } : {}) }, auth });
+    await this.enter(res);
     return res.user;
   },
-  signUp(name = '') { return this.ceremony('register', String(name).replace(/\s+/g, ' ').trim().slice(0, 40)); },
+
+  // In an account now: started, joined with a code, or signed in with Face ID. This device's films go to
+  // that account too (a different account than before has none of them yet).
+  async enter(res) {
+    if (res.user?.id !== this.user?.id) await lib.forgetCloud();
+    this.session = res.session; this.user = res.user; this.off = false; this.prepared = {}; this.problem = '';
+    this.keep();
+    this.onChange();
+    this.sync();
+  },
+  // An account with nothing to set up: made by itself when the first film is backed up.
+  async start() {
+    const res = await this.call('/auth/start', { method: 'POST', json: {}, auth: false });
+    await this.enter(res);
+    return res.user;
+  },
+  // 6 digits for another phone or computer to join this account (works once, for 10 minutes)
+  newCode() { return this.call('/auth/link/new', { method: 'POST', json: {} }); },
+  async useCode(code) {
+    const res = await this.call('/auth/link/use', { method: 'POST', json: { code: String(code || '') }, auth: false });
+    await this.enter(res);
+    return res.user;
+  },
+  addFaceId(name = '') { return this.ceremony('register', String(name).replace(/\s+/g, ' ').trim().slice(0, 40)); },
   signIn() { return this.ceremony('login'); },
-  signOut() { this.session = null; this.user = null; this.keep(); this.onChange(); },
+  // Signed out on purpose: films stay on this device and backup waits until it's turned on again.
+  signOut() { this.session = null; this.user = null; this.off = true; this.prepared = {}; this.keep(); this.onChange(); },
+  // the session no longer works (the next film backed up starts a new account)
+  drop() { this.session = null; this.user = null; this.prepared = {}; this.keep(); this.onChange(); },
+  async refresh() {
+    if (!this.signedIn) return;
+    try { this.user = (await this.call('/me')).user; this.keep(); } catch {}
+  },
 
   // ---- films in the account ----
   async list() { return this.call('/films'); },
@@ -185,11 +225,15 @@ export const account = {
   // Backs up every film not backed up yet (or changed since), one at a time, and lets go of films
   // deleted on another device. Safe to call any time: a run already going is reused.
   sync() {
-    if (!this.signedIn) return Promise.resolve();
     if (this.syncing) return this.syncing;
     this.syncing = (async () => {
+      if (!this.signedIn) {
+        // nothing to set up: the first film to back up starts the account
+        if (!this.available || this.off || !(await lib.listFilms()).length) return;
+        try { await this.start(); } catch (e) { this.problem = e?.message || 'offline'; console.warn('backup: no account yet', e?.message || e); return; }
+      }
       let cloud;
-      try { cloud = await this.list(); } catch (e) { console.warn('backup: account unavailable', e?.message || e); return; }
+      try { cloud = await this.list(); this.problem = ''; } catch (e) { this.problem = e?.message || 'offline'; console.warn('backup: account unavailable', e?.message || e); return; }
       const gone = new Set(cloud.deleted || []);
       for (const rec of await lib.listFilms()) {
         if (gone.has(rec.id) && rec.cloud) { await lib.deleteFilm(rec.id); this.onChange(); continue; }

@@ -201,6 +201,75 @@ class Library(unittest.TestCase):
         finally:
             library_server.TOTAL = old
 
+    # ---- nothing to set up: an account by itself, codes for other devices, Face ID later ----
+    def start(self):
+        r = self.c.post('/auth/start', json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def test_an_account_starts_by_itself_and_backs_up(self):
+        me = self.start()
+        self.assertEqual(me['user']['passkeys'], 0)
+        h = self.auth(me['session'])
+        self.c.put('/films/film-0001/files/clip-0-abcde.mp4', content=b'clip', headers=h)
+        self.assertEqual(self.c.put('/films/film-0001', json={'id': 'film-0001', 'title': 'T', 'files': {'clip-0-abcde.mp4': {}}}, headers=h).status_code, 200)
+        self.assertEqual(self.c.get('/me', headers=h).json()['films'], 1)
+
+    def test_another_device_joins_with_a_code_once(self):
+        a = self.start()
+        code = self.c.post('/auth/link/new', json={}, headers=self.auth(a['session'])).json()
+        self.assertRegex(code['code'], r'^\d{6}$')
+        self.assertEqual(code['expires_in'], 600)
+        b = self.c.post('/auth/link/use', json={'code': f"{code['code'][:3]} {code['code'][3:]}"})  # typed with a space
+        self.assertEqual(b.status_code, 200, b.text)
+        self.assertEqual(b.json()['user']['id'], a['user']['id'])
+        self.assertEqual(self.c.get('/films', headers=self.auth(b.json()['session'])).status_code, 200)
+        self.assertEqual(self.c.post('/auth/link/use', json={'code': code['code']}).status_code, 404)  # works once
+
+    def test_codes_run_out_and_wrong_ones_dont_work(self):
+        a = self.start()
+        code = self.c.post('/auth/link/new', json={}, headers=self.auth(a['session'])).json()['code']
+        path = os.path.join(self.dir, 'codes', f'{code}.json')
+        with open(path) as f:
+            c = json.load(f)
+        c['exp'] = int(time.time()) - 1
+        with open(path, 'w') as f:
+            json.dump(c, f)
+        self.assertEqual(self.c.post('/auth/link/use', json={'code': code}).status_code, 404)
+        self.assertEqual(self.c.post('/auth/link/use', json={'code': '12345'}).status_code, 400)
+        self.assertEqual(self.c.post('/auth/link/new', json={}).status_code, 401)  # only a device that's in makes codes
+
+    def test_guessing_codes_is_stopped(self):
+        a = self.start()
+        real = self.c.post('/auth/link/new', json={}, headers=self.auth(a['session'])).json()['code']
+        wrong = [f'{(int(real) + k) % 10**6:06d}' for k in range(1, 12)]
+        codes = [self.c.post('/auth/link/use', json={'code': w}).status_code for w in wrong]
+        self.assertEqual(codes[:10], [404] * 10)
+        self.assertEqual(codes[10], 429)
+        self.assertEqual(self.c.post('/auth/link/use', json={'code': real}).status_code, 429)  # even the right one, for a while
+
+    def test_face_id_added_later_signs_in_anywhere(self):
+        a = self.start()
+        key = Passkey()
+        r = self.c.post('/auth/register/options', json={}, headers=self.auth(a['session'])).json()
+        self.assertEqual(unb64u(r['options']['user']['id']), unb64u(a['user']['id']))  # the passkey is this account's
+        res = self.c.post('/auth/register/verify', json={'state': r['state'], 'credential': key.create(r['options']), 'name': 'Deji'},
+                          headers=self.auth(a['session']))
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual((res.json()['user']['id'], res.json()['user']['name'], res.json()['user']['passkeys']), (a['user']['id'], 'Deji', 1))
+        r = self.sign_in(key)  # a new phone, every other device lost
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()['user']['id'], a['user']['id'])
+        # the next passkey request leaves out the one it has
+        again = self.c.post('/auth/register/options', json={}, headers=self.auth(a['session'])).json()
+        self.assertEqual([c['id'] for c in again['options']['excludeCredentials']], [b64u(key.cid)])
+
+    def test_face_id_for_one_account_cant_be_added_to_another(self):
+        a, b = self.start(), self.start()
+        r = self.c.post('/auth/register/options', json={}, headers=self.auth(a['session'])).json()
+        res = self.c.post('/auth/register/verify', json={'state': r['state'], 'credential': Passkey().create(r['options'])}, headers=self.auth(b['session']))
+        self.assertEqual(res.status_code, 403)
+
     def test_bad_names_and_big_files_are_refused(self):
         _, me = self.sign_up()
         h = self.auth(me['session'])

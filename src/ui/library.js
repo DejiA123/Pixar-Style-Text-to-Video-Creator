@@ -73,6 +73,19 @@ export async function markCloud(id, files, at) {
   });
 }
 
+// This device joined another account: none of its films are in that one yet (they're backed up again).
+export async function forgetCloud() {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction('films', 'readwrite');
+    const s = tx.objectStore('films');
+    const all = s.getAll();
+    all.onsuccess = () => { for (const r of all.result) if (r.cloud) s.put({ ...r, cloud: null }); };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
 const tag = () => Math.random().toString(36).slice(2, 7);
 const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm', 'audio/wav': 'wav' };

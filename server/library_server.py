@@ -1,8 +1,9 @@
 """TakeOne accounts and film backup (My films): a small web service beside the AI studio.
 
-An account is a passkey: one tap and Face ID, Touch ID, a fingerprint or the phone's own lock.
-No password, no email. The passkey lives in the person's iCloud Keychain or Google Password Manager,
-so it's on all their devices, and a computer signs in with their phone (a QR code).
+Nothing to set up: an account starts by itself when the first film is backed up. Another phone or
+computer joins it with a 6-digit code shown on a device that's in (single use, 10 minutes). Face ID
+(a passkey) is optional: added to the account, it signs back in on any device, even if every device
+that was in is lost. No password, no email.
 
 It runs on a small CPU container on Modal (server/modal_app.py: library), never on the GPU, and
 keeps accounts and films on a Modal Volume. On your own computer:
@@ -11,11 +12,15 @@ keeps accounts and films on a Modal Volume. On your own computer:
 
 API (JSON; CORS for the app's own addresses; films need "Authorization: Bearer <session>"):
   GET  /health                                     -> {ok, service}
+  POST /auth/start {}                              -> {session, user}    an account, nothing asked
+  POST /auth/link/new {}           (signed in)     -> {code, expires_in} 6 digits for another device
+  POST /auth/link/use {code}                       -> {session, user}    that device is in the same account
   POST /auth/register/options {name}              -> {options, state}   then navigator.credentials.create
+                                                      (signed in: the passkey is added to this account)
   POST /auth/register/verify {state, credential, name?} -> {session, user}
   POST /auth/login/options {}                      -> {options, state}   then navigator.credentials.get
   POST /auth/login/verify {state, credential}      -> {session, user}
-  GET  /me                                         -> {user, films, bytes}
+  GET  /me                                         -> {user: {id, name, passkeys}, films, bytes}
   GET  /films                                      -> {films: [record…], deleted: [id…]}
   PUT  /films/{id}  record (JSON)                  -> {ok}    files the record no longer lists are removed
   PUT  /films/{id}/files/{name}  bytes             -> {ok, size}
@@ -37,6 +42,8 @@ MAX_FILE = int(os.environ.get('STORYREEL_MAX_FILE_MB', '150')) * 2**20     # one
 QUOTA = int(float(os.environ.get('STORYREEL_QUOTA_GB', '5')) * 2**30)     # all of one person's films (a film is ~20-40 MB)
 TOTAL = int(float(os.environ.get('STORYREEL_TOTAL_GB', '100')) * 2**30)   # everyone's films together: a cap on the bill
 SIGNUPS_PER_HOUR = int(os.environ.get('STORYREEL_SIGNUPS_PER_HOUR', '6'))  # new accounts from one address (no account farms)
+CODE_MINUTES = 10                     # a code for another device works this long, once
+CODE_TRIES = (10, 300)                # code guesses per 10 minutes: from one address, from everyone
 SESSION_DAYS = 400
 ID = re.compile(r'^[A-Za-z0-9-]{8,64}$')          # a film
 UID = re.compile(r'^[A-Za-z0-9_-]{16,40}$')       # an account (16 random bytes)
@@ -227,21 +234,86 @@ def create_app(root, commit=None):
     def health():
         return {'ok': True, 'service': 'takeone-library'}
 
+    def user_info(u):
+        return {'id': u['id'], 'name': u['name'], 'passkeys': len(u.get('credentials') or [])}
+
+    def new_user(name='TakeOne', credentials=()):
+        uid = b64u(secrets.token_bytes(16))
+        store.save_user({'id': uid, 'name': name, 'created': int(time.time()), 'deleted': {}, 'credentials': list(credentials)})
+        return store.user(uid)
+
+    # ---- an account with nothing to set up, and other devices joining it with a code ----
+    @app.post('/auth/start')
+    async def start(request: Request):
+        origin_of(request)
+        may_sign_up(request)
+        with store.lock:
+            u = new_user()
+        return {'session': session_for(u['id']), 'user': user_info(u)}
+
+    codes_dir = os.path.join(root, 'codes')
+    os.makedirs(codes_dir, exist_ok=True)
+    guesses = {}  # address (and '*' for everyone) → times of code guesses in the last 10 minutes
+
+    @app.post('/auth/link/new')
+    def link_new(request: Request):
+        u = who(request)
+        now = int(time.time())
+        with store.lock:
+            for f in os.listdir(codes_dir):  # codes that ran out
+                c = store.read(os.path.join(codes_dir, f))
+                if not c or c.get('exp', 0) < now:
+                    try:
+                        os.remove(os.path.join(codes_dir, f))
+                    except OSError:
+                        pass
+            code = next(c for c in (f'{secrets.randbelow(10**6):06d}' for _ in range(100)) if not os.path.exists(os.path.join(codes_dir, f'{c}.json')))
+            store.write(os.path.join(codes_dir, f'{code}.json'), {'u': u['id'], 'exp': now + CODE_MINUTES * 60})
+        return {'code': code, 'expires_in': CODE_MINUTES * 60}
+
+    @app.post('/auth/link/use')
+    async def link_use(request: Request):
+        origin_of(request)
+        now = time.time()
+        for key, cap in ((address(request), CODE_TRIES[0]), ('*', CODE_TRIES[1])):
+            recent = [t for t in guesses.get(key, []) if t > now - 600]
+            if len(recent) >= cap:
+                raise HTTPException(429, 'Too many tries: please wait a few minutes and get a new code.')
+            guesses[key] = recent + [now]
+        code = re.sub(r'\D', '', str((await body(request)).get('code') or ''))
+        if len(code) != 6:
+            raise HTTPException(400, 'Type the 6 numbers shown on your other device.')
+        path = os.path.join(codes_dir, f'{code}.json')
+        with store.lock:
+            c = store.read(path)
+            if c:
+                os.remove(path)  # each code works once
+                store.changed()
+        u = store.user(c['u']) if c and c.get('exp', 0) >= now else None
+        if not u:
+            raise HTTPException(404, 'That code didn’t work. Get a new one on your other device: My films → Use on another device.')
+        return {'session': session_for(u['id']), 'user': user_info(u)}
+
     # ---- passkeys ----
     @app.post('/auth/register/options')
     async def register_options(request: Request):
         from webauthn import generate_registration_options, options_to_json
         from webauthn.helpers.structs import AuthenticatorSelectionCriteria, ResidentKeyRequirement, UserVerificationRequirement
+        from webauthn.helpers.structs import PublicKeyCredentialDescriptor
         origin = origin_of(request)
         name = clean_name((await body(request)).get('name'))
-        uid = secrets.token_bytes(16)
+        mine = who(request) if request.headers.get('authorization') else None  # signed in: Face ID for this account
+        uid = unb64u(mine['id']) if mine else secrets.token_bytes(16)
+        if mine and name == 'TakeOne' and mine['name'] != 'TakeOne':
+            name = mine['name']
         opts = generate_registration_options(
             rp_id=rp_id_for(origin), rp_name='TakeOne', user_id=uid, user_name=name, user_display_name=name, timeout=180000,
+            exclude_credentials=[PublicKeyCredentialDescriptor(id=unb64u(c['id'])) for c in (mine or {}).get('credentials', [])],
             authenticator_selection=AuthenticatorSelectionCriteria(resident_key=ResidentKeyRequirement.REQUIRED, require_resident_key=True,
                                                                    user_verification=UserVerificationRequirement.PREFERRED))
         exp = int(time.time()) + 600
         return {'options': json.loads(options_to_json(opts)),
-                'state': store.sign({'k': 'reg', 'c': b64u(opts.challenge), 'u': b64u(uid), 'n': name, 'o': origin, 'exp': exp})}
+                'state': store.sign({'k': 'reg', 'c': b64u(opts.challenge), 'u': b64u(uid), 'n': name, 'o': origin, 'exp': exp, 'a': 1 if mine else 0})}
 
     @app.post('/auth/register/verify')
     async def register_verify(request: Request):
@@ -251,7 +323,11 @@ def create_app(root, commit=None):
         st = store.unsign(req.get('state'), 'reg')
         if st['o'] != origin:
             raise HTTPException(403, 'please try again')
-        may_sign_up(request)
+        mine = who(request) if st.get('a') else None
+        if mine and mine['id'] != st['u']:
+            raise HTTPException(403, 'please try again')
+        if not mine:
+            may_sign_up(request)
         once(st['c'], st['exp'])
         try:
             v = verify_registration_response(credential=req.get('credential'), expected_challenge=unb64u(st['c']),
@@ -260,14 +336,21 @@ def create_app(root, commit=None):
             raise HTTPException(400, f'the passkey wasn’t accepted ({e})')
         cid = b64u(v.credential_id)
         with store.lock:
-            if store.user(st['u']) or os.path.exists(os.path.join(root, 'credentials', f'{cid}.json')):
+            if os.path.exists(os.path.join(root, 'credentials', f'{cid}.json')) or (not mine and store.user(st['u'])):
                 raise HTTPException(409, 'please try again')
             now = int(time.time())
             name = clean_name(req.get('name')) if req.get('name') else st['n']  # the app asks for the passkey before you finish typing
-            store.save_user({'id': st['u'], 'name': name, 'created': now, 'deleted': {},
-                             'credentials': [{'id': cid, 'key': b64u(v.credential_public_key), 'count': v.sign_count, 'created': now}]})
-            store.write(os.path.join(root, 'credentials', f'{cid}.json'), {'u': st['u']})
-        return {'session': session_for(st['u']), 'user': {'id': st['u'], 'name': name}}
+            cred = {'id': cid, 'key': b64u(v.credential_public_key), 'count': v.sign_count, 'created': now}
+            if mine:  # Face ID added to the account this device is in
+                u = store.user(mine['id'])
+                u['credentials'] = (u.get('credentials') or []) + [cred]
+                if name != 'TakeOne':
+                    u['name'] = name
+            else:
+                u = {'id': st['u'], 'name': name, 'created': now, 'deleted': {}, 'credentials': [cred]}
+            store.save_user(u)
+            store.write(os.path.join(root, 'credentials', f'{cid}.json'), {'u': u['id']})
+        return {'session': session_for(u['id']), 'user': user_info(u)}
 
     @app.post('/auth/login/options')
     async def login_options(request: Request):
@@ -311,7 +394,7 @@ def create_app(root, commit=None):
                 if x['id'] == cid:
                     x['count'], x['used'] = v.new_sign_count, int(time.time())
             store.save_user(u)
-        return {'session': session_for(u['id']), 'user': {'id': u['id'], 'name': u['name']}}
+        return {'session': session_for(u['id']), 'user': user_info(u)}
 
     # ---- films ----
     def film_id(fid):
@@ -327,7 +410,7 @@ def create_app(root, commit=None):
     def me(request: Request):
         u = who(request)
         films = os.path.join(store.user_dir(u['id']), 'films')
-        return {'user': {'id': u['id'], 'name': u['name']}, 'films': len(os.listdir(films)) if os.path.isdir(films) else 0, 'bytes': store.bytes_used(u['id'])}
+        return {'user': user_info(u), 'films': len(os.listdir(films)) if os.path.isdir(films) else 0, 'bytes': store.bytes_used(u['id'])}
 
     @app.get('/films')
     def films(request: Request):

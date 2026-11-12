@@ -3,9 +3,11 @@
 // It starts the AI server in mock mode (server/storyreel_server.py --mock: real API, placeholder
 // pictures and clips; needs ffmpeg), the account service (server/library_server.py: pip install
 // "fastapi[standard]" webauthn) and serves the app. Passkeys come from Chromium's virtual
-// authenticator, which signs like a phone's: device B gets a copy of device A's passkey, as iCloud
-// Keychain would. Steps: make a film → it's kept → redo two shots → reload and open it → create an
-// account (backup) → device B signs in and opens it → B deletes it → A lets it go too.
+// authenticator, which signs like a phone's: device C gets a copy of device A's passkey, as iCloud
+// Keychain would. Steps: make a film → it's kept and backed up by itself (no sign-up) → redo two shots
+// → reload and open it → device B joins with a 6-digit code and opens it → A adds Face ID (refused once
+// by the phone's passwords app, then added) → device C signs in with Face ID → B deletes the film → A
+// lets go too → A signs out: backup stays off.
 import { createRequire } from 'node:module';
 import { execSync, spawn } from 'node:child_process';
 import http from 'node:http';
@@ -81,6 +83,15 @@ const filesOf = (page, id) => page.evaluate((id) => new Promise((res) => {
   const r = indexedDB.open('takeone-films');
   r.onsuccess = () => { const q = r.result.transaction('files').objectStore('files').getAllKeys(IDBKeyRange.bound(`${id}/`, `${id}/￿`)); q.onsuccess = () => { res(q.result.map((k) => k.slice(id.length + 1))); r.result.close(); }; };
 }), id);
+// waits until fn (run in the page, may be async) answers true; page.waitForFunction would take a
+// returned Promise itself as "true" without waiting for it
+async function until(page, fn, arg, timeout = 60000) {
+  for (const t0 = Date.now(); ;) {
+    if (await page.evaluate(fn, arg)) return;
+    if (Date.now() - t0 > timeout) throw new Error(`waited ${timeout / 1000} s: ${fn.toString().slice(0, 120)}`);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
 const toastText = (page) => page.evaluate(() => document.getElementById('toast').textContent);
 
 // ---- device A: make a film ----
@@ -103,6 +114,11 @@ check(recs.length === 1 && recs[0].media.length === shots && recs[0].media.every
 check(recs[0].files.some((f) => f.startsWith('voice-')) && recs[0].files.some((f) => f.startsWith('portrait-')), 'its voices and character portraits are kept too');
 check(await A.page.locator('.card-redo').count() === shots, 'every shot on the board has Redo');
 const id = recs[0].id;
+const backedUp = (page) => until(page, () => new Promise((res) => { const r = indexedDB.open('takeone-films'); r.onsuccess = () => { const q = r.result.transaction('films').objectStore('films').getAll(); q.onsuccess = () => { res(q.result.length > 0 && q.result.every((f) => f.cloud?.at === f.updated)); r.result.close(); }; }; }), null, 120000);
+await backedUp(A.page);
+const users = fs.readdirSync(path.join(films, 'users'));
+const onServer = path.join(films, 'users', users[0], 'films', id);
+check(users.length === 1 && fs.existsSync(path.join(onServer, 'film.json')), `nothing to set up: the film is backed up to an account that started by itself${users.length === 1 && fs.existsSync(path.join(onServer, 'film.json')) ? '' : ` (accounts: ${users.join(', ')}; ${JSON.stringify(fs.readdirSync(path.join(films, 'users', users[0] || '.'), { recursive: true }))})`}`);
 
 // ---- redo: a new take of shot 2, then a repaint of shot 1 with a note ----
 const before = recs[0].media;
@@ -115,7 +131,7 @@ await A.page.click('#redo-take');
 await A.page.waitForFunction(() => window.__storyreel.redoing == null && !window.__storyreel.busy && window.__storyreel.filmData.media[1].clipBlob !== window.__clip1, null, { timeout: 300000, polling: 500 });
 check(/Shot redone and kept/.test(await toastText(A.page)), 'it says when the shot is redone and kept');
 check(await A.page.evaluate(() => window.__storyreel.filmData.media[1].clipBlob !== window.__clip1 && window.__storyreel.filmData.media[1].stillBlob === window.__storyreel.filmData.media[1].stillBlob), 'a new take: shot 2 has a new clip of the same picture');
-await A.page.waitForFunction((u) => new Promise((res) => { const r = indexedDB.open('takeone-films'); r.onsuccess = () => { const q = r.result.transaction('films').objectStore('films').get(window.__storyreel.filmData.id); q.onsuccess = () => { res(q.result.updated > u); r.result.close(); }; }; }), recs[0].updated, { timeout: 30000 });
+await until(A.page, (u) => new Promise((res) => { const r = indexedDB.open('takeone-films'); r.onsuccess = () => { const q = r.result.transaction('films').objectStore('films').get(window.__storyreel.filmData.id); q.onsuccess = () => { res(q.result.updated > u); r.result.close(); }; }; }), recs[0].updated, 30000);
 recs = await kept(A.page);
 check(recs[0].media[1].clip !== before[1].clip && recs[0].media[1].still === before[1].still && recs[0].media[2].clip === before[2].clip, 'kept again: only shot 2’s clip changed');
 check(!(await filesOf(A.page, id)).includes(before[1].clip), 'the replaced clip is gone from the device');
@@ -132,8 +148,11 @@ await A.page.waitForFunction(() => !!window.__storyreel);
 await A.page.click('#my-films');
 await A.page.waitForSelector('.film');
 check(await A.page.locator('.film').count() === 1 && (await A.page.locator('.film-title').first().textContent()) === recs[0].title, `after a reload, My films lists the film (“${recs[0].title}”)`);
-check(await A.page.locator('#account-card').isVisible() && /Keep your films safe.*just Face ID/.test(await A.page.locator('#account-card').textContent()), 'My films offers the account, signed out: “No password: just Face ID”');
-await A.page.screenshot({ path: path.join(out, 'my-films-signed-out.png') });
+await A.page.waitForFunction(() => /Your films are backed up/.test(document.getElementById('account-card').textContent) && !/Backing up/.test(document.getElementById('account-card').textContent), null, { timeout: 60000 });
+check(/Nothing to set up/.test(await A.page.locator('#account-card').textContent()) && await A.page.locator('[data-code]').isVisible(), 'My films: “Your films are backed up”, with Use on another device');
+recs = await kept(A.page);
+check(fs.readdirSync(path.join(onServer, 'files')).sort().join() === [...recs[0].files].sort().join(), 'the account has the redone film and exactly its files');
+await A.page.screenshot({ path: path.join(out, 'my-films.png') });
 await A.page.locator('.film-open').first().click();
 await A.page.waitForFunction(() => window.__storyreel.player && !window.__storyreel.busy && window.__storyreel.filmData, null, { timeout: 120000 });
 check(await A.page.evaluate((id) => window.__storyreel.filmData.id === id && window.__storyreel.timeline.shots.length > 0, id), 'it opens from My films, with no AI studio needed');
@@ -141,37 +160,56 @@ check(await A.page.locator('.card-redo').count() === shots, '…and its shots ca
 check(await A.page.evaluate(() => /sunset/.test(window.__storyreel.filmData.notes[0])), '…with its notes kept');
 await A.page.screenshot({ path: path.join(out, 'film-reopened.png') });
 
-// ---- create an account: Face ID (a passkey) → the film is backed up ----
+// ---- device B joins with a 6-digit code from A, and opens the film ----
 await A.page.click('#my-films');
 await A.page.waitForSelector('.film-on');
 check(/On screen/.test(await A.page.locator('.film-on').textContent()), 'My films marks the film that is on screen');
-await A.page.fill('[data-name]', 'Deji');
-await A.page.click('[data-up]');
-await A.page.waitForFunction(() => /Hi Deji/.test(document.getElementById('account-card').textContent), null, { timeout: 60000 });
-await A.page.waitForFunction(() => /Backed up/.test(document.getElementById('films-grid').textContent), null, { timeout: 120000, polling: 500 });
-check(true, 'Create my account: one tap, the passkey, and the film is backed up');
-await A.page.screenshot({ path: path.join(out, 'my-films-signed-in.png') });
-const users = fs.readdirSync(path.join(films, 'users'));
-const onServer = path.join(films, 'users', users[0], 'films', id);
-recs = await kept(A.page);
-check(users.length === 1 && fs.existsSync(path.join(onServer, 'film.json')) && fs.readdirSync(path.join(onServer, 'files')).sort().join() === [...recs[0].files].sort().join(), 'the account has the film and exactly its files');
-
-// ---- device B: sign in with the same passkey, open the film ----
-const { credentials } = await A.cdp.send('WebAuthn.getCredentials', { authenticatorId: A.authenticatorId });
-check(credentials.length === 1 && credentials[0].isResidentCredential, 'one passkey was made, kept on the device (it syncs like iCloud Keychain)');
-const B = await device('B', credentials[0]);
+await A.page.click('[data-code]');
+await A.page.waitForSelector('.acct-codebox:not([hidden])');
+const code = (await A.page.locator('.acct-code').textContent()).replace(/\D/g, '');
+check(/^\d{6}$/.test(code), `Use on another device shows a 6-digit code (${code.slice(0, 3)} ${code.slice(3)})`);
+await A.page.screenshot({ path: path.join(out, 'code.png') });
+const B = await device('B');
 await B.page.click('#my-films');
-await B.page.waitForSelector('#account-card [data-in]');
-check(await B.page.locator('.film').count() === 0, 'device B starts with no films');
-await B.page.click('#account-card [data-in]');
-await B.page.waitForFunction(() => /Hi Deji/.test(document.getElementById('account-card').textContent), null, { timeout: 60000 });
+await B.page.waitForSelector('#account-card [data-enter]');
+check(await B.page.locator('.film').count() === 0 && /Backed up automatically/.test(await B.page.locator('#account-card').textContent()), 'device B starts with no films: “Backed up automatically”');
+await B.page.click('#account-card [data-enter]');
+await B.page.fill('[data-digits]', `${code.slice(0, 3)} ${code.slice(3)}`);
+await B.page.screenshot({ path: path.join(out, 'enter-code.png') });
+await B.page.click('[data-use]');
+await B.page.waitForFunction(() => /Your films are backed up/.test(document.getElementById('account-card').textContent), null, { timeout: 60000 });
 await B.page.waitForSelector('.film');
-check(/In your account/.test(await B.page.locator('.film-where').first().textContent()), 'signed in on device B: the film is there, in the account');
+check(/In your account/.test(await B.page.locator('.film-where').first().textContent()), 'code typed on device B: it’s in the same account, the film is there');
 await B.page.locator('.film-open').first().click();
 await B.page.waitForFunction(() => window.__storyreel.player && !window.__storyreel.busy && window.__storyreel.filmData, null, { timeout: 180000, polling: 500 });
 check(await B.page.evaluate((id) => window.__storyreel.filmData.id === id && /sunset/.test(window.__storyreel.filmData.notes[0]), id), 'device B downloads it and plays it, notes and all');
 check((await kept(B.page))[0]?.cloud?.at === recs[0].updated, '…and keeps it, marked as backed up');
 await B.page.screenshot({ path: path.join(out, 'device-b-film.png') });
+check(fs.readdirSync(path.join(films, 'users')).length === 1, 'still one account (B joined it rather than starting its own)');
+
+// ---- A adds Face ID (optional): refused once by the phone's passwords app, then added ----
+await A.page.evaluate(() => {
+  const real = navigator.credentials.create.bind(navigator.credentials);
+  navigator.credentials.create = async () => { navigator.credentials.create = real; throw new DOMException('The operation either timed out or was not allowed.', 'NotAllowedError'); };
+});
+await A.page.click('[data-face]');
+await A.page.waitForFunction(() => /More Options/.test(document.querySelector('#account-card .acct-msg')?.textContent || ''), null, { timeout: 30000 });
+check(/More Options, and choose Passwords/.test(await A.page.locator('#account-card .acct-msg').textContent()) && !(await A.page.locator('[data-face]').isDisabled()), 'Face ID the phone’s app couldn’t keep (like Microsoft Authenticator): the card says what to do, ready to try again');
+await A.page.screenshot({ path: path.join(out, 'face-id-not-added.png') });
+await A.page.click('[data-face]');
+await A.page.waitForFunction(() => /Face ID gets you back in/.test(document.getElementById('account-card').textContent), null, { timeout: 60000 });
+check(await A.page.locator('[data-face]').count() === 0, 'Face ID added to the account (and no longer offered)');
+const { credentials } = await A.cdp.send('WebAuthn.getCredentials', { authenticatorId: A.authenticatorId });
+check(credentials.length === 1 && credentials[0].isResidentCredential, 'one passkey, kept on the device (it syncs like iCloud Keychain)');
+
+// ---- device C: signs in with Face ID alone (as on a new phone) ----
+const C = await device('C', credentials[0]);
+await C.page.click('#my-films');
+await C.page.waitForSelector('#account-card [data-in]');
+await C.page.click('#account-card [data-in]');
+await C.page.waitForFunction(() => /Your films are backed up/.test(document.getElementById('account-card').textContent), null, { timeout: 60000 });
+await C.page.waitForSelector('.film');
+check(/In your account/.test(await C.page.locator('.film-where').first().textContent()), 'device C signs in with Face ID: the same account, the film is there');
 
 // ---- B deletes it: gone from the account, and A lets go of its copy ----
 await B.page.click('#my-films');
@@ -181,11 +219,23 @@ check(/all your devices/.test(await B.page.locator('.film-confirm').textContent(
 await B.page.locator('.film-confirm [data-yes]').click();
 await B.page.waitForFunction(() => !document.querySelector('.film'), null, { timeout: 30000 });
 check(!fs.existsSync(onServer) && (await kept(B.page)).length === 0, 'deleted on B: gone from the account and from B');
-await A.page.evaluate(() => window.__storyreel && document.getElementById('films-close').click());
+await A.page.evaluate(() => document.getElementById('films-close').click());
 await A.page.click('#my-films');
 await A.page.waitForFunction(() => !document.querySelector('.film'), null, { timeout: 30000 });
-await A.page.waitForFunction(() => new Promise((res) => { const r = indexedDB.open('takeone-films'); r.onsuccess = () => { const q = r.result.transaction('films').objectStore('films').count(); q.onsuccess = () => { res(q.result === 0); r.result.close(); }; }; }), null, { timeout: 30000, polling: 500 });
+await until(A.page, () => new Promise((res) => { const r = indexedDB.open('takeone-films'); r.onsuccess = () => { const q = r.result.transaction('films').objectStore('films').count(); q.onsuccess = () => { res(q.result === 0); r.result.close(); }; }; }), null, 30000);
 check(true, 'device A no longer lists it and lets go of its copy');
+
+// ---- A signs out: backup stays off on A (no new account by itself), until it's turned on ----
+await A.page.click('[data-out]');
+check(/Tap again to sign out/.test(await A.page.locator('[data-out]').textContent()), 'signing out asks for a second tap');
+await A.page.click('[data-out]');
+await A.page.waitForFunction(() => /Backup is off on this device/.test(document.getElementById('account-card').textContent), null, { timeout: 30000 });
+await A.page.reload();
+await A.page.waitForFunction(() => !!window.__storyreel);
+await new Promise((r) => setTimeout(r, 1500));
+await A.page.click('#my-films');
+await A.page.waitForFunction(() => /Backup is off on this device/.test(document.getElementById('account-card').textContent), null, { timeout: 30000 });
+check(fs.readdirSync(path.join(films, 'users')).length === 1, 'signed out: backup stays off after a reload, and no new account was made');
 
 await browser.close();
 site.close();
