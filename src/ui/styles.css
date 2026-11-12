@@ -103,6 +103,9 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .p-now { margin: 0; font-size: 13px; color: var(--text); min-height: 1.4em; }
 .p-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
 .p-strip[hidden] { display: none; }
+.p-right { display: inline-flex; align-items: center; gap: 10px; }
+.p-stop { height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-2); background: transparent; color: var(--text); font-size: 13px; cursor: pointer; }
+.p-stop[hidden] { display: none; }
 .p-shot { position: relative; flex: none; height: 46px; aspect-ratio: 16 / 9; border-radius: 7px; background: var(--surface-2) center/cover no-repeat; border: 1px solid var(--line); transition: opacity 0.3s; }
 .p-shot.v916 { aspect-ratio: 9 / 16; }
 .p-shot.v11 { aspect-ratio: 1; }
@@ -258,6 +261,10 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .btn-make:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(160, 160, 255, 0.35); }
 .btn-make:disabled { cursor: default; background: var(--surface-2); color: var(--text-2); }
 .btn-make:disabled::before { animation: spin 1.2s linear infinite; }
+/* while a film is being made, Generate is a Stop button: a square in a ring that turns */
+.btn-make.is-stop { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 2px rgba(169, 139, 255, 0.55); }
+.btn-make.is-stop::before { width: 12px; height: 12px; border-radius: 3px; background: var(--text); -webkit-mask: none; mask: none; animation: none; }
+.btn-make.is-stop:hover { transform: none; box-shadow: inset 0 0 0 2px rgba(169, 139, 255, 0.9); }
 
 .enhance-pill i { font-style: normal; }
 .share-sheet { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 60;
@@ -413,8 +420,21 @@ body.sheet-open { overflow: hidden; }
   .composer-row { flex-wrap: nowrap; gap: 6px; }
   .btn-make { width: 44px; height: 44px; padding: 0; justify-content: center; font-size: 0; flex: none; }
   .btn-make::before { width: 20px; height: 20px; }
+  .btn-make.is-stop::before { width: 14px; height: 14px; }
   /* 16px inputs stop iOS from zooming in on focus */
   .field select, .field input, .select-pill select { font-size: 16px; }
+}
+/* narrow phones: the row of pills always fits, so Generate / ■ Stop is never pushed off the screen */
+@media (max-width: 430px) {
+  .composer-row { gap: 4px; }
+  .composer-row .pill { padding: 0 9px; flex-shrink: 1; min-width: 0; }
+  .composer-row .select-pill svg { display: none; }
+  .composer-row .select-pill select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+}
+@media (max-width: 360px) {
+  .composer-row .server-pill { display: none; }  /* its light is also in Settings */
+  .composer-row .pill { padding: 0 8px; height: 34px; }
+  .btn-make { width: 42px; height: 42px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 .steps li { flex-wrap: wrap; }

@@ -25,14 +25,14 @@
 <link rel="manifest" href="manifest.webmanifest">
 <title>TakeOne</title>
 <!-- this copy's version: scripts/bump-version.mjs sets these and version.json together -->
-<meta name="app-version" content="1.3.1">
-<meta name="app-build" content="1794477887">
+<meta name="app-version" content="1.4.0">
+<meta name="app-build" content="1794481310">
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Type a story and get a Pixar-style 3D animated film with voice-over, music and subtitles — rendered in your browser and downloadable as MP4.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1794477887">
+<link rel="stylesheet" href="src/ui/styles.css?v=1794481310">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
@@ -52,7 +52,7 @@
           <p class="sub">Describe it below — characters, place, what they say. TakeOne turns it into an AI film: every shot animated, with characters who speak in realistic voices.</p>
         </div>
         <div class="progress" id="progress">
-          <div class="p-head"><span class="p-pct" id="p-pct">0%</span><span class="p-time" id="p-time"></span></div>
+          <div class="p-head"><span class="p-pct" id="p-pct">0%</span><span class="p-right"><span class="p-time" id="p-time"></span><button class="p-stop" id="make-stop" type="button" hidden>■ Stop</button></span></div>
           <div class="p-bar"><i id="p-fill"></i></div>
           <p class="p-now" id="p-now" aria-live="polite"></p>
           <div class="p-strip" id="p-strip" hidden></div>
@@ -243,6 +243,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1794477887"></script>
+<script type="module" src="src/ui/app.js?v=1794481310"></script>
 </body>
 </html>

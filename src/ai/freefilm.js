@@ -402,14 +402,16 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
   const ahead = useSrv ? 2 : 0;
   const painting = [];
   const paintJob = (i) => { if (!painting[i]) { painting[i] = paintShot(i, 75000); painting[i].catch(() => {}); } return painting[i]; };
+  const stopped = () => { if (signal?.aborted) throw new DOMException('Stopped', 'AbortError'); };
   for (let i = 0; i < shots.length; i++) {
+    stopped();
     for (let k = 1; k <= ahead && i + k < shots.length; k++) paintJob(i + k);
     const r = await paintJob(i);
     if (r) await place(i, r);
     onProgress(++done / total, `Painting shot ${i + 1} of ${shots.length}`);
   }
   // second pass for any shot the busy services missed
-  for (let i = 0; i < shots.length; i++) if (!blobs[i]) { const r = await paintShot(i, 120000); if (r) await place(i, r); }
+  for (let i = 0; i < shots.length; i++) if (!blobs[i]) { stopped(); const r = await paintShot(i, 120000); if (r) await place(i, r); }
   // still nothing at all? keep waiting for a free AI — never fall back to 3D
   for (let tries = 1; !blobs.some(Boolean); tries++) {
     if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
@@ -473,6 +475,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
       return clips[i];
     };
     for (let i = 0; i < shots.length; i++) {
+      stopped();
       if (srvVideo) for (let k = 1; k <= 2 && i + k < shots.length; k++) if (blobs[i + k]) clipJob(i + k);
       // with your own server every shot is animated, the opening title too
       if (blobs[i] && (srvVideo || shots[i].kind !== 'title')) {
@@ -495,6 +498,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
           }
           else if (quotaLeft) { const vb = await animateFree(client, blobs[i], mp, shots[i], size, handle_file); if (vb) { media[i].clip = { blob: vb }; onShot(i, null, 'animated'); } }
         } catch (e) {
+          if (e?.name === 'AbortError' || signal?.aborted) throw e;  // stopped: nothing more is made (not even on the device)
           const msg = String(e?.message || e);
           console.warn('Animation failed', msg);
           if (!srvVideo && /quota|exceeded|GPU|token/i.test(msg)) { quotaLeft = false; reason = 'today’s free video quota is used up'; }
@@ -508,6 +512,7 @@ export async function renderFreeFilm(tl, { speed = 'best', look = 'pixar', aspec
       await Promise.all(syncing.map((p) => p.then(() => { left--; if (left) onProgress(Math.min(0.999, done / total), `Syncing lips (${left} shot${left > 1 ? 's' : ''} left)`); })));
     }
   }
+  stopped();  // nothing is brought to life on the device after ■ Stop
   const film = await finishFilm(tl, media, aspect, (p, msg) => onProgress(Math.min(0.999, done / total), msg));
   // what My films keeps: each shot's own picture (a shot that borrowed a neighbour's has that one),
   // the character portraits (the same faces when a shot is redone) and your notes

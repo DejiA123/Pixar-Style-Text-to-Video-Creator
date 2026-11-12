@@ -131,7 +131,9 @@ function init() {
   state.glCanvas = document.createElement('canvas');
   setAspect($('aspect').value);
 
-  $('make').addEventListener('click', () => { unlockAudio(); makeMovie().catch(fail); });
+  // while a film is being made, Generate turns into ■ Stop (right under your thumb)
+  $('make').addEventListener('click', () => { if (state.makeAbort && state.busy) { stopMaking(); return; } unlockAudio(); makeMovie().catch(fail); });
+  $('make-stop').addEventListener('click', stopMaking);
   // once you edit the enhanced story yourself, it's yours: the Undo goes away
   $('story').addEventListener('input', (e) => { if (e.isTrusted && enhanceUndo != null) { enhanceUndo = null; clearTimeout(enhanceTimer); enhanceDone(); } });
   $('enhance').addEventListener('click', () => enhanceStory().catch((e) => { console.warn(e); toast('Couldn’t enhance your story right now. Please try again in a moment.', true); enhanceDone(); }));
@@ -259,18 +261,20 @@ async function enhanceStory() {
   enhanceTimer = setTimeout(() => { enhanceUndo = null; enhanceDone(); }, 90000);
 }
 
-// The server for this film: your AI server, or the backup when it can't answer
-// (a sleeping Modal server gets up to 2 minutes to wake up first).
-async function pickServer(onMsg = () => {}) {
+// The server for this film: your AI server, or the backup when it can't answer.
+// A sleeping Modal server gets up to 6 minutes to wake (maxMs), longer the first time after an update.
+// awake(server): did it answer? (pickServer.awake is set for the last pick)
+async function pickServer(onMsg = () => {}, { signal, maxMs } = {}) {
   const main = currentServer(), backup = backupServer();
+  pickServer.awake = false;
   if (!main) return backup;
   const h = sleepy($('ai-server').value)
-    ? await wakeServer(main, { onWait: (s) => onMsg(`Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (usually 2–4 minutes)`) })
+    ? await wakeServer(main, { signal, ...(maxMs ? { maxMs } : {}), onWait: (s) => onMsg(`Waking up your AI studio… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (usually 2–4 minutes)`) })
     : await main.health(15000);
-  if (!backup) return main;
-  if (h && h.ok !== false) return main;
+  pickServer.awake = !!(h && h.ok !== false);
+  if (!backup || pickServer.awake) return main;
   const hb = await backup.health(15000);
-  if (hb && hb.ok !== false) { toast('Your first AI server isn’t answering, so this film uses your backup server.', false, 7000); return backup; }
+  if (hb && hb.ok !== false) { pickServer.awake = true; toast('Your first AI server isn’t answering, so this film uses your backup server.', false, 7000); return backup; }
   return main;
 }
 
@@ -486,7 +490,14 @@ function fail(e) {
   $('make').disabled = false;
   $('make').textContent = 'Generate';
   for (const li of steps.list) if (li.classList.contains('active')) { li.classList.remove('active'); li.classList.add('error'); }
-  if (e && e.name === 'AbortError') { toast('Stopped.'); return; }
+  if (e && e.name === 'AbortError') {
+    // stopped: the progress card goes, and the screen shows what it showed before (the last film, or the welcome)
+    $('steps').innerHTML = ''; steps.list = [];
+    $('p-strip').hidden = true; $('p-now').textContent = '';
+    toast('Stopped. Your story is still here: tap Generate to make it again.');
+    return;
+  }
+  if (e?.friendly) { toast(e.message, true, 12000); return; }
   toast(`Something went wrong: ${e && e.message ? e.message : e}`, true, 9000);
 }
 
@@ -508,14 +519,55 @@ function unlockAudio() {
   } catch (e) { console.warn('sound unlock', e); }
 }
 
+// ■ Stop: ends the film being made at once. Anything already running on the AI studio finishes there
+// on its own (a picture or clip takes seconds), but nothing new is asked for, and the app is free again.
+function stopMaking() {
+  const ac = state.makeAbort;
+  if (!ac || ac.signal.aborted) return;
+  ac.abort();
+  if (!$('review').hidden) $('review-cancel').click();  // the scene preview was open
+}
+
 async function makeMovie() {
   if (state.busy) return;
   const text = $('story').value.trim();
   if (!text) { toast('Write a story first, or pick one of the examples.'); return; }
   if (navigator.onLine === false) { toast('You’re offline. TakeOne needs the internet to make a film: it will work again when you’re back online.', true, 8000); return; }
   state.busy = true;
-  $('make').disabled = true;
-  $('make').textContent = 'Generating…';
+  const ac = state.makeAbort = new AbortController();
+  const signal = ac.signal;
+  const make = $('make');
+  make.disabled = false; make.classList.add('is-stop'); make.textContent = 'Stop'; make.setAttribute('aria-label', 'Stop making this film');
+  $('make-stop').hidden = false;
+  try {
+    await makeMovieSteps(text, signal);
+  } finally {
+    doneMaking(ac);
+  }
+}
+
+// The film is ready (or stopped, or failed): ■ Stop turns back into Generate (only for this film:
+// a newer one may have started meanwhile).
+function doneMaking(ac) {
+  if (state.makeAbort !== ac) return;
+  const make = $('make');
+  $('make-stop').hidden = true;
+  make.classList.remove('is-stop'); make.removeAttribute('aria-label');
+  if (make.textContent === 'Stop') make.textContent = 'Generate';
+  state.makeAbort = null;
+}
+
+async function makeMovieSteps(text, signal) {
+  const ac = state.makeAbort;
+  // every step stops at once when ■ Stop is tapped, even one that can't be interrupted inside
+  // (its result is then ignored), and nothing it reports afterwards reaches the screen
+  const until = (p) => new Promise((resolve, reject) => {
+    const stop = () => reject(new DOMException('Stopped', 'AbortError'));
+    if (signal.aborted) return stop();
+    signal.addEventListener('abort', stop, { once: true });
+    Promise.resolve(p).then(resolve, reject).finally(() => signal.removeEventListener('abort', stop));
+  });
+  const alive = (fn) => (...a) => (signal.aborted ? undefined : fn(...a));
   if (state.player) { state.player.dispose(); state.player = null; }
   state.filmData = null;  // a new film: the last one stays in My films
   const ai = $('render-mode').value === 'ai';
@@ -538,7 +590,15 @@ async function makeMovie() {
   // 1) plan
   steps.set('plan', 'active');
   // one AI server client for the whole film; waking it (and a serverless GPU starting) shows in the progress card
-  const server = freeAI ? await pickServer((msg) => meter.now(msg)) : null;
+  let server = freeAI ? await until(pickServer(alive((msg) => meter.now(msg)), { signal })) : null;
+  if (server && !pickServer.awake && sleepy($('ai-server').value)) {
+    // still asleep (the first start after an update can take longer): give it more time rather than
+    // making a far slower, lower-quality film on the free online AI
+    server = await until(pickServer(alive((msg) => meter.now(`${msg.replace(/ \(usually 2–4 minutes\)$/, '')} (taking longer than usual: tap ■ Stop to try later)`)), { signal, maxMs: 8 * 60000 }));
+    if (!pickServer.awake) {
+      throw Object.assign(new Error('Your AI studio didn’t wake up. This can happen right after an update, or when this month’s free credit is used up. Please try again in a few minutes.'), { friendly: true });
+    }
+  }
   if (server) {
     server.onWait = (op, sec) => {
       if (sec < 0) { const li = steps.list.find((l) => l.classList.contains('active')); if (li) meter.now(li.firstChild.textContent); return; }
@@ -560,7 +620,7 @@ async function makeMovie() {
   // no narrator: the AI writer on your server writes what the characters say;
   // any scene it doesn't cover, its character tells in the first person
   if ($('char-voices').checked) {
-    if (server) await writeDialogue(server, plan, text, { onStatus: (msg) => steps.label('plan', msg) });
+    if (server) await until(writeDialogue(server, plan, text, { onStatus: alive((msg) => steps.label('plan', msg)), signal }));
     tellByCharacters(plan);
   }
   state.plan = plan;
@@ -575,13 +635,13 @@ async function makeMovie() {
   // first choice: realistic voices straight from your AI server, from the voice samples stored with
   // the app, so nothing heavy runs on the device (phones often can't run the in-browser voice model)
   if (neural && server) {
-    let health = await server.health();
+    let health = await until(server.health());
     if (health?.ok === false) health = null;
-    if (health) health = await waitForModel(server, health, 'tts', (p, msg) => steps.label('voices', msg));  // just the voice model
+    if (health) health = await until(waitForModel(server, health, 'tts', alive((p, msg) => steps.label('voices', msg)), signal));  // just the voice model
     if (health?.tts) {
       steps.label('voices', 'Recording realistic voices');
       try {
-        if (await serverVoices(server, plan, clips, voices, { stored: true, onProgress: (p, n) => { steps.set('voices', 'active', n); meter.stage('voices2', p); } })) {
+        if (await until(serverVoices(server, plan, clips, voices, { stored: true, signal, onProgress: alive((p, n) => { steps.set('voices', 'active', n); meter.stage('voices2', p); }) }))) {
           for (const [sp, v] of voices) voices.set(sp, { ...v, rate: 1 });  // speed and pitch are in the recordings
           for (const [key, clip] of clips) durations.set(key, clipDuration(clip, 1));
           usedNeural = true;
@@ -594,9 +654,9 @@ async function makeMovie() {
     try {
       if (!state.kokoro) state.kokoro = new KokoroEngine();
       const k = state.kokoro;
-      k.onProgress = (p) => { steps.label('voices', 'Downloading voice model (one time)'); steps.set('voices', 'active', p); };
-      k.onReady = () => { steps.label('voices', 'Starting voice engine'); steps.set('voices', 'active', ''); };
-      await k.load();
+      k.onProgress = alive((p) => { steps.label('voices', 'Downloading voice model (one time)'); steps.set('voices', 'active', p); });
+      k.onReady = alive(() => { steps.label('voices', 'Starting voice engine'); steps.set('voices', 'active', ''); });
+      await until(k.load());
       const lines = plan.titleVoice === false ? [] : [{ speaker: 'narrator', text: plan.title }];
       for (const s of plan.scenes) for (const l of s.lines) lines.push(l);
       const uniq = [...new Map(lines.map((l) => [lineKey(l.speaker, l.text), l])).values()];
@@ -604,7 +664,7 @@ async function makeMovie() {
       let i = 0;
       for (const l of uniq) {
         const v = voices.get(l.speaker) || voices.get('narrator');
-        const clip = await k.synthesize(l.text, v.kokoro);
+        const clip = await until(k.synthesize(l.text, v.kokoro));
         const key = lineKey(l.speaker, l.text);
         clips.set(key, clip);
         durations.set(key, clipDuration(clip, v.rate || 1));
@@ -613,19 +673,20 @@ async function makeMovie() {
       usedNeural = true;
       // realistic voices: your AI server re-speaks every line in the same voices, with emotion
       const srv = server;
-      let health = srv ? await srv.health() : null;
+      let health = srv ? await until(srv.health()) : null;
       if (health?.ok === false) health = null;
-      if (health) health = await waitForServer(srv, health, (p, msg) => steps.label('voices', msg));
+      if (health) health = await until(waitForServer(srv, health, alive((p, msg) => steps.label('voices', msg)), signal));
       if (health?.tts) {
         steps.label('voices', 'Recording realistic voices on your AI server');
         try {
-          if (await serverVoices(srv, plan, clips, voices, { onProgress: (p, n) => { steps.set('voices', 'active', n); meter.stage('voices2', p); } })) {
+          if (await until(serverVoices(srv, plan, clips, voices, { signal, onProgress: alive((p, n) => { steps.set('voices', 'active', n); meter.stage('voices2', p); }) }))) {
             for (const [sp, v] of voices) voices.set(sp, { ...v, rate: 1 });  // speed and pitch are in the new recordings
             for (const [key, clip] of clips) durations.set(key, clipDuration(clip, 1));
           }
-        } catch (e) { console.warn('AI server voices unavailable, keeping in-browser voices', e); }
+        } catch (e) { if (e?.name === 'AbortError') throw e; console.warn('AI server voices unavailable, keeping in-browser voices', e); }
       }
     } catch (e) {
+      if (e?.name === 'AbortError') throw e;
       console.warn('Neural voices unavailable, falling back to browser voices', e);
       state.kokoro?.dispose?.();
       state.kokoro = null;
@@ -643,20 +704,20 @@ async function makeMovie() {
   steps.set('build', 'active');
   let film;
   if (ai) {
-    film = await aiDirector.render(tl, (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); }, confirmCost);
+    film = await until(aiDirector.render(tl, alive((p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); }), confirmCost));
     state.ai = true;
   } else if (freeAI) {
     meter.shots(tl.shots.length, state.aspect);
-    film = await renderFreeFilm(tl, {
-      speed: $('speed').value, look: $('look').value, aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server,
+    film = await until(renderFreeFilm(tl, {
+      speed: $('speed').value, look: $('look').value, aspect: state.aspect, hfToken: $('hf-token').value.trim(), animate: $('free-animate').checked, server, signal,
       fallbackStill: makeLocalPainter(), voice: usedNeural ? { clips, voices } : null,
       review: $('free-animate').checked && $('review-first').checked ? async (r) => {
         steps.label('build', 'Waiting for you to check the shots'); meter.pause('waiting for you');
         try { await reviewShots(r); } finally { meter.resume(); }
       } : null,
-      onShot: (i, blob, st) => meter.shot(i, blob, st),
-      onProgress: (p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); },
-    });
+      onShot: alive((i, blob, st) => meter.shot(i, blob, st)),
+      onProgress: alive((p, msg) => { steps.label('build', msg); steps.set('build', 'active', p); }),
+    }));
     state.ai = true;
     if (film.serverDown) toast('Your AI server isn’t running, so free online AI was used instead. Start it again in RunPod (or on your PC) and paste its new link in Settings.', false, 12000);
     else if ($('free-animate').checked) toast(film.usedServer && film.animatedCount ? `All ${film.animatedCount} shots animated on your AI server${film.lipsynced ? `, ${film.lipsynced} with lip sync` : ''}${film.serverSeconds != null ? ` (GPU time ${Math.round(film.serverSeconds)} s${film.serverCost != null ? `, about $${film.serverCost.toFixed(3)}` : ''})` : ''}.` : film.animatedCount ? `${film.animatedCount} of ${tl.shots.length} shots animated with free AI video${film.reason ? ` (${film.reason}; the rest move as paintings)` : ''}.` : `Shots play as moving AI paintings${film.reason ? ` — ${film.reason}` : ''}. Add a free Hugging Face token in Settings for more AI video.`, false, 9000);
@@ -666,7 +727,7 @@ async function makeMovie() {
     const { w, h, dpr } = previewSize();
     state.fr.setSize(w, h, dpr > 1 ? 1.25 : 1);
     film = new Film(state.fr, tl, { aspect: aspectNum(state.aspect), storyText: text });
-    await film.prepare((p) => steps.set('build', 'active', p));
+    await until(film.prepare(alive((p) => steps.set('build', 'active', p))));
     state.ai = false;
   }
   setEnvelopes(film, clips, voices);
@@ -696,7 +757,8 @@ async function makeMovie() {
 
   // 4) soundtrack
   steps.set('score', 'active');
-  state.soundtrack = await renderSoundtrack(tl, clips, voices, { music: false, sfx: $('sfx').checked, seed: plan.title.length });
+  const soundtrack = await until(renderSoundtrack(tl, clips, voices, { music: false, sfx: $('sfx').checked, seed: plan.title.length }));
+  state.soundtrack = soundtrack;
   state.hasVoiceAudio = usedNeural;
   steps.set('score', 'done');
   meter.finish();
@@ -711,6 +773,7 @@ async function makeMovie() {
   } : null;
   startPlayer(film, tl, voices, usedNeural);
   state.busy = false;
+  doneMaking(ac);
   $('make').disabled = false;
   $('make').textContent = 'Generate again';
   if (state.filmData) keepFilm(state.filmData);
