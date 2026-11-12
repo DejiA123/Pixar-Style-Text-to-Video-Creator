@@ -264,6 +264,11 @@ button, select, input, textarea { font: inherit; color: inherit; }
   background: var(--surface); border: 1px solid var(--line-2); border-radius: 20px; padding: 14px 16px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
   width: min(420px, calc(100vw - 24px)); }
 .share-title { margin: 0 0 10px; font-weight: 600; }
+.update-sheet { z-index: 70; }
+.update-notes { margin: -4px 0 10px; font-size: 13px; color: var(--text-2); }
+.app-version { align-self: flex-start; margin-top: 4px; padding: 6px 0; border: none; background: none; color: var(--text-3); font-size: 12px; cursor: pointer; }
+.app-version:hover { color: var(--text-2); }
+.app-version.has-update { color: #8ab4ff; }
 .share-row { display: flex; gap: 8px; }
 .share-row .btn-primary { flex: 1; height: 44px; font-size: 16px; }
 .share-row .btn-ghost { height: 44px; padding: 0 14px; }

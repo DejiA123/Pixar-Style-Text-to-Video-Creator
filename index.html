@@ -22,12 +22,15 @@
 <link rel="icon" type="image/svg+xml" href="assets/brand/takeone.svg">
 <link rel="apple-touch-icon" href="assets/brand/takeone.svg">
 <title>TakeOne</title>
+<!-- this copy's version: scripts/bump-version.mjs sets these and version.json together -->
+<meta name="app-version" content="1.1.0">
+<meta name="app-build" content="1794441496">
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Type a story and get a Pixar-style 3D animated film with voice-over, music and subtitles — rendered in your browser and downloadable as MP4.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="src/ui/styles.css?v=1793613071">
+<link rel="stylesheet" href="src/ui/styles.css?v=1794441496">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
@@ -159,6 +162,7 @@
             <label class="field"><span>Style reference (optional)</span><input id="style-ref" type="file" accept="image/*"></label>
             <p class="hint">Your key stays in this browser and is sent only to fal.ai. You see the estimated cost before anything runs.</p>
           </div>
+          <button class="app-version" id="app-version" type="button" title="Check for a newer version">TakeOne</button>
         </div>
       </details>
       <label class="pill select-pill"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -206,6 +210,6 @@
   let lastTap = 0;
   document.addEventListener('touchend', (e) => { const n = Date.now(); if (n - lastTap < 300 && !e.target.closest('textarea, input, select')) e.preventDefault(); lastTap = n; }, { passive: false });
 </script>
-<script type="module" src="src/ui/app.js?v=1794440194"></script>
+<script type="module" src="src/ui/app.js?v=1794441496"></script>
 </body>
 </html>

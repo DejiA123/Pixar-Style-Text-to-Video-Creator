@@ -44,5 +44,19 @@ node dev/e2e.mjs out neural dev/demo-story.txt   # full app: make + export (need
 ```
 Visual labs: `dev/lab.html` (characters) and `dev/film.html` (film frames).
 
+## Versions and updates
+
+The version is shown at the bottom of Settings (tap it to check for a newer one). Open copies of
+the app look for a newer version shortly after opening, every few minutes and whenever you come
+back to them, and offer **Update now** (never while a film is being made or downloaded).
+
+To publish a new version, run this before committing a change to the app:
+
+```
+node scripts/bump-version.mjs "What's new in a few words"     # 1.2.3 → 1.2.4 (--minor for 1.3.0)
+```
+
+It sets the version and build number in `index.html`, `version.json` and `package.json`.
+
 ## Credits
 HDRIs and textures: [Poly Haven](https://polyhaven.com) (CC0). three.js (MIT), Mediabunny (MPL-2.0), Kokoro TTS (Apache-2.0).

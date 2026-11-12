@@ -20,6 +20,7 @@ import { serverVoices } from '../ai/servervoice.js';
 import { KokoroEngine, WebSpeechEngine } from '../audio/tts.js';
 import { renderSoundtrack, lipEnvelope, clipDuration } from '../audio/mixer.js';
 import { timecode, formatTime } from '../util.js';
+import { setupVersion } from './version.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -89,6 +90,8 @@ function init() {
   $('runpod-key').value = store.get('runpod-key', '');
   $('runpod-key').addEventListener('change', () => store.set('runpod-key', $('runpod-key').value.trim()));
   setupServerStatus();
+  // the version in Settings, and a pop-up when a newer one is out (never while a film is being made or downloaded)
+  setupVersion({ isBusy: () => !!(state.busy || state.exporting), hasFilm: () => !!state.film, toast });
   $('hf-token').value = store.get('hf-token', '');
   $('hf-token').addEventListener('change', () => store.set('hf-token', $('hf-token').value.trim()));
   $('free-animate').checked = true;  // every shot is AI video (the box is hidden; an old saved "off" doesn't count)
